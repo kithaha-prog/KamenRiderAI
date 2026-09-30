@@ -123,6 +123,7 @@ function genItem(slot, tier, lvl = 1) {
     slot,
     tier,
     lvl: 0,
+    star: 0,
     reqLvl,
     baseStats: s,
     stats: { ...s }
@@ -140,24 +141,94 @@ if (S.inv.length === 0 && !S.eq.weapon) {
   S.inv.push(genItem('boots', 1, 1));
 }
 
+// ===== 强化 / 升星 / 分解 公共计算 =====
+const MAX_STAR = 5;                 // 满星 5 星
+const STAR_BONUS = 0.25;            // 每星全属性 +25%
+const UP_BONUS = 0.12;              // 每级强化基础属性 +12%
+const starStr = it => '⭐'.repeat(it.star | 0) + '☆'.repeat(MAX_STAR - (it.star | 0));
+
+// 统一重算装备属性 = 基础 × 强化加成 × 星级加成（暴击率保留小数，不再被取整成 0）
+function recalcItem(it) {
+  const m = (1 + (it.lvl | 0) * UP_BONUS) * (1 + (it.star | 0) * STAR_BONUS);
+  for (const k in it.baseStats) {
+    const b = it.baseStats[k];
+    if (!b) continue;
+    it.stats[k] = k === 'crit' ? +(b * m).toFixed(3) : Math.round(b * m);
+  }
+}
+
+// 强化消耗：金币 + 碎晶 + 强化卷轴（每 5 级强化，多 1 张卷轴）
+function upgradeCost(it) {
+  return { g: (it.lvl + 1) * 60 * (it.tier + 1), mat: (it.lvl + 1) * Math.max(1, it.tier), scr: 1 + (((it.lvl | 0) / 5) | 0) };
+}
+
+// 升星消耗：金币 + 2 件「同名 & 同品质」的背包装备（自动挑投入最少的）
+function starCost(it) { return Math.round(((it.star | 0) + 1) * (it.tier + 1) * 250 * (1 + (it.reqLvl || 1) / 40)); }
+function starMats(it) {
+  return S.inv
+    .filter(o => o.id !== it.id && !o.locked && o.name === it.name && o.tier === it.tier)
+    .sort((a, b) => ((a.lvl | 0) + (a.star | 0) * 3) - ((b.lvl | 0) + (b.star | 0) * 3));
+}
+
+// 分解收益（星级越高返还越多）
+function dismantleValue(it) {
+  const st = it.star | 0, sc = TIERS[it.tier].scrap;
+  return { g: (it.tier + 1) * 45 + (it.lvl | 0) * 40 + st * (it.tier + 1) * 120, mat: sc + (it.lvl | 0) * 2 + st * sc * 2 };
+}
+
+// 装备综合评分（用于判断“是否比身上这件更强”），可按喜好调整权重
+const itemScore = it => { const s = it.stats || {}; return (s.atk || 0) + (s.hp || 0) * .15 + (s.mp || 0) * .1 + (s.crit || 0) * 400 + (s.def || 0) * 8 };
+// 相对当前穿戴：槽位空 = 提升；否则综合评分更高 = 提升
+function isUpgrade(it) { const cur = S.eq[it.slot]; return !cur || itemScore(it) > itemScore(cur) + 1e-6 }
+
 // 背包交互、批量操作与选择状态
 let bagPage = 0, bagFilter = 'all', selItem = null, bagNotice = '', bagNoticeT = 0;
 const batchSel = new Set(); // 批量选中的装备 ID 集合
+let bagMulti = false;       // 多选模式：开启后点格子=勾选（不再靠点小方框，手机不易误触）
+let bagArmKey = '', bagArmUntil = 0;   // 危险操作二次确认
+
+// 危险操作：第一次点击只提示，2.2 秒内再点一次才执行
+function bagConfirm(key, msg, fn) {
+  if (bagArmKey === key && T < bagArmUntil) { bagArmKey = ''; fn(); }
+  else { bagArmKey = key; bagArmUntil = T + 2.2; bagNotice = msg; bagNoticeT = 2.2; }
+}
 
 function toggleBatchSel(id) {
+  const it = S.inv.find(o => o.id === id);
+  if (it && it.locked) { bagNotice = '🔒 「' + it.name + '」已锁定，无法勾选（先解锁）'; bagNoticeT = 1.8; return; }
   if (batchSel.has(id)) batchSel.delete(id);
   else batchSel.add(id);
 }
 
+// 锁定 / 解锁（锁定的装备不能被分解、丢弃，也不会被当作升星素材）
+function toggleLock(item) {
+  if (!item) return;
+  item.locked = !item.locked;
+  batchSel.delete(item.id); bagArmKey = '';
+  save();
+  bagNotice = item.locked ? '🔒 已锁定：不会被分解 / 丢弃 / 用作升星素材' : '🔓 已解锁'; bagNoticeT = 1.8;
+}
+
+// 批量锁定：已选装备全部已锁定 → 批量解锁，否则批量锁定
+function batchLock() {
+  const items = S.inv.filter(it => batchSel.has(it.id));
+  if (!items.length) return;
+  const lockAll = !items.every(it => it.locked);
+  items.forEach(it => { it.locked = lockAll; });
+  batchSel.clear(); save();
+  bagNotice = (lockAll ? '🔒 已锁定 ' : '🔓 已解锁 ') + items.length + ' 件装备'; bagNoticeT = 2.0;
+}
+
 function selectAllBatch(list) {
-  const unequipped = list.filter(it => S.inv.some(invItem => invItem.id === it.id));
+  const unequipped = list.filter(it => !it.locked && S.inv.some(invItem => invItem.id === it.id));
   const allIn = unequipped.length > 0 && unequipped.every(it => batchSel.has(it.id));
   if (allIn) {
     unequipped.forEach(it => batchSel.delete(it.id));
     bagNotice = '已取消当前勾选'; bagNoticeT = 1.2;
   } else {
     unequipped.forEach(it => batchSel.add(it.id));
-    bagNotice = '已全选当前列表装备 (' + batchSel.size + ' 件)'; bagNoticeT = 1.5;
+    const lk = list.filter(it => it.locked).length;
+    bagNotice = '已全选当前列表装备 (' + batchSel.size + ' 件)' + (lk ? '，已跳过 ' + lk + ' 件锁定' : ''); bagNoticeT = 1.8;
   }
 }
 
@@ -166,16 +237,19 @@ function batchDismantle() {
   let totalG = 0, totalMat = 0, count = 0;
   const toDelete = new Set();
 
+  let skipped = 0;
   S.inv.forEach(it => {
     if (batchSel.has(it.id)) {
-      totalG += (it.tier + 1) * 45 + it.lvl * 40;
-      totalMat += TIERS[it.tier].scrap + it.lvl * 2;
+      if (it.locked) { skipped++; return; }
+      const v = dismantleValue(it);
+      totalG += v.g;
+      totalMat += v.mat;
       toDelete.add(it.id);
       count++;
     }
   });
 
-  if (count === 0) { bagNotice = '未选中任何背包中的闲置装备'; bagNoticeT = 1.5; return; }
+  if (count === 0) { bagNotice = skipped ? '所选装备均已锁定，未分解' : '未选中任何背包中的闲置装备'; bagNoticeT = 1.5; return; }
 
   S.g += totalG;
   S.mat += totalMat;
@@ -188,8 +262,10 @@ function batchDismantle() {
 
 function batchDiscard() {
   if (batchSel.size === 0) return;
-  const count = batchSel.size;
-  S.inv = S.inv.filter(it => !batchSel.has(it.id));
+  const kill = new Set(S.inv.filter(it => batchSel.has(it.id) && !it.locked).map(it => it.id));
+  const count = kill.size;
+  if (!count) { bagNotice = '所选装备均已锁定，未丢弃'; bagNoticeT = 1.5; return; }
+  S.inv = S.inv.filter(it => !kill.has(it.id));
   batchSel.clear();
   selItem = null;
   save();
@@ -226,28 +302,46 @@ function unequipItem(slotKey) {
 
 function upgradeItem(item) {
   if (!item) return;
-  const goldCost = (item.lvl + 1) * 60 * (item.tier + 1);
-  const scrapCost = (item.lvl + 1) * Math.max(1, item.tier);
-  if (S.g < goldCost) { bagNotice = '强化金币不足！'; bagNoticeT = 1.8; return; }
-  if (S.mat < scrapCost) { bagNotice = '强化碎晶不足！请分解闲置装备获得'; bagNoticeT = 1.8; return; }
+  const c = upgradeCost(item);
+  if (S.g < c.g) { bagNotice = '强化金币不足！'; bagNoticeT = 1.8; return; }
+  if (S.mat < c.mat) { bagNotice = '强化碎晶不足！请分解闲置装备获得'; bagNoticeT = 1.8; return; }
+  if ((S.scr || 0) < c.scr) { bagNotice = '强化卷轴不足！(需 ' + c.scr + ' 张，打怪掉落 / 药铺有售)'; bagNoticeT = 2.4; return; }
 
-  S.g -= goldCost;
-  S.mat -= scrapCost;
+  S.g -= c.g;
+  S.mat -= c.mat;
+  S.scr -= c.scr;
   item.lvl++;
-  for (const k in item.baseStats) {
-    if (item.baseStats[k]) {
-      item.stats[k] = Math.round(item.baseStats[k] * (1 + item.lvl * 0.12));
-    }
-  }
+  recalcItem(item);
   calc(); save();
   bagNotice = '★ 强化成功！当前强化 +' + item.lvl; bagNoticeT = 2.0;
 }
 
+// 升星：消耗 2 件同名同品质装备 + 金币，星级 +1（最高 5 星）
+function starUpItem(item) {
+  if (!item) return;
+  const st = item.star | 0;
+  if (st >= MAX_STAR) { bagNotice = '⭐ 已经是满星（5星）装备！'; bagNoticeT = 1.8; return; }
+  const cost = starCost(item), mats = starMats(item);
+  if (mats.length < 2) { bagNotice = '升星需要背包里另有 2 件「同名同品质」装备（现有 ' + mats.length + ' 件）'; bagNoticeT = 2.6; return; }
+  if (S.g < cost) { bagNotice = '升星金币不足！需要 ' + cost + ' G'; bagNoticeT = 1.8; return; }
+
+  const use = new Set([mats[0].id, mats[1].id]);
+  S.g -= cost;
+  S.inv = S.inv.filter(it => !use.has(it.id));
+  use.forEach(id => batchSel.delete(id));
+  item.star = st + 1;
+  recalcItem(item);
+  calc(); save();
+  bagNotice = '⭐ 升星成功！' + starStr(item) + '（消耗 2 件同名装备）'; bagNoticeT = 2.4;
+}
+
 function dismantleItem(item) {
   if (!item) return;
+  if (item.locked) { bagNotice = '🔒 该装备已锁定，请先解锁再分解'; bagNoticeT = 1.8; return; }
   if (selItem && selItem.from === 'eq') { bagNotice = '请先卸下该装备后再进行分解！'; bagNoticeT = 1.8; return; }
-  const gGain = (item.tier + 1) * 45 + item.lvl * 40;
-  const matGain = TIERS[item.tier].scrap + item.lvl * 2;
+  const v = dismantleValue(item);
+  const gGain = v.g;
+  const matGain = v.mat;
   S.g += gGain;
   S.mat += matGain;
   S.inv = S.inv.filter(it => it.id !== item.id);
@@ -259,10 +353,11 @@ function dismantleItem(item) {
 
 function discardItem(item) {
   if (!item) return;
+  if (item.locked) { bagNotice = '🔒 该装备已锁定，请先解锁再丢弃'; bagNoticeT = 1.8; return; }
   if (selItem && selItem.from === 'eq') { bagNotice = '穿戴中的装备无法丢弃，请先卸下！'; bagNoticeT = 1.8; return; }
   S.inv = S.inv.filter(it => it.id !== item.id);
   batchSel.delete(item.id);
   selItem = null;
   save();
   bagNotice = '已丢弃该装备'; bagNoticeT = 1.8;
-}
+}

@@ -6,8 +6,93 @@ function rpath(x, y, w, h, r = 8) {
 }
 
 function dr(S, i, x, y, fl = 1, sx = 1, al = 1, mid = 0) {
-  ctx.save(); ctx.globalAlpha *= al; ctx.translate(x, y); ctx.scale(fl * S.s * sx, S.s * sx);
+  ctx.save(); ctx.globalAlpha *= al; ctx.translate(sn(x), sn(y)); ctx.scale(fl * S.s * sx, S.s * sx);
   ctx.drawImage(S.f[i], -S.cw / 2, mid ? -S.ch / 2 : -S.fy); ctx.restore();
+}
+
+// 按角色真实像素包围盒居中、脚底对齐绘制（cx=水平中心, fy=脚底, k=相对该动作表比例的缩放）
+function drCenter(S, i, cx, fy, k = 1) {
+  const fr = S.f[i]; if (!fr) return;
+  if (!S.bbs) S.bbs = [];
+  const b = S.bbs[i] || (S.bbs[i] = bb(fr)), s = S.s * k;
+  ctx.save(); ctx.translate(sn(cx), sn(fy)); ctx.scale(s, s);
+  ctx.drawImage(fr, -(b.x0 + b.x1) / 2, -b.y1); ctx.restore();
+}
+
+
+// ===== 变身动画通用件：居中绘制 / 帧间渐变 / 特效（555 与龙骑共用）=====
+// 以“像素质量中位数”作为角色水平中心（不是格子中心），每一帧都对齐到同一个 x，
+// 这样不同帧里角色在格子中的位置差异不会让模型前后晃动。
+function massCenterX(c) {
+  const w = c.width, h = c.height, p = c.getContext('2d').getImageData(0, 0, w, h).data, col = new Float64Array(w);
+  let tot = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (p[(y * w + x) * 4 + 3] > 128) { col[x]++; tot++ }
+  if (!tot) return w / 2;
+  let acc = 0; for (let x = 0; x < w; x++) { acc += col[x]; if (acc >= tot / 2) return x + .5 }
+  return w / 2;
+}
+function drC(S, i, x, y, fl = 1, sx = 1, al = 1) {
+  const fr = S.f[i]; if (!fr) return;
+  if (!S.cxs) S.cxs = [];
+  let c = S.cxs[i]; if (c === undefined) c = S.cxs[i] = massCenterX(fr);
+  ctx.save(); ctx.globalAlpha *= al; ctx.translate(sn(x), sn(y)); ctx.scale(fl * S.s * sx, S.s * sx);
+  ctx.drawImage(fr, -c, -S.fy); ctx.restore();
+}
+
+// 配色与时间点：g0~g1 = 强发光区间（进度 q，0~16）；bq = 爆发时刻（与 main.js 里的爆发帧一致）
+const FAIZ_PAL = { sh: '#ffb400', g0: 8, g1: 12, bq: 8, ring: [[255, 190, 60], [255, 90, 60]], pt: ['255,60,60', '255,207,90'], fl: ['255,250,220', '255,190,60', '255,120,0'], fr: '255,240,180' };
+const RYUKI_PAL = { sh: '#ff3838', g0: 8, g1: 14, bq: 10, ring: [[255, 110, 60], [255, 50, 50]], pt: ['255,50,50', '255,150,80'], fl: ['255,235,220', '255,70,60', '200,0,0'], fr: '255,200,170' };
+
+// seq[i] = 第 i 步对应的帧号；q = 连续进度。相邻两帧交叉淡入淡出 = 补帧；停留时加呼吸 / 浮动
+function drawTransSeq(S, seq, q, x, y, f, pal) {
+  const i0 = q | 0, i1 = Math.min(15, i0 + 1), fr = q - i0, e = fr * fr * (3 - 2 * fr);
+  const a = seq[i0], b = seq[i1], fa = cl((16 - q) / 3, 0, 1);
+  const sw = Math.sin(T * 2.4), bob = sw * (q < 2 ? .6 : 1.4), br = 1 + sw * .005;
+  transFx(x, y, q, fa, 0, pal);
+  ctx.save();
+  ctx.shadowColor = pal.sh;
+  ctx.shadowBlur = q < pal.g0 - 3.5 ? 0 : q < pal.g0 ? (q - (pal.g0 - 3.5)) / 3.5 * 14 : q < pal.g1 ? 26 + Math.sin(T * 9) * 6 : 10;
+  if (a === b) drC(S, a, x, y + bob, f, br);
+  else { drC(S, a, x, y + bob, f, br, 1 - e * e); drC(S, b, x, y + bob, f, br, e) }
+  ctx.restore();
+  transFx(x, y, q, fa, 1, pal);
+}
+
+// pass 0 = 身后（地面光环 + 上升粒子），pass 1 = 身前（爆发闪光）
+function transFx(x, y, q, fa, pass, pal) {
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  if (pass === 0 && q >= 3.5) {
+    const amp = cl((q - 3.5) / 2, 0, 1) * fa;
+    for (let k = 0; k < 2; k++) {
+      const ph = (T * .8 + k * .5) % 1, rx = 40 + ph * 190;
+      ctx.strokeStyle = 'rgba(' + pal.ring[k].join(',') + ',' + ((1 - ph) * .6 * amp).toFixed(3) + ')'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(x, y + 2, rx, rx * .16, 0, 0, 7); ctx.stroke();
+    }
+  }
+  if (pass === 0 && q >= 2) {
+    const n = Math.min(26, ((q - 2) * 3) | 0), amp = cl((q - 2) / 3, 0, 1) * fa;
+    for (let i = 0; i < n; i++) {
+      const ph = (T * .5 + i * .173) % 1, px = x + Math.sin(i * 7.3) * (45 + ph * 25), py = y - 20 - ph * 250;
+      ctx.fillStyle = 'rgba(' + pal.pt[i & 1] + ',' + ((1 - ph) * amp).toFixed(3) + ')';
+      ctx.beginPath(); ctx.arc(px, py, 1.6 + (i % 3), 0, 7); ctx.fill();
+    }
+  }
+  if (pass === 1 && q >= pal.bq && q < pal.bq + 1.4) {
+    const t = (q - pal.bq) / 1.4, gr = ctx.createRadialGradient(x, y - 110, 0, x, y - 110, 120 + t * 200);
+    gr.addColorStop(0, 'rgba(' + pal.fl[0] + ',' + ((1 - t) * .75).toFixed(3) + ')'); gr.addColorStop(.5, 'rgba(' + pal.fl[1] + ',' + ((1 - t) * .3).toFixed(3) + ')'); gr.addColorStop(1, 'rgba(' + pal.fl[2] + ',0)');
+    ctx.fillStyle = gr; ctx.fillRect(x - 340, y - 450, 680, 560);
+    ctx.strokeStyle = 'rgba(' + pal.fr + ',' + ((1 - t) * .8).toFixed(3) + ')'; ctx.lineWidth = 4 * (1 - t) + 1;
+    ctx.beginPath(); ctx.ellipse(x, y - 110, 30 + t * 260, 30 + t * 260, 0, 0, 7); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// 卡面绘制：比例接近就直接拉伸，否则「模糊底图 + 等比居中」避免圆形胶囊被压扁
+function drawArt(im, x, y, w, h) {
+  if (Math.abs(w / h - im.width / im.height) < .12) { ctx.drawImage(im, x, y, w, h); return }
+  const k = Math.min(w / im.width, h / im.height), iw = im.width * k, ih = im.height * k;
+  ctx.save(); ctx.filter = 'blur(10px)'; ctx.drawImage(im, x - 12, y - 12, w + 24, h + 24); ctx.restore();
+  ctx.drawImage(im, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih);
 }
 
 function txt(s, x, y, sz = 16, c = '#fff', al = 'left', stk = true) {
@@ -33,397 +118,473 @@ function bar(x, y, w, h, v, m, c1, c2 = null, r = 5) {
   }
 }
 
-// ===== HUD 仪表盘 =====
-function drawPlayerHUD(x, y) {
-  const w = 275, h = 76, r = 16;
+// ===== HUD 仪表盘（切角科技面板 + 渐变高光血条 + 残影血条 + 数值缓动）=====
+const HUDS = { hp: null, g: null, t: null };
+const hudDt = () => { const d = HUDS.t === null ? 0 : Math.min(.1, Math.max(0, T - HUDS.t)); HUDS.t = T; return d };
+const ht = (s, x, y, sz, c, al = 'left') => txt(s, x, y, sz, c, al, false);
+
+function cutPath(x, y, w, h, c = 10) {
+  ctx.beginPath(); ctx.moveTo(x + c, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + h - c);
+  ctx.lineTo(x + w - c, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + c); ctx.closePath();
+}
+
+// 通用面板：深色渐变底 + 顶部高光 + 左侧强调条 + 发光描边
+function hudPanel(x, y, w, h, acc, c = 10) {
   ctx.save();
-  rpath(x, y, w, h, r); ctx.fillStyle = 'rgba(10, 16, 28, 0.88)'; ctx.fill();
-  ctx.lineWidth = 1.6; ctx.strokeStyle = P.ryuki ? '#ff4757' : 'rgba(0, 229, 255, 0.55)'; ctx.stroke();
-
-  const cx = x + 30, cy = y + 36, rad = 20;
-  ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2);
-  ctx.fillStyle = P.ryuki ? 'rgba(255, 71, 87, 0.25)' : 'rgba(0, 229, 255, 0.15)'; ctx.fill();
-  ctx.strokeStyle = P.ryuki ? '#ff4757' : '#00e5ff'; ctx.lineWidth = 2; ctx.stroke();
-  txt(P.ryuki ? 'RYU' : 'Lv', cx, cy - 7, 10, P.ryuki ? '#ff7675' : '#00e5ff', 'center', false);
-  txt(S.lv, cx, cy + 7, 15, '#ffd84a', 'center', false);
-
-  const maxExp = S.lv * 40, expW = 195, expVal = cl(S.xp / maxExp, 0, 1), bx = x + 64;
-  bar(bx, y + 13, expW, 6, S.xp, maxExp, '#00d2d3', '#00e5ff', 3);
-  txt(Math.floor(expVal * 100) + '%', bx + expW, y + 7, 9, '#7df9ff', 'right', false);
-
-  const hpW = 195;
-  bar(bx, y + 27, hpW, 16, P.hp, P.mh, '#ff4757', '#ff6b81', 6);
-  txt('HP', bx + 6, y + 35, 11, '#fff', 'left');
-  txt(Math.ceil(P.hp) + '/' + P.mh, bx + hpW - 6, y + 35, 11, '#fff', 'right');
-
-  bar(bx, y + 49, hpW, 14, P.mp, P.mm, '#1e90ff', '#2ed573', 5);
-  txt('MP', bx + 6, y + 56, 10, '#fff', 'left');
-  txt((P.mp | 0) + '/' + P.mm, bx + hpW - 6, y + 56, 10, '#fff', 'right');
+  cutPath(x, y, w, h, c);
+  const g = ctx.createLinearGradient(x, y, x, y + h); g.addColorStop(0, 'rgba(20,30,54,.92)'); g.addColorStop(1, 'rgba(6,10,20,.94)');
+  ctx.fillStyle = g; ctx.fill();
+  ctx.save(); ctx.clip();
+  ctx.fillStyle = 'rgba(255,255,255,.05)'; ctx.fillRect(x, y, w, h * .42);
+  ctx.fillStyle = acc; ctx.fillRect(x, y + c, 3, h - c);
   ctx.restore();
+  cutPath(x, y, w, h, c);
+  ctx.shadowColor = acc; ctx.shadowBlur = 8; ctx.lineWidth = 1.3; ctx.strokeStyle = acc + 'aa'; ctx.stroke();
+  ctx.restore();
+}
+
+// 数值条：ghost 为“残影”（掉血时白色缓慢回落）
+function hudBar(x, y, w, h, v, m, c1, c2, ghost) {
+  rpath(x, y, w, h, h / 2); ctx.fillStyle = 'rgba(3,6,14,.9)'; ctx.fill();
+  ctx.save(); rpath(x, y, w, h, h / 2); ctx.clip();
+  const f = cl(v / m, 0, 1);
+  if (ghost != null) { ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.fillRect(x, y, w * cl(ghost / m, 0, 1), h) }
+  if (f > 0) {
+    const g = ctx.createLinearGradient(x, y, x + w, y); g.addColorStop(0, c1); g.addColorStop(1, c2);
+    ctx.fillStyle = g; ctx.fillRect(x, y, w * f, h);
+    const gl = ctx.createLinearGradient(0, y, 0, y + h);
+    gl.addColorStop(0, 'rgba(255,255,255,.4)'); gl.addColorStop(.5, 'rgba(255,255,255,.04)'); gl.addColorStop(1, 'rgba(0,0,0,.22)');
+    ctx.fillStyle = gl; ctx.fillRect(x, y, w * f, h);
+  }
+  ctx.restore();
+  rpath(x, y, w, h, h / 2); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.22)'; ctx.stroke();
+}
+
+const fmtC = n => Math.ceil(n).toLocaleString();
+
+function drawPlayerHUD(x, y) {
+  const w = 290, h = 76, acc = inForm() ? formCol() : '#00e5ff', dt = hudDt();
+  if (HUDS.hp === null || HUDS.hp < P.hp) HUDS.hp = P.hp;
+  else if (HUDS.hp > P.hp) HUDS.hp = Math.max(P.hp, HUDS.hp - P.mh * .3 * dt);
+
+  hudPanel(x, y, w, h, acc, 12);
+  if (P.hp / P.mh < .3 && P.hp > 0) {           // 低血量：红色脉冲警示
+    ctx.save(); cutPath(x, y, w, h, 12); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,60,70,' + (.25 + .35 * (Math.sin(T * 8) + 1) / 2).toFixed(2) + ')'; ctx.stroke(); ctx.restore();
+  }
+
+  // 等级徽章：外圈即经验进度
+  const cx = x + 42, cy = y + 38, R = 25, maxExp = S.lv * 40, ep = cl(S.xp / maxExp, 0, 1);
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, R + 3, 0, 7); ctx.fillStyle = 'rgba(3,6,14,.92)'; ctx.fill();
+  ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,.1)'; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.stroke();
+  if (ep > 0) {
+    const g = ctx.createLinearGradient(cx - R, cy + R, cx + R, cy - R); g.addColorStop(0, acc); g.addColorStop(1, '#ffffff');
+    ctx.lineCap = 'round'; ctx.strokeStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ep); ctx.stroke();
+  }
+  ctx.beginPath(); ctx.arc(cx, cy, R - 5, 0, 7);
+  const ig = ctx.createRadialGradient(cx, cy - 6, 2, cx, cy, R - 5); ig.addColorStop(0, acc + '55'); ig.addColorStop(1, 'rgba(6,10,20,.95)');
+  ctx.fillStyle = ig; ctx.fill();
+  ctx.restore();
+  ht('LV', cx, cy - 9, 9, acc, 'center');
+  ht(S.lv, cx, cy + 5, 17, '#ffd84a', 'center');
+
+  const bx = x + 82, bw = w - 82 - 14;
+  ht(P.ryuki ? 'KAMEN RIDER RYUKI' : P.k5 ? 'KAMEN RIDER 555' : 'KAMEN RIDER MALAYA', bx, y + 11, 10, acc);
+  ht('EXP ' + Math.floor(ep * 100) + '%', bx + bw, y + 11, 10, '#9fb0c4', 'right');
+  rpath(bx, y + 19, bw, 3, 1.5); ctx.fillStyle = 'rgba(255,255,255,.1)'; ctx.fill();
+  if (ep > 0) { rpath(bx, y + 19, bw * ep, 3, 1.5); ctx.fillStyle = acc; ctx.fill() }
+
+  hudBar(bx, y + 28, bw, 19, P.hp, P.mh, '#ff3b4e', '#ff8a5c', HUDS.hp);
+  ht('HP', bx + 7, y + 38, 10, '#fff');
+  ht(fmtC(P.hp) + ' / ' + fmtC(P.mh), bx + bw - 7, y + 38, 11, '#fff', 'right');
+
+  hudBar(bx, y + 52, bw, 13, P.mp, P.mm, '#1e90ff', '#2ee6c8');
+  ht('MP', bx + 7, y + 58.5, 9, '#fff');
+  ht(fmtC(P.mp) + ' / ' + fmtC(P.mm), bx + bw - 7, y + 58.5, 10, '#fff', 'right');
 }
 
 function drawStaminaHUD(x, y) {
-  const w = 275, h = 34;
+  const w = 290, h = 34, ready = P.dcd <= 0, acc = P.exh ? '#ff6b6b' : '#00e5ff';
+  hudPanel(x, y, w, h, acc, 9);
+  const cx = x + 42, cy = y + 17, rad = 12;
   ctx.save();
-  rpath(x, y, w, h, 12); ctx.fillStyle = 'rgba(10,16,28,0.88)'; ctx.fill();
-  ctx.lineWidth = 1.4; ctx.strokeStyle = 'rgba(0,229,255,0.45)'; ctx.stroke();
-
-  const cx = x + 30, cy = y + 17, rad = 12, ready = P.dcd <= 0;
-  ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2);
-  ctx.fillStyle = ready ? 'rgba(0,229,255,0.3)' : 'rgba(30,36,52,0.95)'; ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy, rad, 0, 7); ctx.fillStyle = ready ? 'rgba(0,229,255,.22)' : 'rgba(20,26,42,.95)'; ctx.fill();
   if (!ready) {
-    ctx.beginPath(); ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, rad, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - P.dcd / DODGE_CD));
-    ctx.closePath(); ctx.fillStyle = 'rgba(0,229,255,0.55)'; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, rad, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - P.dcd / DODGE_CD)); ctx.closePath();
+    ctx.fillStyle = 'rgba(0,229,255,.5)'; ctx.fill();
   }
-  ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2);
-  ctx.strokeStyle = ready ? '#00e5ff' : '#5a6a80'; ctx.lineWidth = 2; ctx.stroke();
-  txt('闪', cx, cy, 11, ready ? '#fff' : '#889', 'center', false);
+  ctx.beginPath(); ctx.arc(cx, cy, rad, 0, 7); ctx.lineWidth = 2; ctx.strokeStyle = ready ? '#00e5ff' : '#5a6a80';
+  if (ready) { ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 8 }
+  ctx.stroke(); ctx.restore();
+  ht('闪', cx, cy, 11, ready ? '#fff' : '#889', 'center');
 
-  const bx = x + 64, bw = 195;
-  bar(bx, y + 10, bw, 14, P.sta, P.stm, P.exh ? '#ff6b6b' : '#ffb300', P.exh ? '#ff9f43' : '#ffe066', 5);
-  txt(P.exh ? 'EN 力竭' : 'EN', bx + 6, y + 17, 10, '#fff', 'left');
-  txt(Math.ceil(P.sta) + '/' + P.stm, bx + bw - 6, y + 17, 10, '#fff', 'right');
-  ctx.restore();
+  const bx = x + 82, bw = w - 82 - 14;
+  hudBar(bx, y + 10, bw, 14, P.sta, P.stm, P.exh ? '#ff6b6b' : '#ffb300', P.exh ? '#ff9f43' : '#ffe066');
+  ht(P.exh ? 'EN 力竭' : 'EN', bx + 7, y + 17.5, 9, '#1a1200');
+  ht(fmtC(P.sta) + ' / ' + fmtC(P.stm), bx + bw - 7, y + 17.5, 10, '#1a1200', 'right');
 }
 
 function drawGoldHUD() {
-  const w = 145, h = 34, x = 960 - 18 - w, y = 14;
-  ctx.save(); rpath(x, y, w, h, 14); ctx.fillStyle = 'rgba(12, 11, 20, 0.85)'; ctx.fill();
-  ctx.lineWidth = 1.4; ctx.strokeStyle = 'rgba(255, 216, 74, 0.65)'; ctx.stroke();
-  txt('🪙 ' + S.g.toLocaleString() + ' G', x + w / 2, y + h / 2, 14, '#ffd84a', 'center');
+  const dt = hudDt();
+  if (HUDS.g === null) HUDS.g = S.g;
+  const df = S.g - HUDS.g; HUDS.g = Math.abs(df) < 1 ? S.g : HUDS.g + df * Math.min(1, dt * 8 + .02);
+  const s = Math.round(HUDS.g).toLocaleString(), w = Math.max(132, tw(s, 15) + 74), h = 32, x = 960 - 16 - w, y = 14;
+  hudPanel(x, y, w, h, '#ffd84a', 9);
+  const cx = x + 24, cy = y + 16;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, 9.5, 0, 7);
+  const g = ctx.createRadialGradient(cx - 3, cy - 3, 1, cx, cy, 10); g.addColorStop(0, '#fff4b0'); g.addColorStop(1, '#e0a010');
+  ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1.2; ctx.strokeStyle = '#8a5a00'; ctx.stroke();
   ctx.restore();
+  ht('G', cx, cy + .5, 10, '#7a4a00', 'center');
+  ht(s, x + w - 32, cy, 15, '#ffe27a', 'right');
+  ht('G', x + w - 16, cy + 1, 11, '#c9a64a', 'center');
 }
 
 function drawMinimapHUD() {
-  const mw = 196, mh = 82, x = 16, y = 405, r = 12;
-  ctx.save(); rpath(x, y, mw, mh, r); ctx.fillStyle = 'rgba(8, 12, 22, 0.86)'; ctx.fill();
-  ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(0, 229, 255, 0.45)'; ctx.stroke();
-  txt('RADAR', x + 12, y + 14, 10, '#00e5ff', 'left', false);
+  const mw = 196, mh = 82, x = 16, y = 405;
+  hudPanel(x, y, mw, mh, '#00e5ff', 10);
+  ht('RADAR', x + 14, y + 13, 10, '#00e5ff');
+  const pulse = (Math.sin(T * 4) + 1) * .5, alert = G === 'play';
+  ctx.save(); ctx.fillStyle = alert ? 'rgba(255,71,87,' + (.4 + pulse * .6) + ')' : 'rgba(46,213,115,' + (.4 + pulse * .6) + ')';
+  ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 6; ctx.beginPath(); ctx.arc(x + mw - 16, y + 13, 3.5, 0, 7); ctx.fill(); ctx.restore();
 
-  const pulse = (Math.sin(T * 4) + 1) * 0.5;
-  ctx.fillStyle = G === 'play' ? `rgba(255, 71, 87, ${0.4 + pulse * 0.6})` : `rgba(0, 229, 255, ${0.4 + pulse * 0.6})`;
-  ctx.beginPath(); ctx.arc(x + mw - 16, y + 14, 4, 0, Math.PI * 2); ctx.fill();
-
-  const rx = x + 12, ry = y + 26, rw = mw - 24, rh = 46;
-  rpath(rx, ry, rw, rh, 6); ctx.fillStyle = 'rgba(4, 7, 14, 0.7)'; ctx.fill();
-  ctx.strokeStyle = 'rgba(0, 229, 255, 0.2)'; ctx.stroke();
+  const rx = x + 12, ry = y + 25, rw = mw - 24, rh = 47;
+  rpath(rx, ry, rw, rh, 6); ctx.fillStyle = 'rgba(3,6,14,.75)'; ctx.fill();
+  ctx.save(); rpath(rx, ry, rw, rh, 6); ctx.clip();
+  ctx.fillStyle = 'rgba(0,229,255,.07)';                                      // 网格
+  for (let gx = rx + 12; gx < rx + rw; gx += 12) ctx.fillRect(gx, ry, 1, rh);
+  ctx.fillRect(rx, ry + rh / 2, rw, 1);
+  const sx = rx + ((T * .5) % 1) * rw, sg = ctx.createLinearGradient(sx - 22, 0, sx, 0);   // 扫描线
+  sg.addColorStop(0, 'rgba(0,229,255,0)'); sg.addColorStop(1, 'rgba(0,229,255,.22)'); ctx.fillStyle = sg; ctx.fillRect(sx - 22, ry, 22, rh);
 
   const isPlay = G === 'play', totalW = isPlay ? WW : (G === 'room' ? RW() : VW);
   const camX0 = rx + (cam / totalW) * rw, camW = (960 / totalW) * rw;
-  rpath(camX0, ry + 2, camW, rh - 4, 3); ctx.fillStyle = 'rgba(0, 229, 255, 0.12)'; ctx.fill();
+  ctx.fillStyle = 'rgba(0,229,255,.1)'; ctx.fillRect(camX0, ry + 1, camW, rh - 2);
+  ctx.strokeStyle = 'rgba(0,229,255,.55)'; ctx.lineWidth = 1; ctx.strokeRect(camX0 + .5, ry + 1.5, camW - 1, rh - 3);
 
+  const dot = (px, py, r, c) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.fill() };
   if (!isPlay && G !== 'room') {
-    const elx = rx + (EL.x / totalW) * rw;
-    ctx.fillStyle = '#bbb'; ctx.beginPath(); ctx.arc(elx, ry + rh / 2, 3, 0, Math.PI * 2); ctx.fill();
-    BD.forEach(b => {
-      const bx = rx + (b.x / totalW) * rw;
-      ctx.fillStyle = b.c; ctx.beginPath(); ctx.arc(bx, ry + rh / 2, 4, 0, Math.PI * 2); ctx.fill();
-    });
-    const ptx = rx + (PT / totalW) * rw;
-    ctx.fillStyle = '#7df9ff'; ctx.beginPath(); ctx.arc(ptx, ry + rh / 2, 5, 0, Math.PI * 2); ctx.fill();
+    dot(rx + (EL.x / totalW) * rw, ry + rh / 2, 3, '#bbb');
+    BD.forEach(b => dot(rx + (b.x / totalW) * rw, ry + rh / 2, 4, b.c));
+    dot(rx + (PT / totalW) * rw, ry + rh / 2, 5, '#7df9ff');
   }
-
   if (isPlay) {
     for (const e of E) {
-      const ex = rx + (e.x / totalW) * rw, ey = ry + (e.t === 'imp' ? rh * 0.35 : rh * 0.65);
-      ctx.fillStyle = e.t === 'boss' ? '#ff3838' : (e.t === 'wd' ? '#d6a2e8' : '#ff5252');
-      ctx.beginPath(); ctx.arc(ex, ey, e.t === 'boss' ? 6 : 3, 0, Math.PI * 2); ctx.fill();
+      const ex = rx + (e.x / totalW) * rw, ey = ry + (e.t === 'imp' ? rh * .35 : rh * .65);
+      dot(ex, ey, e.t === 'boss' ? 6 : 3, e.t === 'boss' ? '#ff3838' : (e.t === 'wd' ? '#d6a2e8' : '#ff5252'));
     }
   }
-
   const px = rx + (P.x / totalW) * rw;
-  ctx.fillStyle = P.ryuki ? '#ff4757' : '#2ed573';
-  ctx.beginPath(); ctx.arc(px, ry + rh / 2, 4.5, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2; ctx.stroke();
+  ctx.save(); ctx.shadowColor = inForm() ? formCol() : '#2ed573'; ctx.shadowBlur = 8;
+  dot(px, ry + rh / 2, 4.5, inForm() ? formCol() : '#2ed573'); ctx.restore();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(px, ry + rh / 2, 4.5, 0, 7); ctx.stroke();
   ctx.restore();
 }
 
 function drawLocationHUD(locName) {
   const x = 16, y = 496, w = 196, h = 30;
-  ctx.save(); rpath(x, y, w, h, 10); ctx.fillStyle = 'rgba(8, 14, 26, 0.85)'; ctx.fill();
-  ctx.strokeStyle = 'rgba(0, 229, 255, 0.4)'; ctx.lineWidth = 1.2; ctx.stroke();
-  txt('📍 ' + locName, x + 12, y + h / 2, 12, '#7df9ff', 'left', false);
-  ctx.restore();
+  hudPanel(x, y, w, h, '#00e5ff', 8);
+  ht('📍', x + 20, y + h / 2, 12, '#fff', 'center');
+  ht(locName, x + 36, y + h / 2, 13, '#c9f6ff');
+}
+
+// ===== 装备详情用的小工具 =====
+const fmtN = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e5 ? Math.floor(n / 1e3) + 'k' : String(n);   // 10万以下显示精确数字
+
+// 小标签：good=true 绿色（够），false 红色（不够）
+function chip(x, y, w, h, label, good, sz = 11) {
+  rpath(x, y, w, h, 5);
+  ctx.fillStyle = good ? 'rgba(46,213,115,.16)' : 'rgba(255,71,87,.18)'; ctx.fill();
+  ctx.lineWidth = 1; ctx.strokeStyle = good ? 'rgba(46,213,115,.65)' : 'rgba(255,90,100,.75)'; ctx.stroke();
+  txt(label, x + w / 2, y + h / 2, sz, good ? '#a6ffc4' : '#ff9aa4', 'center', false);
+}
+
+// 信息卡片底板
+function card(x, y, w, h) {
+  rpath(x, y, w, h, 8); ctx.fillStyle = 'rgba(14,20,42,.92)'; ctx.fill();
+  ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,229,255,.2)'; ctx.stroke();
 }
 
 // ===== 详细部位 Filter 背包、等级需求、全选与批量分解 =====
+// ===== 背包面板 =====
+// 绘制时同步登记点击区域(BH)，点击时直接查表 —— 绘制与点击永远不会错位
+let BH = [];
+const BAG_PAGE = 16;   // 4 列 × 4 行
+const BAG_FONT = '-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif';
+const BAG_FILTERS = [
+  { id: 'all', n: '全部' }, { id: 'weapon', n: '武器' }, { id: 'chest', n: '胸甲' }, { id: 'belt', n: '腰带' },
+  { id: 'legs', n: '腿甲' }, { id: 'boots', n: '靴子' }, { id: 'necklace', n: '项链' }, { id: 'ring', n: '戒指' }
+];
+const bagHit = (x, y, w, h, f) => BH.push({ x, y, w, h, f });
+const bagArmed = k => bagArmKey === k && T < bagArmUntil;
+
+function bagBtn(x, y, w, h, label, bg, fg, sz, f, bd) {
+  rpath(x, y, w, h, 8); ctx.fillStyle = bg; ctx.fill();
+  if (bd) { ctx.lineWidth = 1.5; ctx.strokeStyle = bd; ctx.stroke() }
+  txt(label, x + w / 2, y + h / 2, sz, fg, 'center');
+  if (f) bagHit(x, y, w, h, f);
+}
+
+// 文字过长时自动缩小字号
+function fitTxt(s, x, y, maxW, sz, c, al = 'left') {
+  while (sz > 9) { ctx.font = `700 ${sz}px ${BAG_FONT}`; if (ctx.measureText(s).width <= maxW) break; sz--; }
+  txt(s, x, y, sz, c, al);
+}
+
 function drawCharPanel() {
+  BH = [];
   const x = 25, y = 20, w = 910, h = 500;
   ctx.save();
   ctx.fillStyle = 'rgba(4, 7, 16, 0.88)'; ctx.fillRect(0, 0, 960, 540);
-
   rpath(x, y, w, h, 16); ctx.fillStyle = 'rgba(10, 14, 28, 0.96)'; ctx.fill();
   ctx.lineWidth = 2; ctx.strokeStyle = '#00e5ff'; ctx.stroke();
-
   rpath(x + 2, y + 2, w - 4, 38, 14); ctx.fillStyle = 'rgba(0, 229, 255, 0.12)'; ctx.fill();
   txt('⚡ 假面骑士 MALAYA · 骑士装甲与无限战备背包 ⚡', x + 20, y + 21, 14, '#7df9ff', 'left');
+  bagBtn(x + w - 112, y + 4, 100, 32, '✕ 关闭', 'rgba(255,71,87,.25)', '#ff9aa4', 13, () => { showChar = false }, '#ff4757');
 
-  rpath(x + w - 90, y + 7, 75, 26, 6); ctx.fillStyle = 'rgba(255, 71, 87, 0.25)'; ctx.fill();
-  ctx.strokeStyle = '#ff4757'; ctx.lineWidth = 1; ctx.stroke();
-  txt('关闭 [C/ESC]', x + w - 52, y + 20, 11, '#ff7675', 'center');
-
-  // 左侧穿戴槽位
-  const lx = x + 18, ly = y + 46, lw = 345, lh = 440;
+  // ================= 左侧：角色 + 穿戴槽 + 战斗参数 =================
+  const lx = x + 18, ly = y + 46, lw = 330, lh = 440;
   rpath(lx, ly, lw, lh, 12); ctx.fillStyle = 'rgba(6, 9, 20, 0.65)'; ctx.fill();
-  ctx.strokeStyle = 'rgba(0, 229, 255, 0.25)'; ctx.stroke();
+  ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0, 229, 255, 0.25)'; ctx.stroke();
 
   rpath(lx + 10, ly + 10, lw - 20, 110, 8); ctx.fillStyle = 'rgba(12, 20, 38, 0.7)'; ctx.fill();
-  ctx.strokeStyle = P.ryuki ? '#ff4757' : '#00e5ff'; ctx.stroke();
-
+  ctx.strokeStyle = inForm() ? formCol() : '#00e5ff'; ctx.stroke();
   ctx.save();
-  ctx.beginPath(); ctx.ellipse(lx + 55, ly + 100, 36, 12, 0, 0, Math.PI * 2);
-  ctx.fillStyle = P.ryuki ? 'rgba(255,71,87,0.3)' : 'rgba(0,229,255,0.25)'; ctx.fill();
-  ctx.strokeStyle = P.ryuki ? '#ff4757' : '#00e5ff'; ctx.stroke();
-  if (P.ryuki && SH.ryukiTrans && SH.ryukiTrans.f[15]) {
-    dr(SH.ryukiTrans, 15, lx + 55, ly + 105, 1, 0.55);
-  } else if (SH.atk && SH.atk.f[12]) {
-    dr(SH.atk, 12, lx + 55, ly + 105, 1, 0.55);
-  }
+  ctx.beginPath(); ctx.ellipse(lx + 55, ly + 108, 36, 11, 0, 0, Math.PI * 2);
+  ctx.fillStyle = P.ryuki ? 'rgba(255,71,87,0.3)' : P.k5 ? 'rgba(255,180,0,0.3)' : 'rgba(0,229,255,0.25)'; ctx.fill();
+  ctx.strokeStyle = inForm() ? formCol() : '#00e5ff'; ctx.stroke();
+  // 头像按真实像素包围盒居中（555 的变身表帧内角色偏右，旧写法按格子中心画会不居中）
+  if (P.ryuki && SH.ryukiTrans && SH.ryukiTrans.f[15]) drCenter(SH.ryukiTrans, 15, lx + 55, ly + 111, .48);
+  else if (P.k5 && okS(SH5.trans)) drCenter(SH5.trans, 8, lx + 55, ly + 111, .48);
+  else if (SH.atk && SH.atk.f[12]) drCenter(SH.atk, 12, lx + 55, ly + 111, .48);
   ctx.restore();
+  txt('假面骑士 MALAYA', lx + 112, ly + 26, 15, '#ffd84a');
+  txt(P.ryuki ? '★ 龙骑契约形态' : P.k5 ? '★ 555 智脑形态' : '原生基础形态', lx + 112, ly + 47, 12, P.ryuki ? '#ff7675' : P.k5 ? '#ffd166' : '#7df9ff');
+  txt('等级 Lv.' + S.lv + ' / 500', lx + 112, ly + 67, 13, '#fff');
+  txt('💰 ' + fmtN(S.g) + ' G', lx + 112, ly + 88, 12, '#ffd84a');
+  txt('💎 ' + fmtN(S.mat), lx + 112, ly + 106, 12, '#c58bff');
+  txt('📜 ' + (S.scr || 0), lx + 222, ly + 106, 12, '#ffa502');
 
-  txt('假面骑士 MALAYA', lx + 115, ly + 25, 14, '#ffd84a', 'left');
-  txt(P.ryuki ? '★ 龙骑契约形态' : '原生基础形态', lx + 115, ly + 45, 11, P.ryuki ? '#ff7675' : '#7df9ff');
-  txt('等级: Lv.' + S.lv + ' (上限 500级)', lx + 115, ly + 65, 12, '#fff');
-  txt('金币: ' + S.g + ' G', lx + 115, ly + 85, 11, '#ffd84a');
-  txt('强化碎晶: ' + S.mat + ' 颗', lx + 115, ly + 103, 11, '#a55eea');
-
+  // 穿戴槽：2 列 × 4 行，高 46
+  const SW = 151, SHt = 46, sx0 = lx + 10, sy0 = ly + 128;
   const slotLayout = [
-    { k: 'weapon', n: '武器', x: lx + 10, y: ly + 128 },
-    { k: 'belt', n: '变身腰带', x: lx + 175, y: ly + 128 },
-    { k: 'chest', n: '胸甲', x: lx + 10, y: ly + 176 },
-    { k: 'necklace', n: '项链', x: lx + 175, y: ly + 176 },
-    { k: 'legs', n: '腿甲', x: lx + 10, y: ly + 224 },
-    { k: 'ring', n: '戒指', x: lx + 175, y: ly + 224 },
-    { k: 'boots', n: '靴子', x: lx + 10, y: ly + 272 },
-    { k: 'ryuki_cap', n: '变身胶囊', x: lx + 175, y: ly + 272 }
+    { k: 'weapon', n: '武器' }, { k: 'belt', n: '变身腰带' }, { k: 'chest', n: '胸甲' }, { k: 'necklace', n: '项链' },
+    { k: 'legs', n: '腿甲' }, { k: 'ring', n: '戒指' }, { k: 'boots', n: '靴子' }, { k: 'ryuki_cap', n: '变身胶囊' }
   ];
-
-  slotLayout.forEach(sl => {
+  slotLayout.forEach((sl, i) => {
+    const sx = sx0 + (i % 2) * (SW + 8), sy = sy0 + ((i / 2) | 0) * (SHt + 6);
     const isCap = sl.k === 'ryuki_cap';
-    const it = isCap ? (S.eqCap === 'ryuki' ? { name: '龙骑契约胶囊', tier: 4, lvl: 0 } : null) : S.eq[sl.k];
-    const isSelected = selItem && selItem.from === 'eq' && selItem.slotKey === sl.k;
-
-    rpath(sl.x, sl.y, 160, 42, 6);
-    ctx.fillStyle = isSelected ? 'rgba(0, 229, 255, 0.22)' : 'rgba(8, 14, 28, 0.85)';
-    ctx.fill();
-    ctx.lineWidth = isSelected ? 1.8 : 1;
-    ctx.strokeStyle = it ? TIERS[it.tier].c : 'rgba(255,255,255,0.12)';
-    ctx.stroke();
-
-    txt('[' + sl.n + ']', sl.x + 8, sl.y + 13, 10, '#889');
-    if (it) {
-      txt(it.name + (it.lvl ? ' +' + it.lvl : ''), sl.x + 8, sl.y + 29, 11, TIERS[it.tier].c);
-    } else {
-      txt(isCap ? '未装备 (按N装备)' : '空槽位 (可穿戴)', sl.x + 8, sl.y + 29, 11, '#556');
-    }
+    const ec = isCap ? CAPSULES.find(c => c.id === S.eqCap) : null;
+    const it = isCap ? (ec ? { name: ec.slotName, tier: ec.tier, lvl: 0 } : null) : S.eq[sl.k];
+    const on = !isCap && selItem && selItem.from === 'eq' && selItem.slotKey === sl.k;
+    rpath(sx, sy, SW, SHt, 8);
+    ctx.fillStyle = on ? 'rgba(0,229,255,.24)' : 'rgba(8,14,28,.85)'; ctx.fill();
+    ctx.lineWidth = on ? 2 : 1.2; ctx.strokeStyle = it ? TIERS[it.tier].c : 'rgba(255,255,255,.14)'; ctx.stroke();
+    txt(sl.n, sx + 8, sy + 13, 11, '#8fa0b3');
+    if (it && it.star) txt('⭐' + it.star, sx + SW - 8, sy + 13, 11, '#ffd84a', 'right');
+    if (it && it.locked) txt('🔒', sx + SW - (it.star ? 40 : 8), sy + 13, 11, '#ffd84a', 'right', false);
+    if (it) fitTxt(it.name + (it.lvl ? ' +' + it.lvl : ''), sx + 8, sy + 31, SW - 16, 13, TIERS[it.tier].c);
+    else txt(isCap ? '点击装配' : '空槽位', sx + 8, sy + 31, 12, '#5d6b7c');
+    bagHit(sx, sy, SW, SHt, () => {
+      if (isCap) { showCapModal = true; return }
+      if (it) { bagMulti = false; batchSel.clear(); selItem = { item: it, from: 'eq', slotKey: sl.k } }
+    });
   });
 
-  rpath(lx + 10, ly + 322, lw - 20, 108, 8); ctx.fillStyle = 'rgba(8, 14, 30, 0.85)'; ctx.fill();
-  ctx.strokeStyle = 'rgba(0, 229, 255, 0.2)'; ctx.stroke();
-  txt('【实战参数】', lx + 20, ly + 338, 11, '#7df9ff');
-  txt('攻击力: ' + (P.atk | 0), lx + 20, ly + 360, 12, '#ff7675');
-  txt('暴击率: ' + Math.round(P.cr * 100) + '%', lx + 120, ly + 360, 12, '#ffeaa7');
-  txt('受到免伤: ' + (P.def * 100).toFixed(1) + '%', lx + 220, ly + 360, 12, '#7dff9a');
-  txt('生命上限: ' + P.mh, lx + 20, ly + 384, 12, '#55efc4');
-  txt('魔力上限: ' + P.mm, lx + 120, ly + 384, 12, '#74b9ff');
+  // 实战参数
+  const py0 = ly + 338;
+  rpath(lx + 10, py0, lw - 20, 94, 8); ctx.fillStyle = 'rgba(8,14,30,.85)'; ctx.fill();
+  ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,229,255,.2)'; ctx.stroke();
+  txt('实战参数', lx + 22, py0 + 15, 12, '#7df9ff');
+  txt('攻击 ' + (P.atk | 0), lx + 22, py0 + 42, 13, '#ff9f9f');
+  txt('暴击 ' + Math.round(P.cr * 100) + '%', lx + 122, py0 + 42, 13, '#ffeaa7');
+  txt('免伤 ' + (P.def * 100).toFixed(1) + '%', lx + 222, py0 + 42, 13, '#7dff9a');
+  txt('生命 ' + P.mh, lx + 22, py0 + 70, 13, '#55efc4');
+  txt('魔力 ' + P.mm, lx + 122, py0 + 70, 13, '#74b9ff');
 
-  // 右侧筛选栏、背包格子与批量工具
-  const rx = x + 375, ry = y + 46, rw = 512, rh = 440;
+  // ================= 右侧：列表视图 / 详情视图 =================
+  const rx = x + 358, ry = y + 46, rw = 534, rh = 440;
   rpath(rx, ry, rw, rh, 12); ctx.fillStyle = 'rgba(6, 9, 20, 0.65)'; ctx.fill();
-  ctx.strokeStyle = 'rgba(0, 229, 255, 0.25)'; ctx.stroke();
+  ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0, 229, 255, 0.25)'; ctx.stroke();
+  if (!bagMulti && selItem && selItem.item) drawBagDetail(rx, ry, rw); else drawBagList(rx, ry, rw);
+  ctx.restore();
+}
 
-  const filters = [
-    { id: 'all', n: '全部' },
-    { id: 'weapon', n: '武器' },
-    { id: 'chest', n: '胸甲' },
-    { id: 'belt', n: '腰带' },
-    { id: 'legs', n: '腿甲' },
-    { id: 'boots', n: '靴子' },
-    { id: 'necklace', n: '项链' },
-    { id: 'ring', n: '戒指' }
-  ];
-
-  const btnW = 58, btnGap = 4;
-  filters.forEach((fl, idx) => {
-    const fx = rx + 10 + idx * (btnW + btnGap), fy = ry + 8, fw = btnW, fh = 26;
-    const isAct = bagFilter === fl.id;
-    rpath(fx, fy, fw, fh, 5);
-    ctx.fillStyle = isAct ? 'rgba(0, 229, 255, 0.3)' : 'rgba(20, 26, 44, 0.6)';
-    ctx.fill();
-    ctx.lineWidth = isAct ? 1.8 : 1;
-    ctx.strokeStyle = isAct ? '#00e5ff' : 'rgba(255, 255, 255, 0.15)'; ctx.stroke();
-    txt(fl.n, fx + fw / 2, fy + fh / 2, 11, isAct ? '#ffd84a' : '#aaa', 'center');
+// ---------- 列表视图：筛选 / 工具栏 / 4×4 格子 / 底部操作栏 ----------
+function drawBagList(rx, ry, rw) {
+  const fw = 60, fg = 4;
+  BAG_FILTERS.forEach((fl, i) => {
+    const on = bagFilter === fl.id;
+    bagBtn(rx + 10 + i * (fw + fg), ry + 8, fw, 32, fl.n, on ? 'rgba(0,229,255,.3)' : 'rgba(20,26,44,.7)', on ? '#ffd84a' : '#b8c2cc', 13,
+      () => { bagFilter = fl.id; bagPage = 0 }, on ? '#00e5ff' : 'rgba(255,255,255,.15)');
   });
-
-  const filteredInv = S.inv.filter(it => (bagFilter === 'all' ? true : it.slot === bagFilter));
-  const PAGE_SIZE = 15;
-  const maxPages = Math.max(1, Math.ceil(filteredInv.length / PAGE_SIZE));
+  const list = S.inv.filter(it => bagFilter === 'all' || it.slot === bagFilter);
+  const maxPages = Math.max(1, Math.ceil(list.length / BAG_PAGE));
   if (bagPage >= maxPages) bagPage = maxPages - 1;
 
-  const curFilterObj = filters.find(f => f.id === bagFilter) || filters[0];
-  txt('部件: ' + curFilterObj.n + ' (' + filteredInv.length + '件)', rx + 12, ry + 46, 11, '#7df9ff');
-
-  // 全选/取消全选按钮
-  const allIn = filteredInv.length > 0 && filteredInv.every(it => batchSel.has(it.id));
-  rpath(rx + 155, ry + 36, 75, 20, 4);
-  ctx.fillStyle = allIn ? 'rgba(255, 71, 87, 0.3)' : 'rgba(0, 229, 255, 0.25)'; ctx.fill();
-  ctx.strokeStyle = allIn ? '#ff4757' : '#00e5ff'; ctx.stroke();
-  txt(allIn ? '取消全选' : '✔ 全部勾选', rx + 192, ry + 46, 10, allIn ? '#ff7675' : '#7df9ff', 'center');
-
-  if (batchSel.size > 0) {
-    txt(`已勾选: ${batchSel.size} 件`, rx + 242, ry + 46, 11, '#ffd84a');
-  }
-
-  // 分页控件
-  txt('第 ' + (bagPage + 1) + ' / ' + maxPages + ' 页', rx + 400, ry + 46, 11, '#aaa', 'center');
-  rpath(rx + 338, ry + 36, 26, 20, 4); ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fill();
-  txt('◀', rx + 351, ry + 46, 11, bagPage > 0 ? '#fff' : '#555', 'center');
-  rpath(rx + 448, ry + 36, 26, 20, 4); ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fill();
-  txt('▶', rx + 461, ry + 46, 11, bagPage < maxPages - 1 ? '#fff' : '#555', 'center');
-
-  const curPageItems = filteredInv.slice(bagPage * PAGE_SIZE, (bagPage + 1) * PAGE_SIZE);
-  const gx0 = rx + 10, gy0 = ry + 60, gw = 95, gh = 48, gap = 4;
-
-  for (let i = 0; i < PAGE_SIZE; i++) {
-    const col = i % 5, row = (i / 5) | 0;
-    const cx = gx0 + col * (gw + gap), cy = gy0 + row * (gh + gap);
-    const item = curPageItems[i];
-    const isSelected = selItem && selItem.item && item && selItem.item.id === item.id;
-    const isChecked = item && batchSel.has(item.id);
-
-    rpath(cx, cy, gw, gh, 6);
-    ctx.fillStyle = isSelected ? 'rgba(0, 229, 255, 0.28)' : 'rgba(12, 16, 32, 0.85)';
-    ctx.fill();
-    ctx.lineWidth = isSelected ? 2 : 1;
-    ctx.strokeStyle = item ? TIERS[item.tier].c : 'rgba(255, 255, 255, 0.08)';
-    ctx.stroke();
-
-    if (item) {
-      txt(item.name, cx + 6, cy + 14, 10, TIERS[item.tier].c);
-      txt('Lv.' + (item.reqLvl || 1) + (item.lvl ? ' +' + item.lvl : ''), cx + 6, cy + 32, 9, (item.reqLvl > S.lv) ? '#ff4757' : '#889');
-
-      // 右上角勾选框
-      const cbX = cx + gw - 18, cbY = cy + 4, cbS = 14;
-      rpath(cbX, cbY, cbS, cbS, 3);
-      ctx.fillStyle = isChecked ? '#00e5ff' : 'rgba(255,255,255,0.1)'; ctx.fill();
-      ctx.strokeStyle = isChecked ? '#fff' : 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1; ctx.stroke();
-      if (isChecked) txt('✔', cbX + 7, cbY + 7, 10, '#041018', 'center', false);
-    } else {
-      txt('+', cx + gw / 2, cy + gh / 2, 14, 'rgba(255,255,255,0.08)', 'center');
-    }
-  }
-
-  // 底部详情与批量处理控制栏
-  const detY = ry + 218, detH = 212;
-  rpath(rx + 10, detY, rw - 20, detH, 10); ctx.fillStyle = 'rgba(8, 12, 24, 0.92)'; ctx.fill();
-  ctx.strokeStyle = 'rgba(0, 229, 255, 0.3)'; ctx.stroke();
-
-  // 若处于批量勾选状态，优先展示批量处理面板
-  if (batchSel.size > 0) {
-    let totalG = 0, totalMat = 0;
-    S.inv.forEach(it => {
-      if (batchSel.has(it.id)) {
-        totalG += (it.tier + 1) * 45 + it.lvl * 40;
-        totalMat += TIERS[it.tier].scrap + it.lvl * 2;
-      }
-    });
-
-    txt(`📦 【批量勾选管理模式】 当前已选中 ${batchSel.size} 件装备`, rx + 25, detY + 24, 15, '#ffd84a');
-    txt('• 可一键将所有勾选的闲置装备进行批量分解或批量丢弃。', rx + 25, detY + 54, 12, '#889');
-    txt(`• 预估批量分解收益：金币 +${totalG} G   |   强化碎晶 +${totalMat} 颗`, rx + 25, detY + 78, 13, '#7dff9a');
-    txt('• 提示：穿戴中的装备无法勾选，安全无误拆风险。', rx + 25, detY + 104, 11, '#7df9ff');
-
-    if (bagNoticeT > 0) txt(bagNotice, rx + 25, detY + 130, 13, '#ffd84a');
-
-    const btnY = detY + 155, btnH = 34;
-    // 取消全选
-    rpath(rx + 22, btnY, 110, btnH, 6); ctx.fillStyle = '#4b6584'; ctx.fill();
-    txt('取消全部勾选', rx + 22 + 55, btnY + btnH / 2, 12, '#fff', 'center');
-
-    // 批量分解
-    rpath(rx + 150, btnY, 160, btnH, 6); ctx.fillStyle = '#a55eea'; ctx.fill();
-    ctx.strokeStyle = '#d6a2e8'; ctx.stroke();
-    txt(`批量分解 (${batchSel.size}件)`, rx + 150 + 80, btnY + btnH / 2, 13, '#fff', 'center');
-
-    // 批量丢弃
-    rpath(rx + 330, btnY, 145, btnH, 6); ctx.fillStyle = '#eb3b5a'; ctx.fill();
-    ctx.strokeStyle = '#ff7675'; ctx.stroke();
-    txt(`批量丢弃 (${batchSel.size}件)`, rx + 330 + 72, btnY + btnH / 2, 13, '#fff', 'center');
-    ctx.restore();
-    return;
-  }
-
-  // 单件装备详情与常规对比
-  if (selItem && selItem.item) {
-    const it = selItem.item;
-    const tier = TIERS[it.tier];
-    const slotInfo = SLOTS[it.slot];
-    const currEq = S.eq[it.slot];
-    const reqLvl = it.reqLvl || 1;
-    const canWear = S.lv >= reqLvl;
-
-    txt(it.name + (it.lvl ? ' +' + it.lvl : ''), rx + 25, detY + 22, 15, tier.c);
-    txt('【' + tier.n + ' · ' + slotInfo.n + '】', rx + 185, detY + 22, 12, '#ffd84a');
-    txt('需求等级: Lv.' + reqLvl, rx + 295, detY + 22, 12, canWear ? '#7dff9a' : '#ff4757');
-
-    const renderDelta = (statName, newVal, oldVal, dy, isPercent = false) => {
-      if (!newVal && !oldVal) return;
-      const d = newVal - oldVal;
-      let dStr = '';
-      let dCol = '#888';
-      if (d > 0) { dStr = ' (+' + (isPercent ? Math.round(d * 100) + '%' : d) + ' ▲)'; dCol = '#2ed573'; }
-      else if (d < 0) { dStr = ' (' + (isPercent ? Math.round(d * 100) + '%' : d) + ' ▼)'; dCol = '#ff4757'; }
-      else { dStr = ' (=)'; }
-
-      const valShow = isPercent ? Math.round(newVal * 100) + '%' : newVal;
-      txt(statName + ': ' + valShow, rx + 25, detY + dy, 12, '#fff');
-      txt(dStr, rx + 130, detY + dy, 11, dCol);
-    };
-
-    const oldStats = (currEq && currEq.stats) ? currEq.stats : { atk: 0, hp: 0, mp: 0, crit: 0, def: 0 };
-    renderDelta('攻击力', it.stats.atk || 0, oldStats.atk || 0, 48);
-    renderDelta('生命值', it.stats.hp || 0, oldStats.hp || 0, 68);
-    renderDelta('魔力值', it.stats.mp || 0, oldStats.mp || 0, 88);
-    renderDelta('暴击率', it.stats.crit || 0, oldStats.crit || 0, 108, true);
-    renderDelta('免伤值', it.stats.def || 0, oldStats.def || 0, 128);
-
-    const goldCost = (it.lvl + 1) * 60 * (it.tier + 1);
-    const scrapCost = (it.lvl + 1) * Math.max(1, it.tier);
-    txt('强化升级预览: 每次强化基础全属性提升 12%', rx + 220, detY + 48, 10, '#7df9ff');
-    txt('强化消耗: ' + goldCost + ' G  |  ' + scrapCost + ' 碎晶', rx + 220, detY + 68, 11, '#ffd84a');
-    txt(selItem.from === 'eq' ? '★ 当前状态：正在穿戴中' : (currEq ? '对比穿戴: ' + currEq.name : '该槽位目前空置'), rx + 220, detY + 88, 10, '#aaa');
-
-    if (!canWear && selItem.from !== 'eq') {
-      txt('⚠️ 当前玩家等级不足 Lv.' + reqLvl + '，无法装备！', rx + 220, detY + 110, 11, '#ff6b81');
-    } else if (bagNoticeT > 0) {
-      txt(bagNotice, rx + 220, detY + 115, 12, '#7dff9a');
-    }
-
-    const btnY = detY + 155, btnH = 34;
-    const isWorn = selItem.from === 'eq';
-
-    rpath(rx + 22, btnY, 105, btnH, 6);
-    ctx.fillStyle = isWorn ? '#2e86de' : (canWear ? '#2ed573' : '#57606f'); ctx.fill();
-    txt(isWorn ? '卸下装备' : (canWear ? '穿戴装备' : '等级不足'), rx + 22 + 52, btnY + btnH / 2, 12, '#fff', 'center');
-
-    rpath(rx + 140, btnY, 105, btnH, 6); ctx.fillStyle = '#ff9f43'; ctx.fill();
-    txt('强化升级 +1', rx + 140 + 52, btnY + btnH / 2, 12, '#fff', 'center');
-
-    rpath(rx + 258, btnY, 105, btnH, 6); ctx.fillStyle = '#a55eea'; ctx.fill();
-    txt('分解 (返碎晶)', rx + 258 + 52, btnY + btnH / 2, 12, '#fff', 'center');
-
-    rpath(rx + 376, btnY, 105, btnH, 6); ctx.fillStyle = '#eb3b5a'; ctx.fill();
-    txt('丢弃装备', rx + 376 + 52, btnY + btnH / 2, 12, '#fff', 'center');
+  // 工具栏：多选开关 + 全选 + 翻页
+  const ty = ry + 46, th = 30, cur = BAG_FILTERS.find(f => f.id === bagFilter) || BAG_FILTERS[0];
+  bagBtn(rx + 10, ty, 88, th, bagMulti ? '☑ 多选中' : '☐ 多选', bagMulti ? 'rgba(255,216,74,.25)' : 'rgba(20,26,44,.7)', bagMulti ? '#ffd84a' : '#dfe6e9', 13,
+    () => { bagMulti = !bagMulti; batchSel.clear(); selItem = null; bagArmKey = '' }, bagMulti ? '#ffd84a' : 'rgba(255,255,255,.2)');
+  if (bagMulti) {
+    const allIn = list.length > 0 && list.every(it => batchSel.has(it.id));
+    bagBtn(rx + 104, ty, 92, th, allIn ? '取消全选' : '✔ 全选', allIn ? 'rgba(255,71,87,.3)' : 'rgba(0,229,255,.25)', allIn ? '#ff9aa4' : '#7df9ff', 13,
+      () => selectAllBatch(list), allIn ? '#ff4757' : '#00e5ff');
+    txt('已选 ' + batchSel.size + ' 件', rx + 206, ty + th / 2, 13, '#ffd84a');
   } else {
-    txt('【装备整备室】', rx + 25, detY + 25, 13, '#7df9ff');
-    txt('• 点击背包格子可查看装备详情与对比\n' +
-      '• 点击右上角勾选框或【全部勾选】按钮，可开启批量分解/丢弃\n' +
-      '• 高等级副本将掉落更高装备等级（满级500级）的神兵利器\n' +
-      '• 变身胶囊已迁移至专属终端，按 [N] 键随时呼出！', rx + 25, detY + 70, 12, '#889');
-    if (bagNoticeT > 0) txt(bagNotice, rx + 25, detY + 160, 13, '#7dff9a');
+    txt(cur.n + ' · ' + list.length + ' 件', rx + 110, ty + th / 2, 13, '#7df9ff');
   }
-  ctx.restore();
+  const px = rx + rw - 158;
+  bagBtn(px, ty, 34, th, '◀', 'rgba(255,255,255,.08)', bagPage > 0 ? '#fff' : '#555', 14, () => { if (bagPage > 0) bagPage-- });
+  txt((bagPage + 1) + ' / ' + maxPages, px + 34 + 40, ty + th / 2, 13, '#b8c2cc', 'center');
+  bagBtn(rx + rw - 44, ty, 34, th, '▶', 'rgba(255,255,255,.08)', bagPage < maxPages - 1 ? '#fff' : '#555', 14, () => { if (bagPage < maxPages - 1) bagPage++ });
+
+  // 4×4 格子
+  const gx0 = rx + 10, gy0 = ry + 84, gw = 124, gh = 60, gap = 6;
+  const pageItems = list.slice(bagPage * BAG_PAGE, (bagPage + 1) * BAG_PAGE);
+  for (let i = 0; i < BAG_PAGE; i++) {
+    const cx = gx0 + (i % 4) * (gw + gap), cy = gy0 + ((i / 4) | 0) * (gh + gap), it = pageItems[i];
+    rpath(cx, cy, gw, gh, 8);
+    if (!it) { ctx.fillStyle = 'rgba(12,16,32,.5)'; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.stroke(); continue }
+    const tier = TIERS[it.tier], chk = batchSel.has(it.id);
+    ctx.fillStyle = 'rgba(12,16,32,.92)'; ctx.fill();
+    ctx.fillStyle = tier.bg; ctx.fill();
+    if (chk) { ctx.fillStyle = 'rgba(0,229,255,.28)'; ctx.fill() }
+    ctx.lineWidth = chk ? 2.5 : 1.5; ctx.strokeStyle = chk ? '#00e5ff' : tier.c; ctx.stroke();
+    const up = isUpgrade(it), canW = (it.reqLvl || 1) <= S.lv;
+    fitTxt(it.name, cx + 8, cy + 18, up ? gw - 34 : gw - 16, 13, tier.c);
+    if (up) {                                                // 比身上这件更强：右上角向上箭头（等级不够时变橙色）
+      const bob = Math.sin(T * 5) * 1.5;
+      ctx.save(); ctx.shadowColor = canW ? '#2ed573' : '#ffa502'; ctx.shadowBlur = 8;
+      txt('▲', cx + gw - 14, cy + 16 + bob, 17, canW ? '#2ed573' : '#ffa502', 'center'); ctx.restore();
+    }
+    const sub = 'Lv.' + (it.reqLvl || 1) + (it.lvl ? ' +' + it.lvl : '') + (it.star ? ' ⭐' + it.star : '');
+    fitTxt(sub, cx + 8, cy + 42, (bagMulti || it.locked) ? gw - 40 : gw - 16, 12, (it.reqLvl || 1) > S.lv ? '#ff6b7a' : '#aab6c3');
+    if (it.locked) {                                       // 锁定：金色描边 + 🔒（多选模式下不可勾选）
+      ctx.save(); rpath(cx, cy, gw, gh, 8); ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,216,74,.55)'; ctx.stroke(); ctx.restore();
+      txt('🔒', cx + gw - 16, cy + gh - 16, 16, '#ffd84a', 'center', false);
+    } else if (bagMulti) {                                 // 多选模式：右下角大勾选框，点整格即可切换
+      const bx = cx + gw - 26, by = cy + gh - 26;
+      rpath(bx, by, 20, 20, 5); ctx.fillStyle = chk ? '#00e5ff' : 'rgba(255,255,255,.08)'; ctx.fill();
+      ctx.lineWidth = 1.5; ctx.strokeStyle = chk ? '#fff' : 'rgba(255,255,255,.4)'; ctx.stroke();
+      if (chk) txt('✔', bx + 10, by + 10, 13, '#041018', 'center', false);
+    }
+    bagHit(cx, cy, gw, gh, () => { if (bagMulti) toggleBatchSel(it.id); else selItem = { item: it, from: 'inv' } });
+  }
+
+  // 底部操作栏
+  const by = ry + 352;
+  rpath(rx + 10, by, rw - 20, 80, 10); ctx.fillStyle = 'rgba(8,12,24,.92)'; ctx.fill();
+  ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,229,255,.3)'; ctx.stroke();
+  if (bagMulti) {
+    let g = 0, m = 0; S.inv.forEach(it => { if (batchSel.has(it.id)) { const v = dismantleValue(it); g += v.g; m += v.mat } });
+    const n = batchSel.size;
+    if (bagNoticeT > 0) txt(bagNotice, rx + 22, by + 17, 13, '#ffd84a');
+    else txt(n ? '分解预估：金币 +' + fmtN(g) + '   碎晶 +' + fmtN(m) : '点击格子勾选装备（可翻页 / 换部件继续勾选）', rx + 22, by + 17, 13, n ? '#7dff9a' : '#8fa0b3');
+    const yb = by + 34, a1 = bagArmed('bdis'), a2 = bagArmed('bdrop');
+    const sel = S.inv.filter(it => batchSel.has(it.id)), allLocked = sel.length > 0 && sel.every(it => it.locked);
+    bagBtn(rx + 16, yb, 80, 38, '清空', '#4b6584', '#fff', 13, () => { batchSel.clear(); bagNotice = '已清空勾选'; bagNoticeT = 1.2 });
+    bagBtn(rx + 102, yb, 88, 38, allLocked ? '🔓 解锁' : '🔒 锁定', n ? '#b8860b' : '#3d4452', n ? '#fff' : '#8b95a1', 13, () => { if (n) batchLock() }, n ? '#ffd84a' : null);
+    bagBtn(rx + 196, yb, 160, 38, a1 ? '再点一次 确认分解' : '批量分解 (' + n + ')', n ? (a1 ? '#e0563a' : '#a55eea') : '#3d4452', n ? '#fff' : '#8b95a1', 13,
+      () => { if (n) bagConfirm('bdis', '再点一次确认：分解 ' + n + ' 件（+' + g + 'G / +' + m + '晶）', batchDismantle) }, n ? '#d6a2e8' : null);
+    bagBtn(rx + 362, yb, 156, 38, a2 ? '再点一次 确认丢弃' : '批量丢弃 (' + n + ')', n ? (a2 ? '#ff4757' : '#eb3b5a') : '#3d4452', n ? '#fff' : '#8b95a1', 13,
+      () => { if (n) bagConfirm('bdrop', '再点一次确认：丢弃 ' + n + ' 件（无收益）', batchDiscard) }, n ? '#ff7675' : null);
+  } else {
+    txt('点击装备查看详情 · 强化 / 升星 / 穿戴', rx + 22, by + 20, 13, '#7df9ff');
+    txt('要批量分解？先点上方「☐ 多选」再勾选装备', rx + 22, by + 44, 12, '#8fa0b3');
+    if (bagNoticeT > 0) txt(bagNotice, rx + 22, by + 66, 12, '#7dff9a');
+  }
+}
+
+// ---------- 详情视图：占满右侧，按钮加大，分解/丢弃需二次确认 ----------
+function drawBagDetail(rx, ry, rw) {
+  const it = selItem.item, tier = TIERS[it.tier], slotInfo = SLOTS[it.slot];
+  const currEq = S.eq[it.slot], isWorn = selItem.from === 'eq';
+  const reqLvl = it.reqLvl || 1, canWear = S.lv >= reqLvl, star = it.star | 0;
+  const uc = upgradeCost(it), mats = starMats(it).length, sc = starCost(it), dv = dismantleValue(it);
+  const canUp = S.g >= uc.g && S.mat >= uc.mat && (S.scr || 0) >= uc.scr;
+  const canStar = star < MAX_STAR && mats >= 2 && S.g >= sc;
+  const X = rx + 10, IW = rw - 20;
+
+  bagBtn(X, ry + 8, 112, 36, '← 返回背包', 'rgba(20,26,44,.8)', '#dfe6e9', 13, () => { selItem = null; bagArmKey = '' }, 'rgba(255,255,255,.25)');
+  rpath(X + 124, ry + 16, 52, 20, 5); ctx.fillStyle = tier.bg; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = tier.c; ctx.stroke();
+  txt(tier.n, X + 150, ry + 26, 12, tier.c, 'center', false);
+  rpath(X + 182, ry + 16, 72, 20, 5); ctx.fillStyle = 'rgba(255,255,255,.08)'; ctx.fill();
+  txt(slotInfo.n, X + 218, ry + 26, 12, '#dfe6e9', 'center', false);
+  chip(X + 260, ry + 16, 100, 20, '需求 Lv.' + reqLvl, canWear, 12);
+  bagBtn(X + IW - 100, ry + 8, 100, 36, it.locked ? '🔒 已锁定' : '🔓 未锁定', it.locked ? 'rgba(255,216,74,.25)' : 'rgba(20,26,44,.8)', it.locked ? '#ffd84a' : '#b8c2cc', 13,
+    () => toggleLock(it), it.locked ? '#ffd84a' : 'rgba(255,255,255,.25)');
+
+  txt(it.name, X + 4, ry + 66, 20, tier.c);
+  const nw = ctx.measureText(it.name).width;
+  if (it.lvl) txt('+' + it.lvl, X + nw + 14, ry + 66, 18, '#ffa502');
+  for (let i = 0; i < MAX_STAR; i++) {
+    ctx.save(); ctx.globalAlpha = i < star ? 1 : .2;
+    txt('⭐', rx + rw - 20 - (MAX_STAR - i) * 22 + 11, ry + 66, 17, '#ffd84a', 'center', false); ctx.restore();
+  }
+
+  // 左卡：属性对比
+  const cy = ry + 86, lcw = 250;
+  card(X, cy, lcw, 172);
+  txt(isWorn ? '当前属性（穿戴中）' : (currEq ? '对比现穿 · ' + currEq.name : '该槽位空置'), X + 12, cy + 15, 12, '#8fa0b3', 'left', false);
+  const oldStats = (currEq && currEq.stats) ? currEq.stats : {};
+  const rows = [['攻击力', 'atk', '#ff9f9f'], ['生命值', 'hp', '#7dffd0'], ['魔力值', 'mp', '#8ec5ff'], ['暴击率', 'crit', '#ffe08a', 1], ['免伤值', 'def', '#9dffb8']]
+    .filter(r => (it.stats[r[1]] || 0) || (oldStats[r[1]] || 0));
+  const rh = Math.min(30, 132 / Math.max(1, rows.length));
+  rows.forEach((r, i) => {
+    const yy = cy + 34 + rh * (i + .5), nv = it.stats[r[1]] || 0, ov = oldStats[r[1]] || 0, pc = !!r[3];
+    const show = v => pc ? Math.round(v * 100) + '%' : v;
+    txt(r[0], X + 12, yy, 13, r[2], 'left', false);
+    txt(show(nv), X + 72, yy, 17, '#fff');
+    if (!isWorn) {
+      const d = nv - ov;
+      if (d > 0) txt('▲' + show(d), X + lcw - 10, yy, 14, '#2ed573', 'right', false);
+      else if (d < 0) txt('▼' + show(-d), X + lcw - 10, yy, 14, '#ff4757', 'right', false);
+      else txt('＝', X + lcw - 10, yy, 14, '#778', 'right', false);
+    }
+  });
+
+  // 右上卡：强化
+  const RX = X + 258, rcw = IW - 258;
+  card(RX, cy, rcw, 82);
+  txt('🔨 强化  +' + it.lvl + ' → +' + (it.lvl + 1), RX + 10, cy + 18, 14, '#ffa502', 'left', false);
+  txt('+12%/级', RX + rcw - 10, cy + 18, 11, '#8fa0b3', 'right', false);
+  chip(RX + 8, cy + 48, 78, 24, '💰 ' + fmtN(uc.g), S.g >= uc.g, 12);
+  chip(RX + 90, cy + 48, 78, 24, '💎 ' + fmtN(uc.mat), S.mat >= uc.mat, 12);
+  chip(RX + 172, cy + 48, 76, 24, '📜 ' + uc.scr, (S.scr || 0) >= uc.scr, 12);
+
+  // 右下卡：升星
+  const sy = cy + 90;
+  card(RX, sy, rcw, 82);
+  if (star >= MAX_STAR) {
+    txt('⭐ 已满星（5 / 5）', RX + rcw / 2, sy + 41, 15, '#ffd84a', 'center');
+  } else {
+    txt('⭐ 升星  ' + star + ' → ' + (star + 1), RX + 10, sy + 18, 14, '#ffd84a', 'left', false);
+    txt('全属性 +25%/星', RX + rcw - 10, sy + 18, 11, '#8fa0b3', 'right', false);
+    chip(RX + 8, sy + 48, 100, 24, '💰 ' + fmtN(sc), S.g >= sc, 12);
+    chip(RX + 112, sy + 48, 136, 24, '📦 同名同品质 ' + Math.min(mats, 99) + '/2', mats >= 2, 11);
+  }
+
+  // 提示条
+  if (bagNoticeT > 0) txt(bagNotice, rx + rw / 2, ry + 274, 13, '#7dff9a', 'center');
+  else if (!canWear && !isWorn) txt('⚠ 等级不足，Lv.' + reqLvl + ' 才能穿戴', rx + rw / 2, ry + 274, 13, '#ff6b81', 'center');
+
+  // 按钮行 1：穿戴 / 强化 / 升星
+  const b1 = ry + 292, bh = 50;
+  bagBtn(X, b1, 246, bh, isWorn ? '卸下装备' : (canWear ? '穿戴装备' : '等级不足 · 需 Lv.' + reqLvl), isWorn ? '#2e86de' : (canWear ? '#2ed573' : '#57606f'), canWear || isWorn ? '#fff' : '#b2bec3', 15,
+    () => { if (isWorn) unequipItem(selItem.slotKey); else equipItem(it) });
+  bagBtn(X + 254, b1, 124, bh, '强化 +1', canUp ? '#ff9f43' : '#57606f', canUp ? '#fff' : '#b2bec3', 15, () => upgradeItem(it));
+  bagBtn(X + 386, b1, 128, bh, '升星 ⭐', canStar ? '#d4a017' : '#57606f', canStar ? '#fff' : '#b2bec3', 15, () => starUpItem(it));
+
+  // 按钮行 2：分解 / 丢弃（二次确认防误触）
+  const b2 = b1 + bh + 8, kd = 'dis:' + it.id, kx = 'drop:' + it.id;
+  const a1 = bagArmed(kd), a2 = bagArmed(kx);
+  const lk = !!it.locked, off = isWorn || lk;
+  bagBtn(X, b2, 253, bh, lk ? '🔒 已锁定 · 无法分解' : isWorn ? '分解（需先卸下）' : (a1 ? '再点一次 确认分解' : '分解  +' + fmtN(dv.g) + 'G  +' + fmtN(dv.mat) + '晶'), off ? '#3d4452' : (a1 ? '#e0563a' : '#a55eea'), off ? '#8b95a1' : '#fff', 14,
+    () => { if (off) { if (lk) { bagNotice = '🔒 该装备已锁定，请先解锁再分解'; bagNoticeT = 1.8 } else dismantleItem(it) } else bagConfirm(kd, '再点一次「分解」确认（+' + dv.g + 'G / +' + dv.mat + '晶）', () => dismantleItem(it)) });
+  bagBtn(X + 261, b2, 253, bh, lk ? '🔒 已锁定 · 无法丢弃' : isWorn ? '丢弃（需先卸下）' : (a2 ? '再点一次 确认丢弃' : '丢弃'), off ? '#3d4452' : (a2 ? '#ff4757' : '#eb3b5a'), off ? '#8b95a1' : '#fff', 14,
+    () => { if (off) { if (lk) { bagNotice = '🔒 该装备已锁定，请先解锁再丢弃'; bagNoticeT = 1.8 } else discardItem(it) } else bagConfirm(kx, '再点一次「丢弃」确认（无收益）', () => discardItem(it)) });
 }
 
 // ===== 极速胶囊检索与契约驱动终端 (按 N 键呼出) =====
@@ -555,10 +716,10 @@ function drawCapsuleModal() {
     ctx.fillStyle = 'rgba(12, 18, 36, 0.9)'; ctx.fill();
     ctx.strokeStyle = isCapEquipped ? '#2ed573' : (isCapOwned ? selCap.c : 'rgba(255,255,255,0.15)'); ctx.lineWidth = 1.6; ctx.stroke();
 
-    if (selCap.id === 'ryuki' && CAP_IMG) {
+    if (CAP_IMGS[selCap.id]) {
       ctx.save();
       rpath(rx + 14, ry + 14, rw - 28, cardH - 4, 6); ctx.clip();
-      ctx.drawImage(CAP_IMG, rx + 14, ry + 14, rw - 28, cardH - 4);
+      drawArt(CAP_IMGS[selCap.id], rx + 14, ry + 14, rw - 28, cardH - 4);
       ctx.restore();
     } else {
       ctx.save();
@@ -598,129 +759,18 @@ function drawCapsuleModal() {
     ctx.fillStyle = 'rgba(8, 12, 24, 0.85)'; ctx.fill();
     ctx.strokeStyle = 'rgba(0, 229, 255, 0.2)'; ctx.stroke();
 
-    txt('【契约战力加成】', rx + 24, infoY + 18, 11, '#7df9ff');
-    txt('• ' + selCap.buff, rx + 24, infoY + 38, 11, '#ffd84a');
+    txt('【契约战力加成】', rx + 24, infoY + 14, 11, '#7df9ff');
+    txt('• ' + selCap.buff, rx + 24, infoY + 31, 11, '#ffd84a');
 
-    txt('【终结必杀技】', rx + 24, infoY + 62, 11, '#ff7675');
-    txt('• ' + selCap.finisher, rx + 24, infoY + 80, 11, '#fff');
+    txt('【专属技能】', rx + 24, infoY + 51, 11, '#ffa502');
+    txt('• ' + selCap.skill, rx + 24, infoY + 68, 11, '#fff');
 
-    txt('【战术说明】', rx + 24, infoY + 104, 11, '#2ed573');
-    txt(selCap.desc + '\n战斗或基地中随时按【P键】即可进行变身/解除！', rx + 24, infoY + 122, 10, '#889');
+    txt('【终结必杀技】', rx + 24, infoY + 88, 11, '#ff7675');
+    txt('• ' + selCap.finisher, rx + 24, infoY + 105, 11, '#fff');
+
+    txt('【战术说明】 按 P 键变身 / 解除', rx + 24, infoY + 125, 11, '#2ed573');
+    txt(selCap.desc, rx + 24, infoY + 141, 10, '#889');
   }
-
-  ctx.restore();
-}
-
-// ===== 章节化传送门 =====
-function drawPortalModal() {
-  const pw = 680, ph = 472, px = (960 - pw) / 2, py = 34;
-  ctx.save();
-  ctx.fillStyle = 'rgba(4, 6, 16, 0.88)'; ctx.fillRect(0, 0, 960, 540);
-
-  rpath(px, py, pw, ph, 16); ctx.fillStyle = 'rgba(10, 14, 28, 0.96)'; ctx.fill();
-  ctx.lineWidth = 2; ctx.strokeStyle = '#00e5ff'; ctx.stroke();
-
-  rpath(px + 2, py + 2, pw - 4, 38, 14); ctx.fillStyle = 'rgba(0, 229, 255, 0.14)'; ctx.fill();
-  txt('🌌 维度传送门 · 战区战役部署', px + 20, py + 21, 15, '#7df9ff', 'left');
-  txt(`金币: ${S.g} G   Lv.${S.lv}   通关进度: ${Math.min(S.cl, ST.length)}/${ST.length}`, px + pw - 20, py + 21, 12, '#ffd84a', 'right');
-
-  const chapBarY = py + 48;
-  txt('【章节选择】', px + 20, chapBarY + 14, 12, '#00e5ff');
-
-  rpath(px + 90, chapBarY, 28, 28, 6);
-  ctx.fillStyle = curChapIdx > 0 ? 'rgba(0,229,255,0.2)' : 'rgba(255,255,255,0.05)'; ctx.fill();
-  ctx.strokeStyle = curChapIdx > 0 ? '#00e5ff' : '#444'; ctx.stroke();
-  txt('◀', px + 104, chapBarY + 14, 12, curChapIdx > 0 ? '#fff' : '#666', 'center');
-
-  rpath(px + pw - 38, chapBarY, 28, 28, 6);
-  const hasNextChap = curChapIdx < CHAPTERS.length - 1;
-  ctx.fillStyle = hasNextChap ? 'rgba(0,229,255,0.2)' : 'rgba(255,255,255,0.05)'; ctx.fill();
-  ctx.strokeStyle = hasNextChap ? '#00e5ff' : '#444'; ctx.stroke();
-  txt('▶', px + pw - 24, chapBarY + 14, 12, hasNextChap ? '#fff' : '#666', 'center');
-
-  const chapListX = px + 126, chapListW = pw - 172;
-  ctx.save();
-  rpath(chapListX, chapBarY - 2, chapListW, 32, 6); ctx.clip();
-
-  const tabW = 230, tabGap = 10;
-  CHAPTERS.forEach((chap, idx) => {
-    const tabX = chapListX + idx * (tabW + tabGap) + chapScrollX;
-    const isAct = idx === curChapIdx;
-    const isUnlocked = chap.stages[0] <= S.cl;
-    const isCleared = chap.stages.every(s => s < S.cl);
-
-    rpath(tabX, chapBarY, tabW, 28, 6);
-    ctx.fillStyle = isAct ? 'rgba(0, 229, 255, 0.28)' : 'rgba(16, 22, 40, 0.7)'; ctx.fill();
-    ctx.lineWidth = isAct ? 1.8 : 1;
-    ctx.strokeStyle = isAct ? '#00e5ff' : (isUnlocked ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.08)'); ctx.stroke();
-
-    const tagText = isCleared ? ' [✔已通关]' : (isUnlocked ? ' [挑战中]' : ' [🔒未解锁]');
-    txt(chap.name + ' · ' + chap.title + tagText, tabX + tabW / 2, chapBarY + 14, 11, isAct ? '#ffd84a' : (isUnlocked ? '#ddd' : '#777'), 'center');
-  });
-  ctx.restore();
-
-  const currChap = CHAPTERS[curChapIdx];
-  txt(currChap.sub + ' —— ' + currChap.desc, px + 22, py + 88, 11, '#889');
-
-  const stagesY = py + 104;
-  currChap.stages.forEach((stIdx, i) => {
-    const s = ST[stIdx];
-    const isSel = stIdx === selStageIdx;
-    const isUnlocked = stIdx <= S.cl;
-    const isCleared = stIdx < S.cl;
-    const sy = stagesY + i * 86, sw = pw - 40, sh = 78;
-
-    rpath(px + 20, sy, sw, sh, 10);
-    ctx.fillStyle = isSel ? 'rgba(0, 229, 255, 0.18)' : 'rgba(12, 18, 34, 0.75)'; ctx.fill();
-    ctx.lineWidth = isSel ? 2 : 1;
-    ctx.strokeStyle = isSel ? '#00e5ff' : (isUnlocked ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.06)'); ctx.stroke();
-
-    const badgeX = px + 55, badgeY = sy + 39;
-    ctx.beginPath(); ctx.arc(badgeX, badgeY, 22, 0, Math.PI * 2);
-    ctx.fillStyle = isSel ? 'rgba(0, 229, 255, 0.3)' : (isUnlocked ? 'rgba(255,216,74,0.15)' : 'rgba(30,36,50,0.8)'); ctx.fill();
-    ctx.strokeStyle = isSel ? '#00e5ff' : (isUnlocked ? '#ffd84a' : '#555'); ctx.lineWidth = 1.6; ctx.stroke();
-    txt(s.n.split(' ')[0], badgeX, badgeY, 13, isUnlocked ? '#ffd84a' : '#777', 'center');
-
-    txt(s.n + (s.b ? '  ★首领战' : ''), px + 90, sy + 24, 15, isUnlocked ? (isSel ? '#ffd84a' : '#fff') : '#666');
-    txt('推荐等级: Lv.' + s.r + ' (产出最高 Lv.' + s.r + ' 装备)', px + 300, sy + 24, 12, isUnlocked ? '#7df9ff' : '#555');
-
-    const targetText = '目标: 击败 ' + s.k + ' 只敌人' + (s.b ? ' 并讨伐首领 [' + s.bn + ']' : '');
-    txt(targetText, px + 90, sy + 52, 12, isUnlocked ? '#aaa' : '#555');
-    txt('🪙 奖励: +' + s.g + ' G', px + 340, sy + 52, 12, isUnlocked ? '#ffd84a' : '#555');
-
-    const stateW = 100, stateH = 34, stateX = px + sw - stateW - 10, stateY = sy + 22;
-    rpath(stateX, stateY, stateW, stateH, 6);
-    if (!isUnlocked) {
-      ctx.fillStyle = 'rgba(30, 36, 50, 0.6)'; ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.stroke();
-      txt('🔒 未解锁', stateX + stateW / 2, stateY + stateH / 2, 12, '#666', 'center');
-    } else if (isSel) {
-      ctx.fillStyle = '#00d2d3'; ctx.fill();
-      txt('⚡ 选定挑战', stateX + stateW / 2, stateY + stateH / 2, 12, '#041018', 'center');
-    } else if (isCleared) {
-      ctx.fillStyle = 'rgba(46, 213, 115, 0.2)'; ctx.fill();
-      ctx.strokeStyle = '#2ed573'; ctx.stroke();
-      txt('✔ 已通关', stateX + stateW / 2, stateY + stateH / 2, 12, '#2ed573', 'center');
-    } else {
-      ctx.fillStyle = 'rgba(255, 216, 74, 0.2)'; ctx.fill();
-      ctx.strokeStyle = '#ffd84a'; ctx.stroke();
-      txt('可挑战', stateX + stateW / 2, stateY + stateH / 2, 12, '#ffd84a', 'center');
-    }
-  });
-
-  const btmY = py + ph - 58;
-  rpath(px + 10, btmY - 6, pw - 20, 52, 8); ctx.fillStyle = 'rgba(6, 10, 22, 0.9)'; ctx.fill();
-  ctx.strokeStyle = 'rgba(0, 229, 255, 0.25)'; ctx.stroke();
-
-  rpath(px + 22, btmY, 140, 38, 8); ctx.fillStyle = 'rgba(255, 71, 87, 0.18)'; ctx.fill();
-  ctx.strokeStyle = '#ff4757'; ctx.lineWidth = 1.2; ctx.stroke();
-  txt('← 返回基地 [ESC]', px + 22 + 70, btmY + 19, 12, '#ff7675', 'center');
-
-  const canGo = selStageIdx <= S.cl;
-  rpath(px + pw - 200, btmY, 180, 38, 8); ctx.fillStyle = canGo ? '#2ed573' : 'rgba(50, 60, 80, 0.6)'; ctx.fill();
-  if (canGo) { ctx.strokeStyle = '#7dff9a'; ctx.lineWidth = 1.5; ctx.stroke(); }
-  txt(canGo ? '⚡ 立即出征 [Enter]' : '关卡尚未解锁', px + pw - 110, btmY + 19, 13, canGo ? '#fff' : '#888', 'center');
-  txt('A/D 切换章节   W/S 选关   Enter 出征', px + pw / 2 - 10, btmY + 19, 11, '#889', 'center');
 
   ctx.restore();
 }
@@ -735,7 +785,7 @@ function toVil(p) {
   P.mp = P.mm;            // 魔力值回满
   P.sta = P.stm;          // 耐力/能量条一并回满
   Object.assign(P, { x: p ? 1800 : 250, y: GY, vx: 0, vy: 0, f: 1, st: 'idle', inv: 0, land: 0, t: 0 });
-  if (p === 'st') openPortal();
+  if (p === 'st') openPortal(true);
 }
 
 function buy(o) {
@@ -743,10 +793,58 @@ function buy(o) {
   S.g -= o.g || 0; S.tp -= o.t || 0; o.f(); calc(); save(); say('强化成功！');
 }
 
-function openRyukiGachaSettlement(isNew = true) {
-  gachaModal = { type: 'ryuki', isNew };
+// ===== 扭蛋：奖池 / 概率 / 抽取 =====
+// 每次抽取独立随机：各胶囊按下表概率，其余为体力药水与「谢谢惠顾」。重复抽中已拥有的胶囊——什么也不会返还。
+// 新增胶囊时只要在 CAPSULES 里加一项；没写概率的默认 10%，总和超过 100% 会自动等比缩小。
+const GACHA_COST = 150, GACHA_RATE = { ryuki: 20, '555': 20 }, GACHA_POTION = 25;
+let gachaQ = [];      // 十连结算后，等待依次展示的新胶囊卡面
+
+function gachaTable() {
+  const t = CAPSULES.map(c => ({ kind: 'cap', c, p: GACHA_RATE[c.id] !== undefined ? GACHA_RATE[c.id] : 10 }));
+  t.push({ kind: 'potion', p: GACHA_POTION });
+  const sum = t.reduce((a, b) => a + b.p, 0);
+  if (sum > 100) t.forEach(r => r.p *= 100 / sum);
+  t.push({ kind: 'none', p: Math.max(0, 100 - Math.min(100, sum)) });
+  return t;
 }
 
+function gachaPull(n) {
+  const cost = GACHA_COST * n;
+  if (S.g < cost) return say('金币不足');
+  S.g -= cost;
+  const tb = gachaTable(), res = [], fresh = [];
+  for (let i = 0; i < n; i++) {
+    let r = Math.random() * 100, hit = tb[tb.length - 1];
+    for (const e of tb) { if (r < e.p) { hit = e; break } r -= e.p }
+    if (hit.kind === 'cap') {
+      if (S.caps.includes(hit.c.id)) res.push({ k: 'dup', c: hit.c });
+      else { S.caps.push(hit.c.id); if (!S.eqCap) S.eqCap = hit.c.id; res.push({ k: 'new', c: hit.c }); fresh.push(hit.c.id) }
+    } else if (hit.kind === 'potion') {
+      if (S.hp < 9) { S.hp++; res.push({ k: 'potion' }) } else res.push({ k: 'potion', full: 1 });
+    } else res.push({ k: 'none' });
+  }
+  save();
+  MN.last = res;
+  gachaQ = fresh.map(id => ({ type: id, isNew: true }));
+  if (n > 1) gachaModal = { type: 'sum', res };
+  else if (gachaQ.length) gachaModal = gachaQ.shift();
+  else {
+    const r = res[0];
+    say(r.k === 'dup' ? '重复的【' + r.c.short + '】胶囊——没有任何补偿' : r.k === 'potion' ? (r.full ? '抽中体力药水，但背包已满' : '抽中体力药水 ×1') : '谢谢惠顾，什么也没抽到');
+  }
+}
+
+function openCapsuleGachaSettlement(id, isNew = true) {
+  gachaModal = { type: id, isNew };
+}
+function openRyukiGachaSettlement(isNew = true) { openCapsuleGachaSettlement('ryuki', isNew) }   // 兼容旧调用
+
+// 铁匠铺研磨价格：随等级递增（等级越高，每级涨得越多）
+// 公式 80 × (Lv+1) × (1 + Lv/10)，取整到 10：Lv0=80  Lv10=1760  Lv24=6800  Lv50=24480  Lv100=88890
+const forgeCost = lv => Math.round(80 * (lv + 1) * (1 + lv / 10) / 10) * 10;
+
+// 条目字段：n=名称（两个以上空格后为标签）  ic=图标  d=说明  g/t=金币/天赋点花费  max=已满
+//           bt=按钮动词  hold=[当前,上限]（显示持有条）  st=1（详情里预览升级后的属性变化）  nv=1（非购买动作）
 function items() {
   const p = V.pg, bk = { n: '← 返回', nv: 1, f: () => { M = 0 } };
   if (p === 'main') return [
@@ -758,110 +856,32 @@ function items() {
   ].map(([n, q]) => ({ n, nv: 1, f: () => (q === 'st' ? openPortal() : go(q)) }));
 
   if (p === 'shop') return [
-    { n: '体力药水   持有 ' + S.hp, d: '战斗中按 1：回复 50% 生命（上限9）', g: 40, max: S.hp >= 9, f: () => S.hp++ },
-    { n: '魔力药水   持有 ' + S.mp, d: '战斗中按 2：回复 60% 魔力（上限9）', g: 40, max: S.mp >= 9, f: () => S.mp++ }, bk];
+    { n: '体力药水   持有 ' + S.hp, ic: '🧪', d: '战斗中按 1：回复 50% 生命（上限9）', g: 40, max: S.hp >= 9, bt: '购买', hold: [S.hp, 9], f: () => S.hp++ },
+    { n: '魔力药水   持有 ' + S.mp, ic: '💧', d: '战斗中按 2：回复 60% 魔力（上限9）', g: 40, max: S.mp >= 9, bt: '购买', hold: [S.mp, 9], f: () => S.mp++ },
+    { n: '强化卷轴   持有 ' + (S.scr || 0), ic: '📜', d: '装备强化必需材料（怪物也会掉落，上限99）', g: 300, max: (S.scr || 0) >= 99, bt: '购买', hold: [S.scr || 0, 99], f: () => { S.scr = (S.scr || 0) + 1 } }, bk];
 
-  if (p === 'gacha') {
-    const hasRyuki = S.caps.includes('ryuki');
-    return [
-      {
-        n: '胶囊抽取 (150 G / 次)',
-        d: '投入金币抽取变身胶囊！高概率获取【假面骑士 龙骑】变身胶囊！',
-        g: 150,
-        f: () => {
-          if (!hasRyuki && Math.random() < 0.65) {
-            S.caps.push('ryuki'); if (!S.eqCap) S.eqCap = 'ryuki'; save();
-            openRyukiGachaSettlement(true);
-          } else if (hasRyuki) {
-            S.g += 120; S.xp += 60; save();
-            say('重复抽中龙骑核心，已转化为 120G 与 60 经验！');
-          } else {
-            S.hp = Math.min(9, S.hp + 1); save();
-            say('抽中祝福宝箱，获得体力药水 ×1！');
-          }
-        }
-      },
-      {
-        n: '保底兑换【龙骑变身胶囊】(450 G)',
-        d: hasRyuki ? '你已拥有该胶囊' : '必定获得【假面骑士 龙骑】变身胶囊并自动装备！',
-        g: 450,
-        max: hasRyuki,
-        f: () => {
-          if (!S.caps.includes('ryuki')) { S.caps.push('ryuki'); if (!S.eqCap) S.eqCap = 'ryuki'; save(); openRyukiGachaSettlement(true) }
-        }
-      },
-      {
-        n: '查看结算卡面【龙骑胶囊】',
-        d: '查看在Draw文件夹中的KR_Ryuki.jpg结算界面',
-        nv: 1,
-        f: () => openRyukiGachaSettlement(false)
-      },
-      bk
-    ];
-  }
+  // 扭蛋：只有 单抽 / 十连 / 奖池说明（？）——抽取逻辑见 gachaPull，界面见 menu.js
+  if (p === 'gacha') return [
+    { n: '单抽', nv: 1, f: () => gachaPull(1) },
+    { n: '十连抽', nv: 1, f: () => gachaPull(10) },
+    { n: '奖池概率', nv: 1, f: () => { MN.rates = true } },
+    bk
+  ];
 
   // 铁匠铺：胶囊已剥离，无上限等级，攻击+1%/生命+5%/伤害-0.1%/魔力+3%
   if (p === 'eq') {
-    const q = (k, n, d) => ({ n: n + '  Lv.' + S[k], d, g: 80 * (S[k] + 1), max: false, f: () => S[k]++ });
+    const q = (k, n, d, ic) => ({ n: n + '  Lv.' + S[k], ic, d, g: forgeCost(S[k]), max: false, bt: '研磨', st: 1, f: () => S[k]++ });
     return [
-      q('sw', '基础斩刃研磨', '基础攻击力 +1% / 级（无上限）'),
-      q('ar', '基础装甲强化', '基础生命 +5%、受到伤害 -0.1% / 级（无上限）'),
-      q('bt', '驱动引擎调试', '基础魔力 +3% / 级（无上限）'),
+      q('sw', '基础斩刃研磨', '基础攻击力 +1% / 级（无上限）', '⚔'),
+      q('ar', '基础装甲强化', '基础生命 +5%、受到伤害 -0.1% / 级（无上限）', '🛡'),
+      q('bt', '驱动引擎调试', '基础魔力 +3% / 级（无上限）', '⚙'),
       bk
     ];
   }
 
   // 天赋：解除 10 级上限，允许无上限加点
-  if (p === 'tal') return [...TL.map((t, k) => ({ n: t[0] + '  Lv.' + S.ta[k], d: t[1] + ' / 级（无上限加点）', t: 1, max: false, f: () => S.ta[k]++ })), bk];
+  if (p === 'tal') return [...TL.map((t, k) => ({ n: t[0] + '  Lv.' + S.ta[k], ic: ['💥', '❤', '🔷', '🎯'][k] || '◆', d: t[1] + ' / 级（无上限加点）', t: 1, max: false, bt: '加点', st: 1, f: () => S.ta[k]++ })), bk];
   return [bk];
 }
 
-function drawV() {
-  rpath(180, 30, 600, 480, 18); ctx.fillStyle = 'rgba(10,12,24,.94)'; ctx.fill(); ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 2; ctx.stroke();
-  txt(RM.npc + '：' + RM.hi, 480, 62, 18, RM.nc, 'center'); txt('金币 ' + S.g + '    Lv.' + S.lv + '    天赋点 ' + S.tp, 480, 94, 15, '#fff', 'center');
-  txt('攻击 ' + (P.atk | 0) + '   生命 ' + P.mh + '   魔力 ' + P.mm + '   暴击 ' + Math.round(P.cr * 100) + '%', 480, 118, 14, '#9df', 'center');
-  rpath(200, 135, 560, 305, 12); ctx.fillStyle = 'rgba(4,7,16,.75)'; ctx.fill();
-
-  const listW = 540;
-  const it = items(); it.forEach((o, k) => {
-    const y = 168 + k * 44, sel = k === V.i; if (sel) { rpath(210, y - 18, listW, 36, 8); ctx.fillStyle = 'rgba(0,229,255,.22)'; ctx.fill() }
-    txt((sel ? '▶ ' : '   ') + o.n, 225, y, 15, o.lock ? '#666' : sel ? '#ffd84a' : '#fff');
-    if (o.g || o.t) txt(o.max ? 'MAX' : (o.g ? o.g + 'G ' : '') + (o.t ? o.t + ' 点' : ''), 210 + listW - 15, y, 14, o.max ? '#7dff9a' : (S.g >= (o.g || 0) && S.tp >= (o.t || 0)) ? '#ffd84a' : '#f66', 'right');
-  });
-
-  const o = it[V.i]; if (o && o.d) txt(o.d, 225, 415, 13, '#9df');
-  if (V.mt > 0) txt(V.m, 480, 455, 16, '#7dff9a', 'center');
-  txt('W/S 选择    Enter/F 确认    Esc 关闭', 480, 490, 13, '#888', 'center');
-}
-
-function drawGachaModalOverlay() {
-  ctx.save();
-  ctx.fillStyle = 'rgba(4, 6, 14, 0.92)'; ctx.fillRect(0, 0, 960, 540);
-
-  const cx = 480, cy = 255;
-  ctx.save(); ctx.translate(cx, cy);
-  for (let a = 0; a < 12; a++) {
-    ctx.rotate(Math.PI / 6); ctx.fillStyle = (a % 2 === 0) ? 'rgba(255, 71, 87, 0.08)' : 'rgba(255, 216, 74, 0.05)';
-    ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, 360, -0.2, 0.2); ctx.fill();
-  }
-  ctx.restore();
-
-  if (CAP_IMG) {
-    const iw = 560, ih = 315, ix = 480 - iw / 2, iy = 72;
-    ctx.save();
-    ctx.shadowColor = '#ff3838'; ctx.shadowBlur = 28 + Math.sin(T * 5) * 10;
-    rpath(ix, iy, iw, ih, 16); ctx.clip();
-    ctx.drawImage(CAP_IMG, ix, iy, iw, ih);
-    ctx.restore();
-    rpath(ix, iy, iw, ih, 16); ctx.strokeStyle = '#ffd84a'; ctx.lineWidth = 3; ctx.stroke();
-  }
-
-  txt(gachaModal.isNew ? '🎉 恭喜获得传说变身胶囊！' : '★ 假面骑士 龙骑 · 契约胶囊 ★', 480, 42, 22, '#ffd84a', 'center');
-  txt('【假面骑士 龙骑】KAMEN RIDER RYUKI', 480, 412, 20, '#ff4757', 'center');
-  txt('按【N键】可随时呼出胶囊终端进行装配！战斗中按【P键】变身！', 480, 442, 14, '#7df9ff', 'center');
-
-  rpath(360, 468, 240, 40, 12); ctx.fillStyle = '#ff4757'; ctx.fill();
-  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
-  txt('确定 [Enter / 空格]', 480, 488, 15, '#fff', 'center');
-  ctx.restore();
-}
+// 药铺 / 铁匠铺 / 训练馆 / 扭蛋机 的界面与扭蛋结算见 menu.js（drawV / drawGachaModalOverlay）

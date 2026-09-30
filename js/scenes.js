@@ -6,106 +6,23 @@ const BD = [
   { x: 1460, n: '训练馆', pg: 'tal', bf: '训练馆.jpg', rf: '训练馆背景.jpg', npc: '教官 无相', hi: '升级得来的天赋点，在这里点（无上限强化）。', c: '#6a5acd', nc: '#b8a8ff', h: 330 },
   { x: 1720, n: '扭蛋机', pg: 'gacha', bf: '扭蛋机.jpg', rf: '', npc: '扭蛋终端', hi: '放入金币，抽取假面骑士龙骑变身胶囊！', c: '#e84118', nc: '#ff7675', h: 195 }
 ];
-const EL = { x: 500, npc: '长老 阿公' }, PT = 1950, PG = { npc: '传送门', hi: '选择要挑战的章节与关卡', nc: '#7df', pg: 'st' }, RMN = 640;
+const EL = { x: 500, npc: '长老 阿公' }, PT = 1950, PG = { npc: '传送门', hi: '选择要挑战的章节与关卡', nc: '#7df', pg: 'st', h: 300 }, RMN = 640;
 RM = BD[0];
 const RW = () => RM.ri ? Math.max(960, RM.ri.width * 540 / RM.ri.height | 0) : 960;
 
-// 传送门章节滑动与定位状态
-let curChapIdx = 0, selStageIdx = 0, chapScrollX = 0, isDraggingChap = false, dragStartX = 0, dragStartScrollX = 0;
-
-function getHighestChapterIdx() {
-  const maxStage = Math.min(ST.length - 1, S.cl);
-  for (let i = CHAPTERS.length - 1; i >= 0; i--) {
-    if (CHAPTERS[i].stages.some(idx => idx <= maxStage)) {
-      return i;
-    }
-  }
-  return 0;
-}
-// 传送门章节滑动与居中定位
-function syncChapScroll() {
-  const pw = 680, chapListW = pw - 172, tabW = 230, tabGap = 10;
-  const minScroll = Math.min(0, chapListW - CHAPTERS.length * (tabW + tabGap));
-  const target = -(curChapIdx * (tabW + tabGap)) + (chapListW - tabW) / 2;
-  chapScrollX = cl(target, minScroll, 0);
-}
-
-function openPortal() {
-  RM = PG;
-  V.pg = 'st';
-  M = 1;
-  curChapIdx = getHighestChapterIdx();
-  const stages = CHAPTERS[curChapIdx].stages;
-  const avail = stages.filter(s => s <= S.cl);
-  selStageIdx = avail.length > 0 ? avail[avail.length - 1] : stages[0];
-  syncChapScroll();
-}
-
-function portalUpdate(dt) {
-  if (PR.Escape) { M = 0; delete PR.Escape; return }
-  const chap = CHAPTERS[curChapIdx];
-
-  // A键 / 左方向键 切换上一章
-  if (PR.KeyA || PR.ArrowLeft) {
-    if (curChapIdx > 0) {
-      curChapIdx--;
-      const stages = CHAPTERS[curChapIdx].stages;
-      const avail = stages.filter(s => s <= S.cl);
-      selStageIdx = avail.length > 0 ? avail[avail.length - 1] : stages[0];
-      syncChapScroll();
-    }
-    delete PR.KeyA; delete PR.ArrowLeft;
-  }
-
-  // D键 / 右方向键 切换下一章
-  if (PR.KeyD || PR.ArrowRight) {
-    if (curChapIdx < CHAPTERS.length - 1) {
-      const nextChap = CHAPTERS[curChapIdx + 1];
-      if (nextChap.stages[0] <= S.cl) {
-        curChapIdx++;
-        const stages = CHAPTERS[curChapIdx].stages;
-        const avail = stages.filter(s => s <= S.cl);
-        selStageIdx = avail.length > 0 ? avail[avail.length - 1] : stages[0];
-        syncChapScroll();
-      } else {
-        say('下一章节尚未解锁！请先通关当前章节。');
-      }
-    }
-    delete PR.KeyD; delete PR.ArrowRight;
-  }
-
-  // W/S 切换当前章节内的关卡
-  const stages = chap.stages;
-  let curPos = stages.indexOf(selStageIdx);
-  if (curPos === -1) curPos = 0;
-  if (PR.KeyW || PR.ArrowUp) {
-    if (curPos > 0) selStageIdx = stages[curPos - 1];
-    delete PR.KeyW; delete PR.ArrowUp;
-  }
-  if (PR.KeyS || PR.ArrowDown) {
-    if (curPos < stages.length - 1) selStageIdx = stages[curPos + 1];
-    delete PR.KeyS; delete PR.ArrowDown;
-  }
-
-  // 回车 / 空格 / F 键出征
-  if (PR.Enter || PR.Space || PR.KeyF) {
-    delete PR.Enter; delete PR.Space; delete PR.KeyF;
-    if (selStageIdx <= S.cl) {
-      M = 0;
-      begin(selStageIdx);
-    } else {
-      say('该关卡尚未解锁！');
-    }
-  }
-}
+// 传送门（模式选择 / 副本 / 世界BOSS）的状态与界面见 portal.js
 
 function vupd(dt) {
   if (gachaModal) {
-    if (PR.Enter || PR.Space || PR.Escape || PR.KeyF) { gachaModal = null; delete PR.Enter; delete PR.Space; delete PR.Escape; delete PR.KeyF }
+    if (PR.Enter || PR.Space || PR.Escape || PR.KeyF) { gachaModal = gachaQ.shift() || null; delete PR.Enter; delete PR.Space; delete PR.Escape; delete PR.KeyF }
     return;
   }
   if (M) {
     if (V.pg === 'st') { portalUpdate(dt); return; }
+    if (V.pg === 'gacha' && MN.rates) {            // 奖池说明打开时：任意确认键 / Esc 只关说明
+      if (PR.Enter || PR.Space || PR.Escape || PR.KeyF) { MN.rates = false; delete PR.Enter; delete PR.Space; delete PR.Escape; delete PR.KeyF }
+      return;
+    }
     const it = items(), n = it.length;
     if (PR.KeyW || PR.ArrowUp) V.i = (V.i + n - 1) % n;
     if (PR.KeyS || PR.ArrowDown) V.i = (V.i + 1) % n;
@@ -130,18 +47,22 @@ function vupd(dt) {
 }
 
 function bg() {
-  if (!SC) { ctx.fillStyle = '#0b0812'; ctx.fillRect(0, 0, 960, 540); return }
-  const w = SC.width * 540 / SC.height, k = Math.floor(cam / w);
+  // 根据当前关卡对应的章节 (ST[cur].set，范围 1~10) 选取地景
+  const curSet = (typeof cur === 'number' && ST[cur] && ST[cur].set) ? ST[cur].set : 1;
+  const curSc = SC_MAP[curSet] || SC || SC_MAP[1];
+
+  if (!curSc) { ctx.fillStyle = '#0b0812'; ctx.fillRect(0, 0, 960, 540); return }
+  const w = curSc.width * 540 / curSc.height, k = Math.floor(cam / w);
   for (let i = k; i * w - cam < 960; i++) {
-    ctx.save(); const x = i * w - cam; if (i & 1) { ctx.translate(x + w, 0); ctx.scale(-1, 1) } else ctx.translate(x, 0);
-    ctx.drawImage(SC, 0, 0, w + 1, 540); ctx.restore();
+    ctx.save(); const x = sn(i * w - cam); if (i & 1) { ctx.translate(x + w + 1, 0); ctx.scale(-1, 1) } else ctx.translate(x, 0);
+    ctx.drawImage(curSc, 0, 0, w + 1, 540); ctx.restore();
   }
   const v = (G === 'play' || G === 'over' || G === 'win') ? ST[cur].ov : '';
   if (v) { ctx.fillStyle = v; ctx.fillRect(0, 0, 960, 540) }
 }
 
 function npc(x, y, c, n, im = null) {
-  y += Math.sin(T * 2 + x) * 2;
+  x = sn(x); y = sn(y + Math.sin(T * 2 + x) * 2);
   if (im) {
     const targetH = 145;
     const k = targetH / im.height;
@@ -159,7 +80,7 @@ function npc(x, y, c, n, im = null) {
 }
 
 function house(b) {
-  const x = b.x - cam; if (x < -250 || x > 1210) return;
+  const x = sn(b.x - cam); if (x < -250 || x > 1210) return;
   const bh = b.h || 330;
   if (b.bi) { const k = bh / b.bi.height; ctx.drawImage(b.bi, x - b.bi.width * k / 2, GY + 10 - bh, b.bi.width * k, bh); return }
   rpath(x - 90, GY - bh / 2, 180, bh / 2, 12); ctx.fillStyle = b.c + '44'; ctx.fill(); ctx.strokeStyle = b.c; ctx.lineWidth = 2; ctx.stroke();
@@ -167,12 +88,24 @@ function house(b) {
 }
 
 function portal(x) {
-  x -= cam; const c = '#4cd0ff', p = 1 + Math.sin(T * 3) * .06; ctx.save(); ctx.shadowColor = c; ctx.shadowBlur = 30; ctx.strokeStyle = c; ctx.lineWidth = 8; ctx.fillStyle = '#0b1a3acc';
+  x = sn(x - cam);
+  if (x < -250 || x > 1210) return;
+  const c = '#4cd0ff', p = 1 + Math.sin(T * 3) * .06;
+  if (PG.bi) {                                   // 贴图：Assets/Buildings/传送门.jpg（main.js 中抠底后挂到 PG.bi）
+    const bh = PG.h, k = bh / PG.bi.height, bw = PG.bi.width * k;
+    ctx.save();
+    ctx.shadowColor = c; ctx.shadowBlur = 22 + Math.sin(T * 3) * 8;
+    ctx.drawImage(PG.bi, sn(x - bw / 2), sn(GY + 10 - bh), bw, bh);
+    ctx.restore();
+    txt('传送门', x, GY - bh - 6, 18, c, 'center');
+    return;
+  }
+  ctx.save(); ctx.shadowColor = c; ctx.shadowBlur = 30; ctx.strokeStyle = c; ctx.lineWidth = 8; ctx.fillStyle = '#0b1a3acc';
   ctx.beginPath(); ctx.ellipse(x, GY - 105, 58 * p, 110 * p, 0, 0, 7); ctx.fill(); ctx.stroke(); ctx.restore(); ctx.strokeStyle = '#ff9a3a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(x, GY - 105, 40 * p, 88 * p, 0, 0, 7); ctx.stroke(); txt('传送门', x, GY - 235, 18, c, 'center');
 }
 
 function drawRoom() {
-  if (RM.ri) { const k = 540 / RM.ri.height; ctx.drawImage(RM.ri, -cam, 0, RM.ri.width * k, 540); ctx.fillStyle = 'rgba(60,255,140,.25)'; ctx.fillRect(30 - cam, GY - 140, 80, 140); txt('← 出口', 70 - cam, GY - 150, 15, '#7dff9a', 'center'); npc(RMN - cam, GY, RM.nc, RM.npc); return }
+  if (RM.ri) { const k = 540 / RM.ri.height; ctx.drawImage(RM.ri, sn(-cam), 0, RM.ri.width * k, 540); ctx.fillStyle = 'rgba(60,255,140,.25)'; ctx.fillRect(30 - cam, GY - 140, 80, 140); txt('← 出口', 70 - cam, GY - 150, 15, '#7dff9a', 'center'); npc(RMN - cam, GY, RM.nc, RM.npc); return }
   ctx.fillStyle = '#181024'; ctx.fillRect(0, 0, 960, 540); ctx.fillStyle = RM.c + '44'; ctx.fillRect(0, 0, 960, GY); ctx.fillStyle = '#3a2a1e'; ctx.fillRect(0, GY, 960, 70);
   ctx.fillStyle = '#2a1a10'; ctx.fillRect(25, GY - 130, 90, 130); txt('出口', 70, GY - 140, 14, '#fff', 'center'); npc(650, GY, RM.nc, RM.npc);
 }
@@ -180,7 +113,7 @@ function drawRoom() {
 function drawW() {
   const rm = G === 'room';
   if (!rm) {
-    if (IM.v) { const k = 540 / IM.v.height, bw = Math.max(960, IM.v.width * k); ctx.drawImage(IM.v, -cam * (bw - 960) / Math.max(1, VW - 960), 0, bw, 540) }
+    if (IM.v) { const k = 540 / IM.v.height, bw = Math.max(960, IM.v.width * k); ctx.drawImage(IM.v, sn(-cam * (bw - 960) / Math.max(1, VW - 960)), 0, bw, 540) }
     else { ctx.fillStyle = '#12101e'; ctx.fillRect(0, 0, 960, 540) }
     BD.forEach(house); npc(EL.x - cam, GY, '#dcdcdc', EL.npc, EL.im); portal(PT);
   } else drawRoom();
@@ -189,7 +122,7 @@ function drawW() {
   if (NR && !M) { txt('[F] ' + NR.t, P.x - cam, P.y - 250, 18, '#ffd84a', 'center') }
   if (V.mt > 0 && !M) txt(V.m, 480, 470, 18, '#7dff9a', 'center');
 
-  const henshinPrompt = P.ryuki ? '[P] 解除变身' : (S.eqCap === 'ryuki' ? '[P] 龙骑变身' : '[P] 变身试演');
+  const henshinPrompt = inForm() ? '[P] 解除变身' : (S.eqCap ? '[P] ' + capShort() + '变身' : '[P] 变身试演');
   txt('A/D 移动   W/空格 跳跃   F 互动   ' + henshinPrompt + '   [C] 背包   [N] 胶囊', 480, 524, 13, '#bbb', 'center');
   if (M) {
     if (V.pg === 'st') drawPortalModal();

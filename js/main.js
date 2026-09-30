@@ -1,6 +1,27 @@
 // ===== 资源初始化 =====
 async function prep() {
-  msg = '加载场景…'; SC = await load(SCN);
+  msg = '加载章节场景…';
+  // 预加载 1~10 章地景：Chapter 1.jpg ~ Chapter 10.jpg
+  for (let ch = 1; ch <= 10; ch++) {
+    const tryList = [
+      A + `Scenes/Chapter ${ch}.jpg`,
+      A + `Scenes/Chapter ${ch}.png`,
+      A + `Scenes/Chapter${ch}.jpg`,
+      A + `Scenes/Chapter${ch}.png`,
+      SCN // 兜底备用
+    ];
+    for (const p of tryList) {
+      try {
+        SC_MAP[ch] = await load(p);
+        if (SC_MAP[ch]) break;
+      } catch (e) {}
+    }
+    // 若当前章节图片未找到，自动沿用第 1 章背景
+    if (!SC_MAP[ch] && SC_MAP[1]) {
+      SC_MAP[ch] = SC_MAP[1];
+    }
+  }
+  SC = SC_MAP[1] || (await load(SCN)); // 默认/全局兜底
   for (const o of Object.values(SH)) {
     msg = '加载骑士技能…'; const im = await load(KR + o.f);
     Object.assign(o, sliceSheet(im, o.c, o.r, o.ref, o.cut || 0));
@@ -20,45 +41,23 @@ async function prep() {
     miss.push('Cover/Cover.jpg');
   }
 
-  try { CAP_IMG = await load(DRAW + 'KR_Ryuki.jpg') } catch (e) { miss.push('Draw/KR_Ryuki.jpg') }
+  await loadRyukiAssets();   // 龙骑素材见 ryuki.js
 
-  try {
-    let trIm;
-    try { trIm = await load(TRANS + 'KR_Malaya_TrasnformTo_KR_Ryuki.jpg'); }
-    catch (e) { trIm = await load(TRANS + 'KR_Malaya_TransformTo_KR_Ryuki.jpg'); }
-    SH.ryukiTrans = sliceSheet(trIm, 4, 4, 0, 0, true);
-  } catch (e) { miss.push('Transform/KR_Malaya_TrasnformTo_KR_Ryuki.jpg'); }
-
-  for (const [key, o] of Object.entries(SHR)) {
+  // ===== 假面骑士 555 (Faiz) 素材 =====
+  try { CAP_IMGS['555'] = await load(DRAW + 'KR_555.jpg') } catch (e) { miss.push('Draw/KR_555.jpg') }
+  for (const o of Object.values(SH5)) {
     try {
-      let im;
-      if (key === 'fv') {
-        const tryNames = ['KR_Ryuki_FinalVent.jpg', 'ryuki_finalvent.jpg', 'Ryuki_FinalVent.jpg', 'KR_Ryuki_Finalvent.jpg'];
-        for (const fn of tryNames) {
-          try { im = await load(RYUKI + fn); if (im) break; } catch(err) {}
-        }
-        if (!im) im = await load(RYUKI + o.f);
-      } else {
-        im = await load(RYUKI + o.f);
-      }
-
-      const doClean = (key !== 'fv' && key !== 'run');
-      const rVal = o.r !== undefined ? o.r : 4;
-      const cVal = o.c !== undefined ? o.c : 4;
-      const refVal = o.ref !== undefined ? o.ref : 0;
-
-      Object.assign(o, sliceSheet(im, cVal, rVal, refVal, o.cut || 0, doClean));
-
-      if (key === 'sword') {
-        const b = bb(o.f[o.ref]);
-        if (o.w) o.s = o.w / (b.x1 - b.x0);
-      } else if (key !== 'jump' && key !== 'fv' && SH.atk && SH.atk.s) {
-        o.s = SH.atk.s;
-      }
-    } catch (e) {
-      miss.push('Kamen Rider Ryuki/' + o.f);
-    }
+      const im = await load(FAIZ + o.f);
+      Object.assign(o, sliceSheet(im, o.c, o.r, o.ref || 0, 0, false));
+      o.s = FAIZ_SCALE;
+    } catch (e) { miss.push('Kamen Rider 555/' + o.f); }
   }
+  try {
+    const trIm = await load(TRANS + 'KR_Malaya_TransformTo_KR_555.jpg');
+    SH5.trans = sliceSheet(trIm, 4, 4, 8, 0, false); SH5.trans.s = FAIZ_SCALE;
+  } catch (e) { miss.push('Transform/KR_Malaya_TransformTo_KR_555.jpg'); }
+  try { const g = await load(FAIZ + 'KR_555_Gun.jpg'); GUN5 = trim(despill(key(g, 0, 0, g.width, g.height))); } catch (e) { miss.push('Kamen Rider 555/KR_555_Gun.jpg'); }
+  try { const b = await load(FAIZ + 'KR_555_Bullet.jpg'); BUL5 = trim(glowKey(b)); } catch (e) { miss.push('Kamen Rider 555/KR_555_Bullet.jpg'); }
 
   for (let n = 1; n <= 10; n++) {
     try { const im = await load(ED + 'Enemies_' + n + '.jpg'); const sp = cut(im); ENL.push(...sp); ENS[n] = assign(sp) }
@@ -76,6 +75,7 @@ async function prep() {
   }
 };
   IM.v = await li(A + 'Interior/基地.jpg');
+  { const pi = await li(A + 'Buildings/传送门.jpg'); if (pi) PG.bi = bkey(pi); }   // 传送门贴图
   for (const b of BD) {
   if (b.rf) b.ri = await li(A + 'Interior/' + b.rf);
   if (b.bf) {
@@ -117,16 +117,21 @@ function upd(dt) {
   // [P] 键变身
   if (PR.KeyP) { triggerRyukiTransform(); delete PR.KeyP }
 
+  // 当离开对应状态时，停掉大招和变身音效
+  if (P.st !== 'trans_ryuki') { stopFaizHenshin(); stopRyukiHenshin(); }
+  if (P.st !== 'fv') { stopAllRyukiFVSounds(); }
   if (P.st === 'trans_ryuki') {
     P.vx = 0; P.t += dt; P.inv = 1;
-    const frame = Math.min(15, Math.floor(P.t / 0.12));
-    if (frame >= 10 && !P.hit['burst']) {
+    const is5 = P.trk === '555';
+    const tdur = P.tdur || 16 * 0.12, frame = Math.min(15, Math.floor(P.t / tdur * 16));
+    if (frame >= (is5 ? 8 : 10) && !P.hit['burst']) {
       P.hit['burst'] = 1; shake = 24;
       if (G === 'play') area(P.x - 360, P.x + 360, P.atk * 3.5);
-      DT.push({ x: P.x, y: P.y - 210, s: '赤龙契约·烈焰爆发！', t: 1.6, c: '#ff3838' });
+      DT.push(is5 ? { x: P.x, y: P.y - 210, s: '555 · COMPLETE！', t: 1.6, c: '#ffb400' }
+                  : { x: P.x, y: P.y - 210, s: '赤龙契约·烈焰爆发！', t: 1.6, c: '#ff3838' });
     }
-    if (P.t > 16 * 0.12) {
-      P.st = 'idle'; P.ryuki = true; P.inv = .6; calc();
+    if (P.t > tdur) {
+      P.st = 'idle'; if (is5) P.k5 = true; else P.ryuki = true; P.inv = .6; calc();
     }
     return;
   }
@@ -136,7 +141,7 @@ function upd(dt) {
   if ((G === 'over' || G === 'win') && (PR.KeyR || PR.Enter)) return toVil('st');
   if (G !== 'play') return;
   if (P.st === 'trans') { P.t += dt; if (P.t > 16 / 7 || PR.Enter) { P.st = 'idle'; P.t = 0 } return }
-  if (PR.Escape) { S.g += RG; save(); return toVil('st') }
+  if (PR.Escape) { if (ST[cur].wb) { WBR = 'retreat'; return fin(0) } S.g += RG; save(); return toVil('st') }
   if (PR.Digit1 && S.hp > 0 && P.hp < P.mh) { S.hp--; P.hp = Math.min(P.mh, P.hp + P.mh * .5); DT.push({ x: P.x, y: P.y - 180, s: '+HP', t: .8, c: '#7dff9a' }) }
   if (PR.Digit2 && S.mp > 0 && P.mp < P.mm) { S.mp--; P.mp = Math.min(P.mm, P.mp + P.mm * .6); DT.push({ x: P.x, y: P.y - 180, s: '+MP', t: .8, c: '#6ab0ff' }) }
   P.inv -= dt; P.land -= dt; P.cd.e -= dt; P.dcd -= dt; P.gt -= dt; P.mp = Math.min(P.mm, P.mp + 3 * dt);
@@ -168,7 +173,8 @@ function upd(dt) {
   const fr = P.st === 'idle' || P.st === 'run' || P.st === 'air', l = K.KeyA || K.ArrowLeft, r = K.KeyD || K.ArrowRight, gr = P.y >= GY;
   if (fr) {
     const d = (r ? 1 : 0) - (l ? 1 : 0);
-    let spd = 240 + S.lv * 4;
+    let spd = (240 + S.lv * 4) * formSpd();
+    if (P.slow > 0) spd *= .55;
     if (holdS && d && !P.exh && P.sta > 0) { spd *= 1.7; P.spr = true }
     P.vx = d * spd;
     if (d) P.f = d;
@@ -184,6 +190,7 @@ function upd(dt) {
     }
     else if (PR.KeyK && P.mp >= 60) {
       P.mp -= 60; P.st = 'fv'; P.t = 0; P.hit = {}; P.h = 0; delete P.landT;
+      if (P.ryuki) playRyukiFV();
     }
     else if (PR.KeyL && P.mp >= 10) {
       P.mp -= 10; P.st = 'thr'; P.t = 0; P.h = 0;
@@ -208,7 +215,7 @@ function upd(dt) {
   }
   if (P.exh && P.sta >= P.stm * .3) P.exh = false;
 
-  if ((P.st === 'dodge' || P.spr || (P.st === 'fv' && P.ryuki && P.t >= 1.48 && P.y < GY)) && P.gt <= 0) {
+  if ((P.st === 'dodge' || P.spr || (P.st === 'fv' && P.ryuki && P.t >= RYUKI_FV.dive && P.y < GY) || (P.st === 'fv' && P.k5 && P.t >= FAIZ_FV.dive && P.y < GY)) && P.gt <= 0) {
     P.gt = .038;
     GH.push({ x: P.x, y: P.y, f: P.f, st: P.st, t: .32, d: .32 });
   }
@@ -233,50 +240,18 @@ function upd(dt) {
     if (P.y >= GY) P.vx = 0;
     if (P.t >= .12 && !P.h) {
       P.h = 1;
-      PJ.push({ x: P.x + P.f * 60, y: P.y - 100, vx: P.f * 800, f: P.f, t: 1.1, h: {}, ry: P.ryuki });
+      if (P.k5) fireFaiz();
+      else if (P.ryuki) fireRyukiGun();
+      else PJ.push({ x: P.x + P.f * 60, y: P.y - 100, vx: P.f * 800, f: P.f, t: 1.1, h: {} });
     }
     if (P.t > .3) P.st = (P.y < GY) ? 'air' : 'idle';
   }
   else if (P.st === 'fv') {
     P.inv = 1;
     if (P.ryuki) {
-      if (P.t < 0.78) {
-        P.vx = 0; P.vy = 0;
-      } else if (P.t < 1.12) {
-        P.vx = P.f * 60;
-        P.vy = -720;
-        P.y += P.vy * dt;
-      } else if (P.t < 1.48) {
-        P.vx = P.f * 20;
-        P.vy = 20;
-        P.y += P.vy * dt;
-      } else if (!P.hit['landed']) {
-        const diveSpd = 1050;
-        P.vx = P.f * diveSpd;
-        P.vy = diveSpd;
-        P.y += P.vy * dt;
-
-        area(P.x - 90, P.x + 90, P.atk * 1.8, P.hit);
-
-        if (P.y >= GY) {
-          P.y = GY;
-          P.vy = 0;
-          P.hit['landed'] = 1;
-          P.landT = P.t;
-          shake = 28;
-          area(P.x - 360, P.x + 360, P.atk * 5.2);
-          DT.push({ x: P.x, y: P.y - 180, s: 'FINAL VENT · 龙骑飞踢！', t: 1.8, c: '#ff3838' });
-        }
-      } else {
-        P.y = GY;
-        P.vy = 0;
-        P.vx = P.f * Math.max(0, 220 * (1 - (P.t - P.landT) / 0.5));
-      }
-
-      if (P.t > 2.2) {
-        P.st = 'idle';
-        P.inv = 0.4;
-      }
+      updRyukiFV(dt);
+    } else if (P.k5) {
+      updFaizFV(dt);
     } else {
       const i = P.t / .11 | 0;
       if (P.t < .99 && i >= 4) {
@@ -307,7 +282,7 @@ function upd(dt) {
     if (P.t >= .3) { P.st = (P.y < GY) ? 'air' : 'idle'; P.vx = 0; P.inv = Math.max(P.inv, .12); }
   }
 
-  const applyGravity = P.st !== 'dash' && P.st !== 'dodge' && !(P.st === 'fv' && P.ryuki);
+  const applyGravity = P.st !== 'dash' && P.st !== 'dodge' && !(P.st === 'fv' && (P.ryuki || P.k5));
   if (applyGravity) {
     const gMul = (P.st === 'atk' || P.st === 'thr') ? 0.65 : 1.0;
     P.vy += 1900 * gMul * dt;
@@ -328,12 +303,17 @@ function upd(dt) {
   cam = cl(P.x - 480, 0, WW - 960);
 
   const z = ST[cur];
+  if (z.wb) { WBT -= dt; if (WBT <= 0) { WBT = 0; WBR = 'time'; return fin(0) } }   // 世界BOSS 限时
   sp -= dt;
   if (sp <= 0 && !bs) {
-    sp = 2.5;
-    if (E.length < 3 + cur + Math.min(2, S.lv >> 2)) {
-      spawn(kills >= 3 && Math.random() < z.wd ? 'wd' : 'imp');
-    }
+    const set = z.set;
+    sp = Math.max(.8, 1.7 - set * .08) + Math.random() * .5;          // 刷怪间隔（随章节缩短）
+    const cap = 4 + Math.ceil(set * .8) + Math.min(2, S.lv >> 5);     // 场上同时存在上限
+    const alive = E.filter(e => e.t !== 'boss').length;
+    const need = z.k - kills - alive;                                 // 还差几只就够击杀目标
+    let n = 1 + (Math.random() < .35 + set * .04 ? 1 : 0) + (set >= 4 && Math.random() < .25 ? 1 : 0);
+    n = Math.min(n, cap - E.length, need);                            // 一次可刷 1~3 只
+    for (let i = 0; i < n; i++) spawn(kills >= 2 && Math.random() < z.wd ? 'wd' : 'imp');
   }
   if (!z.b && kills >= z.k) return fin(1);
   if (z.b && kills >= z.k && !bs) {
@@ -341,38 +321,21 @@ function upd(dt) {
     DT.push({ x: P.x, y: P.y - 240, s: 'BOSS 出现！', t: 2, c: '#ff8a4a' });
   }
 
-  for (const e of E) {
-    const o = ET[e.t], d = P.x - e.x, ad = Math.abs(d);
-    e.fl -= dt; e.cd -= dt; e.hc -= dt; e.fc = d < 0 ? -1 : 1;
-    if (e.t === 'imp') {
-      if (ad > 40) e.x += Math.sign(d) * o.sp * dt;
-      e.y += (P.y - 110 + Math.sin(T * 3 + e.id) * 50 - e.y) * Math.min(1, 2 * dt);
-    } else {
-      const stop = e.t === 'wd' ? 330 : 60;
-      if (ad > stop) e.x += Math.sign(d) * o.sp * dt;
-      else if (e.t === 'wd' && ad < 250) e.x -= Math.sign(d) * o.sp * dt;
-      e.y = e.t === 'wd' ? GY - 30 + Math.sin(T * 2 + e.id) * 15 : GY;
-      if (e.cd <= 0) { e.cd = e.t === 'wd' ? 2.4 : 2.2; shoot(e, e.t === 'boss' ? 3 : 1) }
-    }
-    if (Math.abs(P.x - e.x) < e.w / 2 + 25 && e.y > P.y - 150 && e.y - e.h < P.y && e.hc <= 0 && P.inv <= 0) {
-      e.hc = .8; hurtP(e.dm);
-    }
-  }
+  for (const e of E) updEnemy(e, dt);
   E = E.filter(e => !e.dead);
-
-  for (const p of EP) {
-    p.x += p.vx * dt; p.y += p.vy * dt; p.t -= dt;
-    if (Math.hypot(p.x - P.x, p.y - (P.y - 80)) < 40 && P.inv <= 0) {
-      hurtP(p.dm); p.t = 0;
-    }
-  }
-  EP = EP.filter(p => p.t > 0);
+  updBattleFx(dt);
 
   for (const s of PJ) {
-    s.x += s.vx * dt; s.t -= dt;
+    s.x += s.vx * dt; if (s.vy) s.y += s.vy * dt; s.t -= dt;
     for (const e of E) {
-      if (!s.h[e.id] && Math.abs(e.x - s.x) < e.w / 2 + 40 && e.y > s.y - 30 && e.y - e.h < s.y + 30) {
-        s.h[e.id] = 1; hurt(e, P.atk * 1.6);
+      if (s.h[e.id]) continue;
+      const hit = (s.b5 || s.rb)
+        ? (Math.abs(e.x - s.x) < e.w / 2 + 30 && s.y > e.y - e.h - 25 && s.y < e.y + 10)      // 555 光弹：按身体范围判定（自动瞄准打中部）
+        : (Math.abs(e.x - s.x) < e.w / 2 + 40 && e.y > s.y - 30 && e.y - e.h < s.y + 30);
+      if (hit) {
+        s.h[e.id] = 1; hurt(e, P.atk * (s.b5 ? 1.5 : s.rb ? 1.8 : 1.6));
+        if (s.b5) FX.push({ type: 'boom', x: s.x, y: s.y, t: .18, d: .18, r: 36, c: '#ffcf5a' });
+        if (s.rb) FX.push({ type: 'boom', x: s.x, y: s.y, t: .24, d: .24, r: 52, c: '#ff6a20' });
       }
     }
   }
@@ -392,6 +355,7 @@ function upd(dt) {
 function draw() {
   ctx.save();
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
   ctx.fillStyle = '#08060c'; ctx.fillRect(0, 0, 960, 540);
 
   if (G === 'load' || G === 'err') { txt(msg, 480, 270, G === 'err' ? 16 : 20, G === 'err' ? '#ff7675' : '#fff', 'center'); ctx.restore(); return }
@@ -447,13 +411,23 @@ function draw() {
   bg();
 
   for (const o of OR) { ctx.fillStyle = o.k === 'h' ? '#ff4a5a' : '#4ab0ff'; ctx.beginPath(); ctx.arc(o.x - cam, GY - 14 + Math.sin(T * 5) * 3, 9, 0, 7); ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke() }
+  for (const e of E) drawDashWarn(e);   // 冲锋 / 俯冲落点预警（画在怪物下层）
   for (const e of E) {
-    ctx.save(); ctx.translate(e.x - cam, e.y); ctx.scale(e.fc * e.s, e.s); if (e.fl > 0) ctx.filter = 'brightness(2.5)'; ctx.drawImage(e.im, -e.im.width / 2, -e.im.height); ctx.restore();
-    if (e.t !== 'boss') bar(e.x - cam - 25, e.y - e.h - 14, 50, 5, e.hp, e.mhp, '#ff4757')
+    ctx.save(); ctx.translate(sn(e.x - cam), sn(e.y)); ctx.scale(e.fc * e.s, e.s); if (e.fl > 0) ctx.filter = 'brightness(2.5)'; else if (e.wu > 0 && (T * 16 | 0) % 2) ctx.filter = 'brightness(1.8) saturate(1.7)'; ctx.drawImage(e.im, -e.im.width / 2, -e.im.height); ctx.restore();
+    if (e.wu > 0) txt('!', e.x - cam, e.y - e.h - 26 - Math.abs(Math.sin(T * 10)) * 6, e.t === 'boss' ? 34 : 24, '#ff3838', 'center');
+    if (e.t !== 'boss') bar(sn(e.x - cam - 25), sn(e.y - e.h - 14), 50, 5, e.hp, e.mhp, '#ff4757')
   }
-  for (const p of EP) { ctx.fillStyle = p.c; ctx.shadowColor = p.c; ctx.shadowBlur = 12; ctx.beginPath(); ctx.arc(p.x - cam, p.y, 10, 0, 7); ctx.fill(); ctx.shadowBlur = 0 }
-  for (const s of PJ) { const SW = (s.ry && SHR.sword && SHR.sword.f && SHR.sword.f.length) ? SHR.sword : SH.sword; dr(SW, 0, s.x - cam, s.y, -s.f, 1, 1, 1) }
+  drawHZ();
+  drawEP();
+  for (const s of PJ) {
+    if (s.b5) { drawBullet5(s); continue }
+    if (s.rb) { drawBulletR(s); continue }
+    if (s.ry) { drawRyukiSword(s); continue }
+    dr(SH.sword, 0, s.x - cam, s.y, -s.f, 1, 1, 1);
+  }
 
+  drawFaizMark();
+  drawRyukiMark();
   drawP();
 
   for (const f of FX) {
@@ -463,6 +437,10 @@ function draw() {
       ctx.beginPath(); ctx.arc(f.x - cam, f.y, (1 - p) * f.r, 0, Math.PI * 2);
       ctx.strokeStyle = `rgba(0, 229, 255, ${p})`; ctx.lineWidth = 6 * p;
       ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 18; ctx.stroke();
+    } else if (f.type === 'boom') {
+      ctx.beginPath(); ctx.arc(f.x - cam, f.y, (1 - p) * f.r, 0, Math.PI * 2);
+      ctx.strokeStyle = f.c; ctx.globalAlpha = p; ctx.lineWidth = 5 * p + 1;
+      ctx.shadowColor = f.c; ctx.shadowBlur = 16; ctx.stroke();
     } else if (f.type === 'boss_death_blast') {
       ctx.beginPath(); ctx.arc(f.x - cam, f.y, (1 - p) * f.r, 0, Math.PI * 2);
       ctx.strokeStyle = `rgba(255, 216, 74, ${p})`; ctx.lineWidth = 6 * p;
@@ -478,12 +456,18 @@ function draw() {
 
   const rw = 160, rh = 78, rx = 960 - 18 - rw, ry = 56;
   rpath(rx, ry, rw, rh, 12); ctx.fillStyle = 'rgba(10,12,24,0.82)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,216,74,0.3)'; ctx.stroke();
-  txt('目标: ' + Math.min(kills, ST[cur].k) + '/' + ST[cur].k + (bs ? ' (BOSS)' : ''), rx + rw - 12, ry + 18, 13, '#ffd84a', 'right');
-  txt('战利品: +' + RG + ' G', rx + rw - 12, ry + 39, 13, '#7dff9a', 'right');
+  if (ST[cur].wb) {
+    const tl = Math.ceil(WBT);
+    txt('⏱ ' + (tl / 60 | 0) + ':' + String(tl % 60).padStart(2, '0'), rx + rw - 12, ry + 18, 13, WBT < 20 ? '#ff6b6b' : '#ffd84a', 'right');
+    txt('伤害: ' + poN(WBD), rx + rw - 12, ry + 39, 13, '#7dff9a', 'right');
+  } else {
+    txt('目标: ' + Math.min(kills, ST[cur].k) + '/' + ST[cur].k + (bs ? ' (BOSS)' : ''), rx + rw - 12, ry + 18, 13, '#ffd84a', 'right');
+    txt('战利品: +' + RG + ' G', rx + rw - 12, ry + 39, 13, '#7dff9a', 'right');
+  }
   txt('药水: [1]×' + S.hp + '  [2]×' + S.mp, rx + rw - 12, ry + 59, 12, '#9df', 'right');
 
-  const henshinPrompt = P.ryuki ? '[P] 解除变身' : (S.eqCap === 'ryuki' ? '[P] 龙骑变身' : '[P] 变身');
-  txt('J 剑击   L 飞剑   K 终结技   E 机车   Shift 闪避/疾跑   ' + henshinPrompt + '   [C] 背包   [N] 胶囊   Esc 撤退', 480, 524, 12, '#bbb', 'center');
+  const henshinPrompt = inForm() ? '[P] 解除变身' : (S.eqCap ? '[P] ' + capShort() + '变身' : '[P] 变身');
+  txt('J 剑击   L ' + (P.k5 ? '手枪' : '飞剑') + '   K 终结技   E 机车   Shift 闪避/疾跑   ' + henshinPrompt + '   [C] 背包   [N] 胶囊   Esc 撤退', 480, 524, 12, '#bbb', 'center');
 
   const b = E.find(e => e.t === 'boss');
   if (b) {
@@ -492,11 +476,17 @@ function draw() {
     txt((ST[cur].bn || '强敌 BOSS') + ' ' + b.hp + '/' + b.mhp, 480, 502, 12, '#fff', 'center');
   }
 
-  if (G === 'over') {
+  if ((G === 'over' || G === 'win') && ST[cur].wb) {
+    const w = G === 'win';
+    rpath(260, 160, 440, 220, 18); ctx.fillStyle = 'rgba(10,12,22,0.94)'; ctx.fill(); ctx.strokeStyle = w ? '#ffd84a' : '#ff4757'; ctx.lineWidth = 2; ctx.stroke();
+    txt(w ? '讨伐成功！' : WBR === 'time' ? '时间耗尽' : WBR === 'retreat' ? '撤退' : '战败…', 480, 208, 34, w ? '#ffd84a' : '#ff6b81', 'center');
+    txt('累计伤害  ' + poN(WBD) + (WBM ? '  (' + Math.min(100, WBD / WBM * 100 | 0) + '%)' : ''), 480, 262, 16, '#fff', 'center');
+    txt('金币 +' + FG.toLocaleString() + (w ? '   （击杀加成 +50%）' : ''), 480, 292, 16, '#7dff9a', 'center');
+    txt('按 Enter 返回传送门', 480, 348, 14, '#aab', 'center');
+  } else if (G === 'over') {
     rpath(280, 180, 400, 180, 18); ctx.fillStyle = 'rgba(10,12,22,0.92)'; ctx.fill(); ctx.strokeStyle = '#ff4757'; ctx.stroke();
     txt('战败…', 480, 225, 36, '#ff6b81', 'center'); txt('保留一半战利品：金币 +' + FG + '\n按 Enter 回村', 480, 285, 16, '#fff', 'center');
-  }
-  if (G === 'win') {
+  } else if (G === 'win') {
     rpath(280, 180, 400, 180, 18); ctx.fillStyle = 'rgba(10,12,22,0.92)'; ctx.fill(); ctx.strokeStyle = '#ffd84a'; ctx.stroke();
     txt('关卡完成！', 480, 225, 38, '#ffd84a', 'center'); txt('通关奖赏：金币 +' + FG + '   Lv.' + S.lv + '\n按 Enter 前往下一战役', 480, 285, 16, '#fff', 'center');
   }
@@ -522,19 +512,6 @@ addEventListener('keydown', e => { if (!K[e.code]) PR[e.code] = 1; K[e.code] = 1
 addEventListener('keyup', e => K[e.code] = 0);
 addEventListener('blur', () => { for (const k in K) K[k] = 0 });
 
-// 传送门滑动监听
-window.addEventListener('pointermove', e => {
-  if (!isDraggingChap) return;
-  const r = cv.getBoundingClientRect();
-  const curX = (e.clientX - r.left) / r.width * 960;
-  const dx = curX - dragStartX;
-  const tabW = 230, tabGap = 10, chapListW = 680 - 172;
-  const minScroll = Math.min(0, chapListW - CHAPTERS.length * (tabW + tabGap));
-  chapScrollX = cl(dragStartScrollX + dx, minScroll - 40, 40);
-});
-window.addEventListener('pointerup', () => { isDraggingChap = false });
-window.addEventListener('pointercancel', () => { isDraggingChap = false });
-
 // 触屏与点击交互逻辑（含批量勾选、胶囊终端与等级装备）
 (function () {
   const MAP = [
@@ -559,19 +536,24 @@ window.addEventListener('pointercancel', () => { isDraggingChap = false });
     ['飞剑', 'skl', 'right:calc(var(--s)*1.75 + 1.5vmin);bottom:calc(var(--s)*1.3 + 2vmin)', ['KeyL']],
     ['机车', 'skl', 'right:calc(var(--s)*3.3 + 1.5vmin);bottom:calc(var(--s)*.6 + 2vmin)', ['KeyE']],
     ['闪避<br>疾跑', 'dg', 'right:calc(var(--s)*3.3 + 1.5vmin);bottom:calc(var(--s)*1.75 + 2vmin)', ['ShiftLeft']],
-    ['变身', 'trf sm', 'left:calc(2vmin + var(--s)*.1);bottom:calc(var(--s)*1.5 + 3vmin)', ['KeyP']],
-    ['胶囊', 'sm', 'left:calc(2vmin + var(--s)*.1);bottom:calc(var(--s)*2.5 + 3.5vmin)', ['KeyN']],
-    ['药①', 'sm', 'left:calc(2vmin + var(--s)*.95);bottom:calc(var(--s)*1.5 + 3vmin)', ['Digit1']],
-    ['药②', 'sm', 'left:calc(2vmin + var(--s)*.18);bottom:calc(var(--s)*1.5 + 3vmin)', ['Digit2']],
-    ['▲', 'sm', 'left:calc(50% - var(--s)*1.55);bottom:2vmin', ['KeyW']],
-    ['✔<br>互动', 'sm', 'left:calc(50% - var(--s)*.36);bottom:2vmin;width:var(--s);height:var(--s);font-size:calc(var(--s)*.24)', ['KeyF', 'Enter']],
-    ['▼', 'sm', 'left:calc(50% + var(--s)*.83);bottom:2vmin', ['KeyS']],
-    ['背包<br>规格', 'sm', 'left:calc(50% - var(--s)*1.2);top:1vmin;opacity:.85', ['KeyC']],
-    ['关闭<br>撤退', 'sm', 'left:calc(50% + var(--s)*.48);top:1vmin;opacity:.75', ['Escape'], 1],
+    // 左侧 2×2：上排 变身 / 胶囊，下排 药① / 药②（间距 1.0s，按钮 0.8s，互不重叠；下方留给浮动摇杆）
+    ['变身', 'trf sm', 'left:2vmin;bottom:calc(var(--s)*3.5 + 3vmin)', ['KeyP']],
+    ['胶囊', 'sm', 'left:calc(2vmin + var(--s)*1);bottom:calc(var(--s)*3.5 + 3vmin)', ['KeyN']],
+    ['药①', 'sm', 'left:2vmin;bottom:calc(var(--s)*2.5 + 3vmin)', ['Digit1']],
+    ['药②', 'sm', 'left:calc(2vmin + var(--s)*1);bottom:calc(var(--s)*2.5 + 3vmin)', ['Digit2']],
+    ['▲', 'sm', 'left:calc(50% - var(--s)*1.7);bottom:2vmin', ['KeyW']],
+    ['✔<br>互动', 'sm', 'left:calc(50% - var(--s)*.5);bottom:2vmin;width:var(--s);height:var(--s);font-size:calc(var(--s)*.24)', ['KeyF', 'Enter']],
+    ['▼', 'sm', 'left:calc(50% + var(--s)*.9);bottom:2vmin', ['KeyS']],
+    ['背包<br>规格', 'sm', 'left:calc(50% - var(--s)*1.3);top:1vmin;opacity:.85', ['KeyC']],
+    ['关闭<br>撤退', 'sm', 'left:calc(50% + var(--s)*.5);top:1vmin;opacity:.75', ['Escape'], 1],
   ];
 
   const ui = document.createElement('div'); ui.id = 'tc';
-  const pad = document.createElement('div'); pad.id = 'pad'; pad.innerHTML = '<i>◀</i><i>▶</i>'; ui.appendChild(pad);
+  // 浮动摇杆：左半屏任意位置按下即出现，手指移动时圆盘跟随；上推=跳跃
+  const jz = document.createElement('div'); jz.id = 'joyz';
+  const jh = document.createElement('div'); jh.id = 'joyh'; jh.innerHTML = '◀ 拖动移动 ▶';
+  const jr = document.createElement('div'); jr.id = 'joy'; jr.innerHTML = '<i class="a l">◀</i><i class="a r">▶</i><i class="a u">▲</i><b></b>';
+  ui.appendChild(jz); ui.appendChild(jh); ui.appendChild(jr);   // 先于按钮加入 → 按钮在其上层
   for (const [t, c, pos, codes, esc] of B) {
     const b = document.createElement('div'); b.className = 'b ' + c; b.style.cssText = pos; b.innerHTML = t; ui.appendChild(b);
     b.addEventListener('pointerdown', e => {
@@ -584,7 +566,9 @@ window.addEventListener('pointercancel', () => { isDraggingChap = false });
   }
 
   const dgBtn = ui.querySelector('.b.dg');
+  const lBtn = [...ui.querySelectorAll('.b')].find(b => b.textContent === '飞剑');
   setInterval(() => {
+    if (lBtn) { const t = P.k5 ? '手枪' : '飞剑'; if (lBtn.textContent !== t) lBtn.textContent = t }
     if (!dgBtn) return;
     const cd = G === 'play' ? Math.max(0, P.dcd / DODGE_CD) : 0;
     dgBtn.style.background = cd > 0 ? `conic-gradient(rgba(0,0,0,.6) ${cd * 360}deg, rgba(0,190,200,.5) 0)` : '';
@@ -592,21 +576,56 @@ window.addEventListener('pointercancel', () => { isDraggingChap = false });
   }, 80);
 
   if (document.documentElement.requestFullscreen) {
-    const f = document.createElement('div'); f.className = 'b sm'; f.textContent = '⛶'; f.style.cssText = 'left:calc(50% + var(--s)*1.25);top:1vmin;opacity:.75';
+    const f = document.createElement('div'); f.className = 'b sm'; f.textContent = '⛶'; f.style.cssText = 'left:calc(50% + var(--s)*1.4);top:1vmin;opacity:.75';
     f.addEventListener('pointerdown', e => { e.preventDefault(); document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => { })).catch(() => { }) });
     ui.appendChild(f);
   }
   if (TOUCH) document.body.appendChild(ui);
 
-  const arrows = pad.querySelectorAll('i');
-  const setDir = e => {
-    const r = pad.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, l = x < .45, rt = x > .55;
-    l ? press('KeyA') : rel('KeyA'); rt ? press('KeyD') : rel('KeyD'); arrows[0].classList.toggle('on', l); arrows[1].classList.toggle('on', rt); pad.classList.toggle('on', l || rt)
+  // ===== 浮动摇杆逻辑 =====
+  const knob = jr.querySelector('b'), arL = jr.querySelector('.l'), arR = jr.querySelector('.r'), arU = jr.querySelector('.u');
+  let jid = null, ox = 0, oy = 0, JR = 60, jl = false, jrt = false, ju = false;
+  // 只在“可走动”的场景启用（弹窗 / 菜单 / 变身动画时把触摸让给画布）
+  const joyOk = () => !M && !showChar && !showCapModal && !gachaModal && (G === 'vil' || G === 'room' || (G === 'play' && P.st !== 'trans'));
+  const joyStop = () => {
+    if (jid !== null) { try { jz.releasePointerCapture(jid) } catch (_) { } }
+    jid = null; jr.classList.remove('show'); rel('KeyA'); rel('KeyD'); rel('Space');
+    jl = jrt = ju = false; [arL, arR, arU].forEach(a => a.classList.remove('on'));
   };
-  const stop = () => { rel('KeyA'); rel('KeyD'); arrows.forEach(a => a.classList.remove('on')); pad.classList.remove('on') };
-  pad.addEventListener('pointerdown', e => { e.preventDefault(); pad.setPointerCapture(e.pointerId); setDir(e) });
-  pad.addEventListener('pointermove', e => { if (pad.hasPointerCapture(e.pointerId)) setDir(e) });
-  pad.addEventListener('pointerup', stop); pad.addEventListener('pointercancel', stop);
+  const joyMove = e => {
+    let dx = e.clientX - ox, dy = e.clientY - oy, d = Math.hypot(dx, dy);
+    if (d > JR) {                                   // 超出圆盘：圆盘跟随手指（全局浮动的关键）
+      const k = (d - JR) / d; ox += dx * k; oy += dy * k;
+      ox = cl(ox, JR + 4, innerWidth - JR - 4); oy = cl(oy, JR + 4, innerHeight - JR - 4);
+      jr.style.left = ox + 'px'; jr.style.top = oy + 'px';
+      dx = e.clientX - ox; dy = e.clientY - oy; d = Math.hypot(dx, dy);
+    }
+    const kk = d > JR ? JR / d : 1;
+    knob.style.transform = 'translate(' + dx * kk + 'px,' + dy * kk + 'px)';
+    const dz = JR * .3, l = dx < -dz, r = dx > dz, u = dy < -JR * .6;
+    if (l !== jl) { l ? press('KeyA') : rel('KeyA'); jl = l }
+    if (r !== jrt) { r ? press('KeyD') : rel('KeyD'); jrt = r }
+    if (u !== ju) { u ? press('Space') : rel('Space'); ju = u }
+    arL.classList.toggle('on', l); arR.classList.toggle('on', r); arU.classList.toggle('on', u);
+  };
+  jz.addEventListener('pointerdown', e => {
+    if (jid !== null || !joyOk()) return;
+    e.preventDefault(); jid = e.pointerId; jz.setPointerCapture(jid);
+    jr.classList.add('show'); JR = jr.offsetWidth / 2 || 60;      // 先显示再量尺寸
+    ox = cl(e.clientX, JR + 4, innerWidth - JR - 4); oy = cl(e.clientY, JR + 4, innerHeight - JR - 4);
+    jr.style.left = ox + 'px'; jr.style.top = oy + 'px'; knob.style.transform = '';
+    joyMove(e);
+  });
+  jz.addEventListener('pointermove', e => { if (e.pointerId === jid) joyMove(e) });
+  const joyEnd = e => { if (e.pointerId === jid) joyStop() };
+  jz.addEventListener('pointerup', joyEnd); jz.addEventListener('pointercancel', joyEnd); jz.addEventListener('lostpointercapture', joyEnd);
+  addEventListener('blur', joyStop);
+  setInterval(() => {
+    const ok = joyOk();
+    jz.classList.toggle('on', ok);
+    jh.style.display = ok && jid === null ? 'flex' : 'none';
+    if (!ok && jid !== null) joyStop();
+  }, 100);
 
   cv.addEventListener('pointerdown', e => {
     const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 960, y = (e.clientY - r.top) / r.height * 540;
@@ -675,11 +694,12 @@ window.addEventListener('pointercancel', () => { isDraggingChap = false });
         } else if (S.eqCap === selCap.id) {
           // 卸下胶囊
           S.eqCap = null;
-          if (P.ryuki) { P.ryuki = false; calc(); }
+          if (inForm()) { P.ryuki = false; P.k5 = false; calc(); }
           save();
         } else {
           // 装配胶囊
           S.eqCap = selCap.id;
+          if (inForm()) P.ryuki = P.k5 = false;   // 换胶囊：先解除旧形态
           save();
           calc();
         }
@@ -688,202 +708,36 @@ window.addEventListener('pointercancel', () => { isDraggingChap = false });
       return;
     }
 
-    // 传送门点击交互
-    if (M && V.pg === 'st') {
-      const pw = 680, ph = 472, px = (960 - pw) / 2, py = 34;
-      if (x < px || x > px + pw || y < py || y > py + ph) { M = 0; return; }
+    // 传送门点击交互（命中区域由 portal.js 每帧登记）
+    if (M && V.pg === 'st') { portalClick(x, y); return; }
 
-      const btmY = py + ph - 58;
-      // 点击返回基地
-      if (x >= px + 22 && x <= px + 162 && y >= btmY && y <= btmY + 38) { M = 0; return; }
-      // 点击立即出征
-      if (x >= px + pw - 200 && x <= px + pw - 20 && y >= btmY && y <= btmY + 38) {
-        if (selStageIdx <= S.cl) { M = 0; begin(selStageIdx); }
-        else { say('该关卡尚未解锁！'); }
-        return;
-      }
-
-      // 点击章节栏左翻箭头 ◀
-      const chapBarY = py + 48;
-      if (x >= px + 90 && x <= px + 118 && y >= chapBarY && y <= chapBarY + 28) {
-        if (curChapIdx > 0) {
-          curChapIdx--;
-          const stages = CHAPTERS[curChapIdx].stages;
-          const avail = stages.filter(s => s <= S.cl);
-          selStageIdx = avail.length > 0 ? avail[avail.length - 1] : stages[0];
-          syncChapScroll();
-        }
-        return;
-      }
-      // 点击章节栏右翻箭头 ▶
-      if (x >= px + pw - 38 && x <= px + pw - 10 && y >= chapBarY && y <= chapBarY + 28) {
-        if (curChapIdx < CHAPTERS.length - 1) {
-          const nextChap = CHAPTERS[curChapIdx + 1];
-          if (nextChap.stages[0] <= S.cl) {
-            curChapIdx++;
-            const stages = CHAPTERS[curChapIdx].stages;
-            const avail = stages.filter(s => s <= S.cl);
-            selStageIdx = avail.length > 0 ? avail[avail.length - 1] : stages[0];
-            syncChapScroll();
-          } else {
-            say('下一章节尚未解锁！请先通关当前章节。');
-          }
-        }
-        return;
-      }
-
-      // 拖拽或点击章节标签
-      const chapListX = px + 126, tabW = 230, tabGap = 10;
-      if (y >= chapBarY - 2 && y <= chapBarY + 30 && x >= chapListX && x <= px + pw - 46) {
-        isDraggingChap = true; dragStartX = x; dragStartScrollX = chapScrollX;
-        CHAPTERS.forEach((chap, idx) => {
-          const tabX = chapListX + idx * (tabW + tabGap) + chapScrollX;
-          if (x >= tabX && x <= tabX + tabW) {
-            if (chap.stages[0] <= S.cl) {
-              curChapIdx = idx;
-              const stages = CHAPTERS[curChapIdx].stages;
-              const avail = stages.filter(s => s <= S.cl);
-              selStageIdx = avail.length > 0 ? avail[avail.length - 1] : stages[0];
-              syncChapScroll();
-            } else {
-              say('该章节尚未解锁！请先通关前序章节。');
-            }
-          }
-        });
-        return;
-      }
-
-      // 点击选定具体关卡
-      const stagesY = py + 104;
-      const currChap = CHAPTERS[curChapIdx];
-      currChap.stages.forEach((stIdx, i) => {
-        const sy = stagesY + i * 86, sw = pw - 40, sh = 78;
-        if (x >= px + 20 && x <= px + 20 + sw && y >= sy && y <= sy + sh) {
-          if (stIdx <= S.cl) {
-            if (selStageIdx === stIdx) { M = 0; begin(stIdx); }
-            else { selStageIdx = stIdx; }
-          } else {
-            say('请先通关前置关卡！');
-          }
-        }
-      });
-      return;
-    }
-
-    // 角色背包面板点击（全选、批量多选与操作）
+    // 角色背包面板点击：直接查 drawCharPanel 登记的命中区域（后登记的在上层）
     if (showChar) {
-      if (x >= 845 && x <= 920 && y >= 25 && y <= 55) { showChar = false; return; }
-      if (x < 25 || x > 935 || y < 20 || y > 520) { showChar = false; return; }
-
-      const lx = 43, ly = 66;
-      // 变身胶囊槽位点击直接呼出胶囊终端
-      if (x >= lx + 175 && x <= lx + 175 + 160 && y >= ly + 272 && y <= ly + 272 + 42) {
-        showCapModal = true; return;
+      for (let i = BH.length - 1; i >= 0; i--) {
+        const r = BH[i];
+        if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) { r.f(); return; }
       }
-
-      const slotLayout = [
-        { k: 'weapon', x: lx + 10, y: ly + 128 },
-        { k: 'belt', x: lx + 175, y: ly + 128 },
-        { k: 'chest', x: lx + 10, y: ly + 176 },
-        { k: 'necklace', x: lx + 175, y: ly + 176 },
-        { k: 'legs', x: lx + 10, y: ly + 224 },
-        { k: 'ring', x: lx + 175, y: ly + 224 },
-        { k: 'boots', x: lx + 10, y: ly + 272 }
-      ];
-      for (const sl of slotLayout) {
-        if (x >= sl.x && x <= sl.x + 160 && y >= sl.y && y <= sl.y + 42) {
-          const it = S.eq[sl.k];
-          if (it) selItem = { item: it, from: 'eq', slotKey: sl.k };
-          return;
-        }
-      }
-
-      const rx = 400, ry = 66;
-      const filterKeys = ['all', 'weapon', 'chest', 'belt', 'legs', 'boots', 'necklace', 'ring'];
-      const btnW = 58, btnGap = 4;
-      for (let idx = 0; idx < filterKeys.length; idx++) {
-        const fx = rx + 10 + idx * (btnW + btnGap), fy = ry + 8, fw = btnW, fh = 26;
-        if (x >= fx && x <= fx + fw && y >= fy && y <= fy + fh) {
-          bagFilter = filterKeys[idx];
-          bagPage = 0;
-          return;
-        }
-      }
-
-      const filteredInv = S.inv.filter(it => bagFilter === 'all' || it.slot === bagFilter);
-
-      // 全选/取消全选按钮
-      if (x >= rx + 155 && x <= rx + 230 && y >= ry + 36 && y <= ry + 56) {
-        selectAllBatch(filteredInv);
-        return;
-      }
-
-      // 分页切换
-      if (x >= rx + 338 && x <= rx + 364 && y >= ry + 36 && y <= ry + 56) {
-        if (bagPage > 0) bagPage--;
-        return;
-      }
-      if (x >= rx + 448 && x <= rx + 474 && y >= ry + 36 && y <= ry + 56) {
-        const maxPages = Math.max(1, Math.ceil(filteredInv.length / 15));
-        if (bagPage < maxPages - 1) bagPage++;
-        return;
-      }
-
-      // 背包格子与右上角勾选框点击
-      const gx0 = rx + 10, gy0 = ry + 60, gw = 95, gh = 48, gap = 4;
-      const curPageItems = filteredInv.slice(bagPage * 15, (bagPage + 1) * 15);
-      for (let i = 0; i < 15; i++) {
-        const col = i % 5, row = (i / 5) | 0;
-        const cx = gx0 + col * (gw + gap), cy = gy0 + row * (gh + gap);
-        if (x >= cx && x <= cx + gw && y >= cy && y <= cy + gh) {
-          const item = curPageItems[i];
-          if (!item) return;
-
-          // 点击右上角方框为勾选/取消勾选
-          if (x >= cx + gw - 22 && y <= cy + 22) {
-            toggleBatchSel(item.id);
-          } else {
-            selItem = { item, from: 'inv' };
-          }
-          return;
-        }
-      }
-
-      // 底部操作栏（批量与单件）
-      const detY = ry + 218, btnY = detY + 155, btnH = 34;
-      if (batchSel.size > 0) {
-        if (x >= rx + 22 && x <= rx + 132 && y >= btnY && y <= btnY + btnH) {
-          batchSel.clear(); bagNotice = '已清空勾选'; bagNoticeT = 1.2; return;
-        }
-        if (x >= rx + 150 && x <= rx + 310 && y >= btnY && y <= btnY + btnH) {
-          batchDismantle(); return;
-        }
-        if (x >= rx + 330 && x <= rx + 475 && y >= btnY && y <= btnY + btnH) {
-          batchDiscard(); return;
-        }
-        return;
-      }
-
-      if (selItem && selItem.item) {
-        if (x >= rx + 22 && x <= rx + 127 && y >= btnY && y <= btnY + btnH) {
-          if (selItem.from === 'eq') unequipItem(selItem.slotKey);
-          else equipItem(selItem.item);
-          return;
-        }
-        if (x >= rx + 140 && x <= rx + 245 && y >= btnY && y <= btnY + btnH) { upgradeItem(selItem.item); return; }
-        if (x >= rx + 258 && x <= rx + 363 && y >= btnY && y <= btnY + btnH) { dismantleItem(selItem.item); return; }
-        if (x >= rx + 376 && x <= rx + 481 && y >= btnY && y <= btnY + btnH) { discardItem(selItem.item); return; }
-      }
+      if (x < 25 || x > 935 || y < 20 || y > 520) showChar = false;
       return;
     }
 
     if (G === 'title' || G === 'over' || G === 'win' || (G === 'play' && P.st === 'trans')) return PR.Enter = 1;
     if ((G === 'vil' || G === 'room') && M) {
-      if (x < 180 || x > 780 || y < 30 || y > 510) return PR.Escape = 1;
-      const n = items().length, lw = 540, k = Math.round((y - 168) / 44);
-      if (x >= 210 && x <= 210 + lw && k >= 0 && k < n && Math.abs(y - 168 - k * 44) <= 22) { if (k === V.i) PR.Enter = 1; else V.i = k }
+      // 商店 / 铁匠铺 / 训练馆 / 扭蛋机：命中区域由 menu.js 每帧登记（后登记的在上层）
+      if (x < MN_X || x > MN_X + MN_W || y < MN_Y || y > MN_Y + MN_H) return PR.Escape = 1;
+      for (let j = MN.hit.length - 1; j >= 0; j--) {
+        const h = MN.hit[j];
+        if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) {
+          if (h.fn) { h.fn(); return }
+          if (h.act || h.i === V.i) { V.i = h.i; PR.Enter = 1 } else V.i = h.i;   // 点按钮直接确认；点条目先选中
+          return;
+        }
+      }
     }
   });
+
+  // 商店 / 铁匠铺 / 训练馆 列表：鼠标滚轮滚动
+  cv.addEventListener('wheel', e => { if (M && V.pg !== 'st' && MN.max > 0) { e.preventDefault(); MN.st = cl(MN.st + e.deltaY * .6, 0, MN.max) } }, { passive: false });
 
   const relAll = () => { for (const k in K) K[k] = 0 };
   addEventListener('blur', relAll); document.addEventListener('visibilitychange', relAll);
