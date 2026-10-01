@@ -33,6 +33,19 @@ function layoutVillage() {
 
 
 function vupd(dt) {
+  // ★ 基地常驻保护：血量、魔力、耐力每帧锁定为 100% 满状态，全技能 CD 保持清零就绪
+  P.hp = P.mh;
+  P.mp = P.mm;
+  P.sta = P.stm;
+  P.exh = false;
+  for (const k in P.cd) P.cd[k] = 0;
+
+  if (gachaModal && gachaModal.type === 'anim') {          // 抽卡动画：播完自动进入结算；Enter / 空格 / Esc / 点击可跳过
+    const el = T - gachaModal.t0;
+    if (el >= GA_DUR || ((PR.Enter || PR.Space || PR.Escape || PR.KeyF) && el > GA_SKIP_AFTER)) gachaAnimEnd();
+    delete PR.Enter; delete PR.Space; delete PR.Escape; delete PR.KeyF;
+    return;
+  }
   if (gachaModal) {
     if (PR.Enter || PR.Space || PR.Escape || PR.KeyF) { gachaModal = gachaQ.shift() || null; delete PR.Enter; delete PR.Space; delete PR.Escape; delete PR.KeyF }
     return;
@@ -82,21 +95,23 @@ function bg() {
 }
 
 function npc(x, y, c, n, im = null) {
-  x = sn(x); y = sn(y + Math.sin(T * 2 + x) * 2);
+  // ★ 去掉 + x，浮动只随时间 T 缓慢平滑呼吸，不再受移动和镜头影响
+  x = sn(x); y = sn(y + Math.sin(T * 2) * 2);
   if (im) {
-    const targetH = 145;
+    const targetH = 195;
     const k = targetH / im.height;
     const w = im.width * k;
     ctx.drawImage(im, x - w / 2, y - targetH, w, targetH);
-    txt(n, x, y - targetH - 12, 15, '#fff', 'center');
+    txt(n, x, y - targetH - 14, 15, '#fff', 'center');
     return;
   }
-  ctx.fillStyle = c; ctx.fillRect(x - 22, y - 90, 44, 70); 
-  ctx.fillStyle = '#f2d0b0'; ctx.beginPath(); ctx.arc(x, y - 108, 20, 0, 7); ctx.fill();
-  ctx.fillStyle = c; ctx.fillRect(x - 24, y - 134, 48, 14); 
-  ctx.fillStyle = '#222'; ctx.fillRect(x - 9, y - 112, 4, 6); ctx.fillRect(x + 5, y - 112, 4, 6); 
+  // 兜底方块
+  ctx.fillStyle = c; ctx.fillRect(x - 22, y - 110, 44, 90); 
+  ctx.fillStyle = '#f2d0b0'; ctx.beginPath(); ctx.arc(x, y - 128, 20, 0, 7); ctx.fill();
+  ctx.fillStyle = c; ctx.fillRect(x - 24, y - 154, 48, 14); 
+  ctx.fillStyle = '#222'; ctx.fillRect(x - 9, y - 132, 4, 6); ctx.fillRect(x + 5, y - 132, 4, 6); 
   ctx.fillRect(x - 20, y - 20, 16, 20); ctx.fillRect(x + 4, y - 20, 16, 20); 
-  txt(n, x, y - 146, 15, '#fff', 'center');
+  txt(n, x, y - 166, 15, '#fff', 'center');
 }
 
 function house(b) {
@@ -127,9 +142,22 @@ function portal(x) {
 }
 
 function drawRoom() {
-  if (RM.ri) { const k = 540 / RM.ri.height; ctx.drawImage(RM.ri, sn(-cam), 0, RM.ri.width * k, 540); ctx.fillStyle = 'rgba(60,255,140,.25)'; ctx.fillRect(30 - cam, GY - 140, 80, 140); txt('← 出口', 70 - cam, GY - 150, 15, '#7dff9a', 'center'); npc(RMN - cam, GY, RM.nc, RM.npc); return }
-  ctx.fillStyle = '#181024'; ctx.fillRect(0, 0, 960, 540); ctx.fillStyle = RM.c + '44'; ctx.fillRect(0, 0, 960, GY); ctx.fillStyle = '#3a2a1e'; ctx.fillRect(0, GY, 960, 70);
-  ctx.fillStyle = '#2a1a10'; ctx.fillRect(25, GY - 130, 90, 130); txt('出口', 70, GY - 140, 14, '#fff', 'center'); npc(650, GY, RM.nc, RM.npc);
+  if (RM.ri) {
+    const k = 540 / RM.ri.height;
+    ctx.drawImage(RM.ri, sn(-cam), 0, RM.ri.width * k, 540);
+    ctx.fillStyle = 'rgba(60,255,140,.25)';
+    ctx.fillRect(30 - cam, GY - 140, 80, 140);
+    txt('← 出口', 70 - cam, GY - 150, 15, '#7dff9a', 'center');
+    // ★ 传入 RM.im，让药铺显示阿玲、铁匠铺显示老岩、训练馆显示无相
+    npc(RMN - cam, GY, RM.nc, RM.npc, RM.im);
+    return;
+  }
+  ctx.fillStyle = '#181024'; ctx.fillRect(0, 0, 960, 540);
+  ctx.fillStyle = RM.c + '44'; ctx.fillRect(0, 0, 960, GY);
+  ctx.fillStyle = '#3a2a1e'; ctx.fillRect(0, GY, 960, 70);
+  ctx.fillStyle = '#2a1a10'; ctx.fillRect(25, GY - 130, 90, 130);
+  txt('出口', 70, GY - 140, 14, '#fff', 'center');
+  npc(650, GY, RM.nc, RM.npc, RM.im);
 }
 
 function drawW() {
@@ -145,7 +173,7 @@ function drawW() {
   if (V.mt > 0 && !M) txt(V.m, 480, 470, 18, '#7dff9a', 'center');
 
   const henshinPrompt = inForm() ? '[P] 解除变身' : (S.eqCap ? '[P] ' + capShort() + '变身' : '[P] 变身试演');
-  txt('A/D 移动   W/空格 跳跃   F 互动   ' + henshinPrompt + '   [C] 背包   [N] 胶囊', 480, 524, 13, '#bbb', 'center');
+  hintLine('A/D 移动   W/空格 跳跃   F 互动   ' + henshinPrompt + '   [C] 背包   [N] 胶囊');
   if (M) {
     if (V.pg === 'st') drawPortalModal();
     else drawV();

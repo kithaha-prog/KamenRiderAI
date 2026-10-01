@@ -2,6 +2,7 @@
 const TOUCH = /[?&]touch=1/.test(location.search) || (matchMedia('(pointer:coarse)').matches && navigator.maxTouchPoints > 0);
 if (TOUCH) document.body.classList.add('touch');
 
+
 // 素材路径
 const A = 'Assets/',
       COVER = A + 'Cover/',      
@@ -14,6 +15,27 @@ const A = 'Assets/',
       ED = A + 'Enemies/',
       SCN = A + 'Scenes/Scene_Highway.jpg',
       PH = 200, GY = 470, WW = 3200;
+
+const EF = A + 'Effects/';
+const EF_IMGS = {};
+
+// ===== 技能图标存储 =====
+const SKILL_IMGS = {};
+
+// ===== 升级弹窗横幅状态与贴图 =====
+let LV_IMG = null;
+let LV_POP = null; // 存储升级定格倒计时与等级数据
+
+// ===== 脱手战车实体池 =====
+let BIKES = [];
+
+// ===== 各骑士专属技能冷却配置（秒） =====
+const SKILL_CDS = {
+  malaya: { l: 2.5, e: 7.0, k: 15.0, p: 4.0 },  // 原生：均衡型
+  ryuki:  { l: 2.0, e: 7.0, k: 20.0, p: 5.0 },  // 龙骑：火球射速快，终结技毁灭级伤害 (CD较长)
+  '555':  { l: 1.5, e: 6.0, k: 16.0, p: 6.0 },  // 555：光子手枪极速连射，战车机动加速
+  blade:  { l: 3.0, e: 7.5, k: 18.0, p: 5.0 }   // Blade：召雷全屏贯穿 (CD稍长)，雷电音速踢
+};
 
 // Malaya 原生动作
 const SH = {
@@ -118,58 +140,108 @@ const ET = {
   boss: { hp: 800, H: 340, sp: 55, xp: 0, g: 0, dm: 22, col: '#55dd66' }
 };
 
-// ===== 关卡数据（产出装备等级完全由 r 决定，最高支持至 Lv.500） =====
-const ST = [
-  // 第一章：公路高架 (set: 1)
-  { n: '1-1 公路入口', k: 20, b: 0, wd: 0, g: 150, r: 1, ov: '', set: 1 },
-  { n: '1-2 黄昏高架', k: 32, b: 0, wd: .4, g: 320, r: 3, ov: 'rgba(255,80,0,.14)', set: 1 },
-  { n: '1-3 翡翠巨龙', k: 28, b: 1, bn: '翡翠巨龙', wd: .4, g: 700, r: 7, ov: 'rgba(20,0,70,.32)', set: 1 },
-
-  // 第二章：烈焰焦土 (set: 2)
-  { n: '2-1 熔岩边境', k: 28, b: 0, wd: .3, g: 1050, r: 10, ov: 'rgba(255,60,0,.16)', set: 2 },
-  { n: '2-2 烈焰焦土', k: 36, b: 0, wd: .5, g: 1600, r: 12, ov: 'rgba(220,40,0,.26)', set: 2 },
-  { n: '2-3 炎狱魔尊', k: 32, b: 1, bn: '炎狱魔尊', wd: .5, g: 2800, r: 15, ov: 'rgba(90,0,10,.38)', set: 2 },
-
-  // 第三章：苍雷废都 (set: 3)
-  { n: '3-1 荒芜废都', k: 32, b: 0, wd: .4, g: 4000, r: 18, ov: 'rgba(40,10,80,.20)', set: 3 },
-  { n: '3-2 苍雷矩阵', k: 40, b: 0, wd: .5, g: 5800, r: 21, ov: 'rgba(0,50,150,.24)', set: 3 },
-  { n: '3-3 轰雷兽皇', k: 36, b: 1, bn: '轰雷兽皇', wd: .5, g: 8800, r: 24, ov: 'rgba(70,0,120,.35)', set: 3 },
-
-  // 第四章：极寒冰川 (set: 4)
-  { n: '4-1 极寒冻原', k: 36, b: 0, wd: .4, g: 12000, r: 27, ov: 'rgba(0,60,120,.22)', set: 4 },
-  { n: '4-2 霜啸裂谷', k: 44, b: 0, wd: .5, g: 16500, r: 30, ov: 'rgba(0,100,160,.28)', set: 4 },
-  { n: '4-3 寒霜邪神', k: 40, b: 1, bn: '寒霜邪神', wd: .5, g: 24000, r: 33, ov: 'rgba(10,40,90,.36)', set: 4 },
-
-  // 第五章：剧毒沼泽 (set: 5)
-  { n: '5-1 腐蚀泥潭', k: 40, b: 0, wd: .4, g: 30000, r: 36, ov: 'rgba(20,70,10,.22)', set: 5 },
-  { n: '5-2 剧毒坑道', k: 48, b: 0, wd: .5, g: 40000, r: 39, ov: 'rgba(40,80,0,.28)', set: 5 },
-  { n: '5-3 灾厄毒君', k: 44, b: 1, bn: '灾厄毒君', wd: .5, g: 58000, r: 43, ov: 'rgba(30,60,15,.38)', set: 5 },
-
-  // 第六章：机械要塞 (set: 6)
-  { n: '6-1 废弃要塞', k: 44, b: 0, wd: .4, g: 72000, r: 46, ov: 'rgba(70,50,20,.22)', set: 6 },
-  { n: '6-2 动力熔炉', k: 52, b: 0, wd: .5, g: 95000, r: 49, ov: 'rgba(90,40,10,.28)', set: 6 },
-  { n: '6-3 终结机神', k: 48, b: 1, bn: '终结机神', wd: .5, g: 130000, r: 53, ov: 'rgba(80,60,30,.35)', set: 6 },
-
-  // 第七章：虚空深渊 (set: 7)
-  { n: '7-1 裂隙回廊', k: 48, b: 0, wd: .4, g: 165000, r: 56, ov: 'rgba(50,0,80,.26)', set: 7 },
-  { n: '7-2 异界畸变', k: 56, b: 0, wd: .5, g: 215000, r: 59, ov: 'rgba(70,10,100,.32)', set: 7 },
-  { n: '7-3 虚空大君', k: 52, b: 1, bn: '虚空大君', wd: .5, g: 290000, r: 63, ov: 'rgba(40,0,60,.42)', set: 7 },
-
-  // 第八章：圣辉神域 (set: 8)
-  { n: '8-1 浮空神域', k: 52, b: 0, wd: .4, g: 370000, r: 67, ov: 'rgba(90,80,20,.24)', set: 8 },
-  { n: '8-2 极光圣所', k: 60, b: 0, wd: .5, g: 480000, r: 70, ov: 'rgba(100,90,30,.30)', set: 8 },
-  { n: '8-3 审判天使', k: 56, b: 1, bn: '审判炽天使', wd: .5, g: 650000, r: 74, ov: 'rgba(120,100,40,.36)', set: 8 },
-
-  // 第九章：混沌星骸 (set: 9)
-  { n: '9-1 碎星暗礁', k: 56, b: 0, wd: .4, g: 820000, r: 78, ov: 'rgba(60,10,40,.28)', set: 9 },
-  { n: '9-2 暗核引力', k: 64, b: 0, wd: .5, g: 1050000, r: 81, ov: 'rgba(80,20,50,.34)', set: 9 },
-  { n: '9-3 湮灭魔皇', k: 60, b: 1, bn: '湮灭吞噬者', wd: .5, g: 1400000, r: 85, ov: 'rgba(70,10,30,.40)', set: 9 },
-
-  // 第十章：创世终焉 (set: 10)
-  { n: '10-1 维度裂隙', k: 60, b: 0, wd: .5, g: 1800000, r: 89, ov: 'rgba(30,10,50,.32)', set: 10 },
-  { n: '10-2 原初虚无', k: 68, b: 0, wd: .6, g: 2300000, r: 93, ov: 'rgba(50,5,40,.38)', set: 10 },
-  { n: '10-3 终焉魔神', k: 70, b: 1, bn: '创世·终焉魔神', wd: .6, g: 3500000, r: 98, ov: 'rgba(40,5,60,.46)', set: 10 }
+// ===== 20 个章节主题定义 =====
+const CHAPTER_THEMES = [
+  { name: '第一章', title: '公路高架', sub: '翡翠之灾 · 城市边缘', col: '#00d2d3', bn: '翡翠巨龙' },
+  { name: '第二章', title: '烈焰焦土', sub: '炎狱深渊 · 熔岩焦土', col: '#ff4757', bn: '炎狱魔尊' },
+  { name: '第三章', title: '苍雷废都', sub: '电弧狂暴 · 废墟之巅', col: '#5352ed', bn: '轰雷兽皇' },
+  { name: '第四章', title: '极寒冰川', sub: '万丈霜痕 · 冻土禁域', col: '#70a1ff', bn: '寒霜邪神' },
+  { name: '第五章', title: '剧毒沼泽', sub: '腐蚀深潭 · 瘟疫之窟', col: '#2ed573', bn: '灾厄毒君' },
+  { name: '第六章', title: '机械要塞', sub: '钢铁洪流 · 动力核心', col: '#ffa502', bn: '终结机神' },
+  { name: '第七章', title: '虚空深渊', sub: '维度撕裂 · 暗影狂潮', col: '#a55eea', bn: '虚空大君' },
+  { name: '第八章', title: '圣辉神域', sub: '天穹王座 · 极光圣殿', col: '#ffd32a', bn: '审判炽天使' },
+  { name: '第九章', title: '混沌星骸', sub: '星核崩解 · 引力漩涡', col: '#ff6348', bn: '湮灭吞噬者' },
+  { name: '第十章', title: '创世终焉', sub: '原初奇点 · 终局决战', col: '#ff3838', bn: '创世·终焉魔神' },
+  // 11~20 章进阶高阶挑战
+  { name: '第十一章', title: '炼狱公路', sub: '深渊重现 · 异化突围', col: '#00d2d3', bn: '极·翡翠暴龙' },
+  { name: '第十二章', title: '死炎焦土', sub: '焦黑地心 · 灭绝火海', col: '#ff4757', bn: '绝灭·炎狱皇' },
+  { name: '第十三章', title: '极雷穹顶', sub: '千万伏特 · 磁暴核心', col: '#5352ed', bn: '超电磁·兽神' },
+  { name: '第十四章', title: '绝对零度', sub: '万古玄冰 · 极冰禁域', col: '#70a1ff', bn: '霜绝·极寒神' },
+  { name: '第十五章', title: '瘟疫渊薮', sub: '万毒归宗 · 腐烂巢穴', col: '#2ed573', bn: '腐蚀·瘟毒母体' },
+  { name: '第十六章', title: '星际要塞', sub: '终极防御 · 行星巨炮', col: '#ffa502', bn: '歼星·装甲王' },
+  { name: '第十七章', title: '虚无裂痕', sub: '空间塌陷 · 暗域吞噬', col: '#a55eea', bn: '原初·虚空霸主' },
+  { name: '第十八章', title: '裁决天穹', sub: '永恒炽阳 · 诸神黄昏', col: '#ffd32a', bn: '万神·圣辉炽使' },
+  { name: '第十九章', title: '破灭星域', sub: '宇宙残渣 · 引力奇点', col: '#ff6348', bn: '噬星·混沌主宰' },
+  { name: '第二十章', title: '多元彼岸', sub: '假面骑士的终极顶点', col: '#ff3838', bn: '全知全能·真神' }
 ];
+
+// ===== 自动化构建 20 章 × 10 关 (共 200 关) =====
+const ST = [];
+const CHAPTERS = [];
+
+let stageIndex = 0;
+for (let c = 0; c < 20; c++) {
+  const theme = CHAPTER_THEMES[c];
+  const chStages = [];
+  const setIndex = (c % 10) + 1; // 11~20章复用 1~10套素材，有新图时自动支持
+
+  for (let s = 1; s <= 10; s++) {
+    const isBossStage = (s === 10);
+    // 关卡推荐等级：从 Lv.1 平滑上升至 Lv.500
+    const recLvl = Math.max(1, Math.round(1 + (stageIndex / 199) * 499));
+    
+    // 关卡奖励金币随等级指数型平滑提升
+    const baseGold = Math.round(150 * Math.pow(1.055, stageIndex));
+    
+    // 击杀目标数
+    const killTarget = isBossStage ? (35 + c * 2) : (20 + s * 3 + c);
+
+    const stageObj = {
+      n: `${c + 1}-${s} ${isBossStage ? theme.bn : (theme.title + ' ' + (s < 4 ? '前哨' : s < 7 ? '中层' : '深处'))}`,
+      k: killTarget,
+      b: isBossStage ? 1 : 0,
+      bn: isBossStage ? theme.bn : '',
+      wd: 0.2 + (s * 0.05), // 精英怪出现概率
+      g: baseGold,
+      r: recLvl,
+      ov: isBossStage ? 'rgba(40,5,60,.46)' : '',
+      set: setIndex
+    };
+
+    ST.push(stageObj);
+    chStages.push(stageIndex);
+    stageIndex++;
+  }
+
+  CHAPTERS.push({
+    id: c + 1,
+    name: theme.name,
+    title: theme.title,
+    sub: theme.sub,
+    desc: `挑战第 ${c + 1} 战区的魔物，最终讨伐守关领主【${theme.bn}】。`,
+    stages: chStages,
+    col: theme.col
+  });
+}
+
+// ===== 专属双人联机高难副本（独立副本池，5倍血量与5倍赏金） =====
+const COOP_STAGES = [
+  { id: 0, n: '双人深渊·翡翠巨兽 [试炼]', r: 15, set: 1, k: 30, b: 1, bn: '深渊双生·翡翠狂龙', g: 15000, desc: '深渊外围异化裂隙，全怪兽生命提升 500%！' },
+  { id: 1, n: '双人焦土·炎狱双霸 [死斗]', r: 30, set: 2, k: 36, b: 1, bn: '焦土炎皇·双子魔尊', g: 45000, desc: '熔岩炽火双重焚烧，全场高密度火雨与狂暴冲击。' },
+  { id: 2, n: '双人雷都·雷霆裁决 [强袭]', r: 45, set: 3, k: 42, b: 1, bn: '万雷兽尊·超电磁王', g: 110000, desc: '狂暴电磁乱流，交叉激光与全屏落雷齐射。' },
+  { id: 3, n: '双人霜窟·极寒古神 [绝域]', r: 60, set: 4, k: 48, b: 1, bn: '绝对零度·极霜邪神', g: 300000, desc: '极度冰寒与全屏霜痕，考验双人极限走位与协同。' },
+  { id: 4, n: '双人虚空·维度湮灭 [浩劫]', r: 80, set: 7, k: 54, b: 1, bn: '虚空原初·裂变大君', g: 850000, desc: '空间重力撕裂，引力漩涡与全方位能量弹幕。' },
+  { id: 5, n: '双人终焉·混沌神核 [神罚]', r: 100, set: 10, k: 60, b: 1, bn: '多元终焉·混沌真神', g: 3000000, desc: '修罗终极考验！必出神话神装与海量卷轴。' }
+];
+
+COOP_STAGES.forEach((cs, idx) => {
+  cs.si = ST.length;
+  ST.push({
+    n: cs.n,
+    k: cs.k,
+    b: cs.b,
+    bn: cs.bn,
+    wd: 0.35,
+    g: cs.g, // 5倍金币
+    r: cs.r,
+    ov: 'rgba(25, 5, 45, 0.45)',
+    set: cs.set,
+    coop: 1,  // ★ 标识为双人专属副本
+    hpx: 5.0, // 5倍血量
+    dmx: 2.2, // 2.2倍攻击力
+    coopIdx: idx
+  });
+});
 
 // ===== 世界BOSS（作为特殊关卡追加在 ST 末尾，复用整套战斗系统；不计入章节进度 S.cl） =====
 // lv=解锁等级  r=推荐等级  g=满伤害金币奖励  hpx=生命倍率  tl=讨伐时限(秒)  set=使用第几章的怪物图与招式
@@ -214,100 +286,6 @@ const ATK_SET = {
   10:{ imp: ['swoop', 'zap', 'blink'], wd: ['meteor', 'beam', 'burst', 'blink', 'pillar', 'lobPool'],
        boss: ['meteor', 'vortex', 'beam', 'pillars', 'spiral', 'summon', 'slam', 'rain', 'homing', 'charge'] }
 };
-
-// ===== 章节配置（全10章） =====
-const CHAPTERS = [
-  {
-    id: 1,
-    name: '第一章',
-    title: '公路高架',
-    sub: '翡翠之灾 · 城市边缘',
-    desc: '异界魔物突破维度屏障，翡翠巨龙现身公路尽头。',
-    stages: [0, 1, 2],
-    col: '#00d2d3'
-  },
-  {
-    id: 2,
-    name: '第二章',
-    title: '烈焰焦土',
-    sub: '炎狱深渊 · 熔岩焦土',
-    desc: '地下裂隙喷涌炽烈火海，炎狱魔尊构筑毁灭王座。',
-    stages: [3, 4, 5],
-    col: '#ff4757'
-  },
-  {
-    id: 3,
-    name: '第三章',
-    title: '苍雷废都',
-    sub: '电弧狂暴 · 废墟之巅',
-    desc: '电磁风暴撕裂建筑群，雷霆巨兽在雷光中肆虐咆哮。',
-    stages: [6, 7, 8],
-    col: '#5352ed'
-  },
-  {
-    id: 4,
-    name: '第四章',
-    title: '极寒冰川',
-    sub: '万丈霜痕 · 冻土禁域',
-    desc: '绝对零度的寒流冻结万物，寒霜邪神从冰棺中苏醒。',
-    stages: [9, 10, 11],
-    col: '#70a1ff'
-  },
-  {
-    id: 5,
-    name: '第五章',
-    title: '剧毒沼泽',
-    sub: '腐蚀深潭 · 瘟疫之窟',
-    desc: '致命毒雾遮天蔽日，灾厄毒君统帅异变生物吞噬生机。',
-    stages: [12, 13, 14],
-    col: '#2ed573'
-  },
-  {
-    id: 6,
-    name: '第六章',
-    title: '机械要塞',
-    sub: '钢铁洪流 · 动力核心',
-    desc: '古代战争机械全面觉醒，终结机神以绝对武力构筑防线。',
-    stages: [15, 16, 17],
-    col: '#ffa502'
-  },
-  {
-    id: 7,
-    name: '第七章',
-    title: '虚空深渊',
-    sub: '维度撕裂 · 暗影狂潮',
-    desc: '时空在此扭曲断裂，虚空大君跨界降临企图吞噬现实。',
-    stages: [18, 19, 20],
-    col: '#a55eea'
-  },
-  {
-    id: 8,
-    name: '第八章',
-    title: '圣辉神域',
-    sub: '天穹王座 · 极光圣殿',
-    desc: '极光闪耀的神圣殿堂，审判天使降下灭世神罚。',
-    stages: [21, 22, 23],
-    col: '#ffd32a'
-  },
-  {
-    id: 9,
-    name: '第九章',
-    title: '混沌星骸',
-    sub: '星核崩解 · 引力漩涡',
-    desc: '群星陨落后的焦黑残骸，湮灭吞噬者盘踞在破碎星核中。',
-    stages: [24, 25, 26],
-    col: '#ff6348'
-  },
-  {
-    id: 10,
-    name: '第十章',
-    title: '创世终焉',
-    sub: '原初奇点 · 终局决战',
-    desc: '万物归于虚无的奇点，直面终焉魔神，迎来假面骑士的最终宿命！',
-    stages: [27, 28, 29],
-    col: '#ff3838'
-  }
-];
 
 // 天赋配置
 const TL = [
@@ -407,7 +385,8 @@ const S = {
   caps: [], eqCap: null,
   inv: [],
   eq: { weapon: null, chest: null, belt: null, legs: null, boots: null, necklace: null, ring: null },
-  mat: 20, scr: 3
+  mat: 20, scr: 3,
+  stars: {} // ★ 存储每个关卡的历史最高星级 { 0: 3, 1: 2, ... }
 };
 
 try {
@@ -415,12 +394,24 @@ try {
   if (!Array.isArray(S.caps)) S.caps = [];
   if (!Array.isArray(S.inv)) S.inv = [];
   if (!S.eq || typeof S.eq !== 'object') S.eq = { weapon: null, chest: null, belt: null, legs: null, boots: null, necklace: null, ring: null };
+  if (!S.stars || typeof S.stars !== 'object') S.stars = {};
   if (typeof S.mat !== 'number') S.mat = 20;
   if (typeof S.scr !== 'number') S.scr = 3;
   if (typeof S.d !== 'number') S.d = 1000;
 } catch (e) {}
 
-const save = () => { try { localStorage.malaya = JSON.stringify(S) } catch (e) {} };
+// 本地持久化 + 自动触发云端防抖备份
+const save = () => {
+  // 1. 本地实时写入
+  try {
+    localStorage.malaya = JSON.stringify(S);
+  } catch (e) {}
+
+  // 2. 实时触发 Supabase 云端同步
+  if (typeof queueCloudSync === 'function') {
+    queueCloudSync();
+  }
+};
 const cl = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // 图像切片与去色去噪图形工具

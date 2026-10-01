@@ -189,6 +189,12 @@ function isUpgrade(it) { const cur = S.eq[it.slot]; return !cur || itemScore(it)
 
 // 背包交互、批量操作与选择状态
 let bagPage = 0, bagFilter = 'all', selItem = null, bagNotice = '', bagNoticeT = 0;
+// 状态筛选（可叠加）：只看「比身上更强」的 / 只看「当前等级能穿」的；两个都开 = 现在就能穿且更强
+let bagUp = false, bagWear = false;
+const canWearNow = it => (it.reqLvl || 1) <= S.lv;
+function bagList(slot = bagFilter, up = bagUp, wear = bagWear) {
+  return S.inv.filter(it => (slot === 'all' || it.slot === slot) && (!up || isUpgrade(it)) && (!wear || canWearNow(it)));
+}
 const batchSel = new Set(); // 批量选中的装备 ID 集合
 let bagMulti = false;       // 多选模式：开启后点格子=勾选（不再靠点小方框，手机不易误触）
 let bagArmKey = '', bagArmUntil = 0;   // 危险操作二次确认

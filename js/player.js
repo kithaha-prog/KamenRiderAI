@@ -3,12 +3,24 @@ const DODGE_CD = 1.2, SHIFT_HOLD = .2;
 
 const P = {
   x: 300, y: GY, vx: 0, vy: 0, f: 1, hp: 100, mh: 100, mp: 100, mm: 100, atk: 14, cr: .05, def: 0,
-  st: 'trans', t: 0, inv: 0, land: 0, cd: { e: 0 }, h: 0, hit: {}, ryuki: false, k5: false, bl: false, trk: null,
+  st: 'trans', t: 0, inv: 0, land: 0, cd: { e: 0, k: 0, l: 0, p: 0 },
+  maxCd: { e: 7, k: 16, l: 2, p: 5 }, h: 0, hit: {}, ryuki: false, k5: false, bl: false, trk: null,
   sta: 100, stm: 100, dcd: 0, exh: false, spr: false, shDown: false, shT: 0, gt: 0, sreg: 0, slow: 0, psn: 0
 };
 
+function curRiderKey() {
+  return P.ryuki ? 'ryuki' : P.k5 ? '555' : P.bl ? 'blade' : 'malaya';
+}
+
+function getSkillCD(key) {
+  const rk = curRiderKey();
+  return (SKILL_CDS[rk] && SKILL_CDS[rk][key]) || 5.0;
+}
+
 function calc() {
   const t = S.ta;
+  const oldMh = P.mh, oldMm = P.mm; // 记录旧上限用于动态增减计算
+
   let eqAtk = 0, eqHp = 0, eqMp = 0, eqCr = 0, eqDef = 0;
   if (S.eq) {
     for (const k in S.eq) {
@@ -23,7 +35,7 @@ function calc() {
     }
   }
 
-  // 基础强化攻击+1%/级，生命+5%/级，受到伤害-0.1%/级，魔力+3%/级（无上限乘算）
+  // 基础强化计算
   let bAtk = (14 + S.lv * 2 + eqAtk) * (1 + .05 * t[0]) * (1 + 0.01 * S.sw);
   let bCr = .05 + .02 * t[3] + eqCr;
   const fc = formCap();
@@ -32,9 +44,23 @@ function calc() {
   P.mh = Math.round((100 + S.lv * 10 + eqHp) * (1 + .06 * t[1]) * (1 + 0.05 * S.ar));
   P.mm = Math.round((100 + S.lv * 5 + eqMp) * (1 + .06 * t[2]) * (1 + 0.03 * S.bt));
   P.cr = Math.min(1, bCr);
-  // 受到伤害 -0.1%/级 -> 免伤增加 S.ar * 0.001
   P.def = Math.min(0.95, (S.ar * 0.001) + (eqDef * 0.005));
   P.stm = (100 + S.lv * 2) | 0;
+
+  // ★ 状态动态同步：
+  // 如果在基地，直接全部拉满；如果在副本中升级/换装，随上限差值动态增加或等额减少并锁紧上限
+  // ★ 状态同步规则：
+  // 1. 处于基地（村庄/室内）时，始终保持 100% 满状态；
+  // 2. 处于关卡战斗时，严格保持当前的生命与魔力数值（仅受新上限截断），升级绝不加血
+  if (typeof G !== 'undefined' && (G === 'vil' || G === 'room')) {
+    P.hp = P.mh;
+    P.mp = P.mm;
+    P.sta = P.stm;
+  } else {
+    P.hp = Math.min(P.mh, P.hp || P.mh);
+    P.mp = Math.min(P.mm, P.mp || P.mm);
+    P.sta = Math.min(P.stm, P.sta);
+  }
 }
 calc();
 
@@ -50,24 +76,99 @@ function capShort() { const c = CAPSULES.find(c => c.id === S.eqCap); return c ?
 const okS = o => !!(o && Array.isArray(o.f) && o.f.length);
 
 function walk(dt, R) {
-  const d = ((K.KeyD || K.ArrowRight) ? 1 : 0) - ((K.KeyA || K.ArrowLeft) ? 1 : 0);
-  P.vx = d * 260; if (d) P.f = d;
-  if ((PR.Space || PR.KeyW || PR.ArrowUp) && P.y >= GY) P.vy = -700;
-  P.vy += 1900 * dt;
-  P.y = Math.min(GY, P.y + P.vy * dt);
-  if (P.y >= GY) P.vy = 0;
+  P.dcd = Math.max(0, (P.dcd || 0) - dt);
+  P.gt = Math.max(0, (P.gt || 0) - dt);
+  P.spr = false;
+
+  // Shift 疾跑与闪避判定（支持键盘 Shift 与移动端闪避键）
+  const sh = K.ShiftLeft || K.ShiftRight;
+  if (PR.ShiftLeft || PR.ShiftRight) { P.shDown = true; P.shT = 0; }
+  let holdS = false;
+  if (P.shDown) {
+    if (sh) {
+      P.shT = (P.shT || 0) + dt;
+      holdS = P.shT >= SHIFT_HOLD;
+    } else {
+      // 短按 Shift 触发基地快速滑铲闪避
+      if (P.shT < SHIFT_HOLD && P.dcd <= 0 && /^(idle|run|air)$/.test(P.st)) {
+        const dd = ((K.KeyD || K.ArrowRight) ? 1 : 0) - ((K.KeyA || K.ArrowLeft) ? 1 : 0);
+        P.f = dd || P.f;
+        P.st = 'dodge';
+        P.t = 0;
+        P.dcd = DODGE_CD;
+        P.vy = 0;
+        P.vx = P.f * 820;
+      }
+      P.shDown = false; P.shT = 0;
+    }
+  }
+
+  // 1. 闪避位移处理
+  if (P.st === 'dodge') {
+    P.t += dt;
+    P.vx = P.f * 820 * (1 - P.t / .3 * .55);
+    if (P.t >= .3) {
+      P.st = (P.y < GY) ? 'air' : 'idle';
+      P.vx = 0;
+    }
+  } else {
+    // 2. 正常移动与疾跑奔跑（长按 Shift 提速 1.75 倍）
+    const d = ((K.KeyD || K.ArrowRight) ? 1 : 0) - ((K.KeyA || K.ArrowLeft) ? 1 : 0);
+    let spd = (260 + S.lv * 4) * formSpd();
+    if ((holdS || sh) && d) {
+      spd *= 1.75;
+      P.spr = true; // 激活疾跑状态（自动绘制风痕特效）
+    }
+    P.vx = d * spd;
+    if (d) P.f = d;
+
+    // 起跳
+    if ((PR.Space || PR.KeyW || PR.ArrowUp) && P.y >= GY) {
+      P.vy = -700;
+      P.st = 'air';
+    }
+  }
+
+  // 重力
+  if (P.st !== 'dodge') {
+    P.vy += 1900 * dt;
+    P.y = Math.min(GY, P.y + P.vy * dt);
+    if (P.y >= GY) {
+      P.y = GY;
+      P.vy = 0;
+    }
+  }
+
+  // 边界约束
   P.x = cl(P.x + P.vx * dt, 40, R);
-  if (P.st !== 'trans_ryuki') P.st = P.y < GY ? 'air' : d ? 'run' : 'idle';
+
+  // 动作形态切换
+  if (P.st !== 'trans_ryuki' && P.st !== 'dodge') {
+    P.st = P.y < GY ? 'air' : P.vx ? 'run' : 'idle';
+  }
+
+  // 疾跑与滑铲在身后留下专属光影残影
+  if ((P.st === 'dodge' || P.spr) && P.gt <= 0) {
+    P.gt = .038;
+    GH.push({ x: P.x, y: P.y, f: P.f, st: P.st, t: .32, d: .32 });
+  }
 }
 
-function triggerRyukiTransform() {   // 通用变身入口（沿用旧函数名，龙骑 / 555 共用）
+function triggerRyukiTransform() {
+  if (P.cd.p > 0) {
+    DT.push({ x: P.x, y: P.y - 180, s: '变身冷却中 ' + P.cd.p.toFixed(1) + 's', t: 0.8, c: '#ffa502' });
+    return;
+  }
+  
   if (P.ryuki || P.k5 || P.bl) {
     P.ryuki = false; P.k5 = false; P.bl = false; P.inv = 0.5; P.st = 'idle'; calc(); shake = 8;
+    P.cd.p = getSkillCD('p'); P.maxCd.p = P.cd.p;
     DT.push({ x: P.x, y: P.y - 180, s: '解除变身 · 恢复原生装甲', t: 1.4, c: '#00e5ff' });
   } else if (S.eqCap === 'ryuki' || S.eqCap === '555' || S.eqCap === 'blade') {
     if (P.st !== 'trans_ryuki') {
       const is5 = S.eqCap === '555', isB = S.eqCap === 'blade';
       P.st = 'trans_ryuki'; P.trk = S.eqCap; P.t = 0; P.inv = 2.5; P.hit = {};
+      P.cd.p = getSkillCD('p'); P.maxCd.p = P.cd.p;
       P.tdur = isB ? bladeTransDur() : is5 ? faizTransDur() : ryukiTransDur();
       if (isB) playBladeHenshin(); else if (is5) playFaizHenshin(); else playRyukiHenshin();
       DT.push({ x: P.x, y: P.y - 180, s: isB ? '变身！' : is5 ? 'STANDING BY…' : 'KAMEN RIDE: RYUKI!', t: 1.5, c: isB ? '#3aa0ff' : is5 ? '#ffb400' : '#ff4757' });
@@ -92,9 +193,15 @@ function drawP() {
 
 function drawP0() {
   const x = sn(P.x - cam), y = sn(P.y), f = P.f;
-  if (P.inv > 0 && (T * 20 | 0) % 2 && P.st !== 'fv' && P.st !== 'dash' && P.st !== 'dodge' && P.st !== 'trans_ryuki') return;
+  if (P.inv > 0 && (T * 20 | 0) % 2 && P.st !== 'fv' && P.st !== 'dash' && P.st !== 'dodge' && P.st !== 'trans_ryuki' && P.st !== 'trans' && P.st !== 'trans_malaya') return;
 
+  // 在 drawP0() 中，判断变身态：
+  if (P.st === 'trans') {
+    drawMalayaTransform(x, y, f);
+    return;
+  }
   if (P.st === 'trans_ryuki' && P.trk === 'blade') { drawBladeTransform(x, y, f); return; }
+  if (P.st === 'trans_ryuki' && (P.trk === '555' || P.trk === 'ryuki') && typeof henReady === 'function' && henReady()) { drawHenshin(x, y, f); return; }
   if (P.st === 'trans_ryuki' && P.trk === '555') { drawFaizTransform(x, y, f); return; }
   if (P.st === 'trans_ryuki' && SH.ryukiTrans) { drawRyukiTransform(x, y, f); return; }
 
