@@ -7,6 +7,10 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>假面骑士 Malaya RPG</title>
+  
+  <!-- 引入 Supabase JS SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
   <style>
     html,body{margin:0;height:100%;background:#08060c;overflow:hidden}
     body{display:flex;align-items:center;justify-content:center}
@@ -19,34 +23,152 @@
     #tc .b{position:absolute;pointer-events:auto;touch-action:none;width:var(--s);height:var(--s);border-radius:50%;
       display:flex;align-items:center;justify-content:center;text-align:center;font:700 calc(var(--s)*.26)/1.1 system-ui,sans-serif;color:#fff;
       background:rgba(20,26,44,.45);border:2px solid rgba(255,255,255,.5);box-shadow:0 0 8px rgba(0,0,0,.5);-webkit-tap-highlight-color:transparent}
-    #tc .b.on{background:rgba(255,255,255,.4)}
-    #tc .sm{width:calc(var(--s)*.8);height:calc(var(--s)*.8);font-size:calc(var(--s)*.24)}
-    #tc .atk{background:rgba(220,50,60,.5)}#tc .jmp{background:rgba(50,120,230,.5)}#tc .skl{background:rgba(230,150,30,.5)}#tc .trf{background:rgba(190,40,150,.5)}#tc .dg{background:rgba(0,190,200,.5)}
-    /* 浮动摇杆：左半屏任意位置按下出现，圆盘跟随手指 */
-    #joyz{position:absolute;left:0;top:0;width:52%;height:100%;pointer-events:none;touch-action:none}
-    #joyz.on{pointer-events:auto}
-    #joyh{position:absolute;left:2.5vmin;bottom:3vmin;width:calc(var(--s)*2.3);height:calc(var(--s)*2.3);border-radius:50%;box-sizing:border-box;
-      border:2px dashed rgba(255,255,255,.28);background:rgba(20,26,44,.16);color:rgba(255,255,255,.4);display:none;align-items:center;justify-content:center;
-      font:700 calc(var(--s)*.2)/1.1 system-ui,sans-serif;text-align:center;pointer-events:none}
-    #joy{position:absolute;display:none;pointer-events:none;width:calc(var(--s)*2.3);height:calc(var(--s)*2.3);margin:calc(var(--s)*-1.15) 0 0 calc(var(--s)*-1.15);
-      border-radius:50%;box-sizing:border-box;background:radial-gradient(circle,rgba(255,255,255,.05),rgba(20,26,44,.4));border:2px solid rgba(255,255,255,.45);box-shadow:0 0 12px rgba(0,0,0,.45)}
-    #joy.show{display:block}
-    #joy .a{position:absolute;font-style:normal;font-size:calc(var(--s)*.3);color:#fff;opacity:.35;transition:.05s}
-    #joy .a.on{opacity:1}
-    #joy .l{left:calc(var(--s)*.12);top:50%;transform:translateY(-50%)}
-    #joy .r{right:calc(var(--s)*.12);top:50%;transform:translateY(-50%)}
-    #joy .u{top:calc(var(--s)*.08);left:50%;transform:translateX(-50%)}
-    #joy b{position:absolute;left:50%;top:50%;width:calc(var(--s)*.95);height:calc(var(--s)*.95);margin:calc(var(--s)*-.475) 0 0 calc(var(--s)*-.475);
-      border-radius:50%;background:rgba(255,255,255,.5);border:2px solid #fff;box-shadow:0 0 8px rgba(0,0,0,.5)}
     #rot{position:fixed;inset:0;z-index:20;background:#08060c;color:#fff;align-items:center;justify-content:center;font:700 20px system-ui;text-align:center;padding:20px}
     @media (orientation:portrait){body.touch #rot{display:flex}}
+
+    /* ===== 科技风登录弹窗样式 ===== */
+    #auth-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 99;
+      background: rgba(3, 6, 14, 0.88);
+      backdrop-filter: blur(8px);
+      align-items: center;
+      justify-content: center;
+    }
+    #auth-overlay.show { display: flex; }
+    .auth-box {
+      width: min(90vw, 380px);
+      background: linear-gradient(180deg, #0e172a 0%, #060a14 100%);
+      border: 1.5px solid #00e5ff;
+      border-radius: 12px;
+      box-shadow: 0 0 25px rgba(0, 229, 255, 0.35);
+      padding: 24px;
+      box-sizing: border-box;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .auth-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #7df9ff;
+      text-align: center;
+      margin-bottom: 4px;
+      letter-spacing: 1px;
+    }
+    .auth-subtitle {
+      font-size: 11px;
+      color: #7a8fa6;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .auth-field {
+      margin-bottom: 12px;
+    }
+    .auth-field label {
+      display: block;
+      font-size: 11px;
+      color: #94a3b8;
+      margin-bottom: 5px;
+    }
+    .auth-field input {
+      width: 100%;
+      height: 38px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(0, 229, 255, 0.3);
+      border-radius: 6px;
+      color: #fff;
+      padding: 0 10px;
+      box-sizing: border-box;
+      outline: none;
+      font-size: 13px;
+    }
+    .auth-field input:focus {
+      border-color: #00e5ff;
+      box-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+    }
+    .auth-btn-main {
+      width: 100%;
+      height: 40px;
+      background: linear-gradient(180deg, #00e5ff 0%, #0099b8 100%);
+      border: none;
+      border-radius: 6px;
+      color: #050b14;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: 0.15s;
+    }
+    .auth-btn-main:active { transform: scale(0.98); }
+    .auth-btn-guest {
+      width: 100%;
+      height: 36px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 6px;
+      color: #cbd5e1;
+      font-size: 12.5px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    .auth-footer {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 14px;
+      font-size: 11.5px;
+    }
+    .auth-link {
+      color: #ffd84a;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+    .auth-close {
+      color: #94a3b8;
+      cursor: pointer;
+    }
+    .auth-msg {
+      font-size: 11px;
+      color: #ff7675;
+      text-align: center;
+      min-height: 16px;
+      margin-top: 6px;
+    }
   </style>
 </head>
 <body>
   <canvas id="c"></canvas>
   <div id="rot">📱 请将设备横屏游玩<br>（并可「添加到主屏幕」全屏运行）</div>
 
-  <!-- 按依赖层级由浅入深依次引入 -->
+  <!-- 登录弹窗 DOM -->
+  <div id="auth-overlay">
+    <div class="auth-box">
+      <div class="auth-title">TERMINAL // 骑士终端认证</div>
+      <div class="auth-subtitle">IDENTIFICATION & CLOUD ARCHIVE</div>
+
+      <div class="auth-field">
+        <label>邮箱地址 / EMAIL</label>
+        <input type="email" id="auth-email" placeholder="rider@domain.com">
+      </div>
+      <div class="auth-field">
+        <label>终端密钥 / PASSWORD</label>
+        <input type="password" id="auth-password" placeholder="••••••••">
+      </div>
+
+      <div class="auth-msg" id="auth-status"></div>
+
+      <button class="auth-btn-main" id="btn-email-action">登 录 终 端</button>
+      <button class="auth-btn-guest" id="btn-guest-action">以 游 客 身 份 进 入</button>
+
+      <div class="auth-footer">
+        <span class="auth-link" id="btn-toggle-mode">没有账号？点击注册</span>
+        <span class="auth-close" id="btn-auth-close">关闭</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 按依赖层级引入脚本 -->
   <script src="js/config.js"></script>
   <script src="js/equipment.js"></script>
   <script src="js/player.js"></script>
@@ -58,6 +180,10 @@
   <script src="js/ryuki.js"></script>
   <script src="js/faiz.js"></script>
   <script src="js/blade.js"></script>
+  <script src="js/henshin.js"></script>
+  <script src="js/malaya_henshin.js"></script>
+  <script src="js/auth.js"></script> <!-- ★ 新增 Auth 模块 -->
+  <script src="js/coop.js"></script> <!-- ★ 新增 -->
   <script src="js/main.js"></script>
 </body>
 </html>
