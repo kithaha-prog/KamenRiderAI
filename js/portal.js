@@ -145,8 +145,10 @@ function poFrame(acc, title) {
   ctx.restore();
   txt(title, POX + 26, POY + 26, 18, '#fff');
   const gd = '🪙 ' + S.g.toLocaleString(), lv = 'Lv.' + S.lv;
-  const gw = tw(gd, 13) + 24, lw = tw(lv, 13) + 24, ry = POY + 13;
-  pPill(POX + POW - 20 - gw, ry, gw, 24, 'rgba(255,216,74,.14)', '#ffd84a88'); txt(gd, POX + POW - 20 - gw / 2, ry + 12, 13, '#ffd84a', 'center');
+  const gw = curW(gd, 13) + 24, lw = tw(lv, 13) + 24, ry = POY + 13;
+  pPill(POX + POW - 20 - gw, ry, gw, 24, 'rgba(255,216,74,.14)', '#ffd84a88'); curT(gd, POX + POW - 20 - gw / 2, ry + 12, 13, '#ffd84a', 'center');
+  const dd = '💎 ' + S.d.toLocaleString(), dw = curW(dd, 13) + 24;
+  pPill(POX + POW - 36 - gw - lw - dw, ry, dw, 24, 'rgba(79,227,255,.14)', '#4fe3ff88'); curT(dd, POX + POW - 36 - gw - lw - dw / 2, ry + 12, 13, '#4fe3ff', 'center');
   pPill(POX + POW - 28 - gw - lw, ry, lw, 24, 'rgba(125,255,154,.12)', '#7dff9a88'); txt(lv, POX + POW - 28 - gw - lw / 2, ry + 12, 13, '#7dff9a', 'center');
 }
 
@@ -268,8 +270,9 @@ function poStageCard(s, idx, y, acc) {
   txt('推荐 Lv.' + s.r, mx, y + 22, 13, un ? rel[1] : '#555');
   if (un) txt(rel[0], mx + tw('推荐 Lv.' + s.r, 13) + 8, y + 22, 11, rel[1]);
   txt('装备产出 ≤ Lv.' + s.r, mx, y + 44, 11.5, un ? '#7df9ff' : '#555');
-  txt('🪙 ' + s.g.toLocaleString() + ' G', x + 600, y + 22, 13, un ? '#ffd84a' : '#555');
-  txt('通关奖励', x + 600, y + 44, 11.5, un ? '#8a97aa' : '#555');
+  curT('🪙 ' + s.g.toLocaleString() + ' G', x + 600, y + 22, 13, un ? '#ffd84a' : '#555');
+  if (un && idx >= S.cl && !s.wb) curT('💎 +' + FIRST_CLEAR_DIAMOND + ' 首通', x + 600, y + 44, 11.5, '#4fe3ff');   // 未首通：显示可得钻石；通关后不再显示
+  else txt('通关奖励', x + 600, y + 44, 11.5, un ? '#8a97aa' : '#555');
 
   const bw = 104, bh = 34, bxx = x + w - bw - 12, byy = y + 14;
   rpath(bxx, byy, bw, bh, 8);

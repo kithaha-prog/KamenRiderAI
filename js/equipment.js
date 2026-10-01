@@ -11,11 +11,11 @@ const SLOTS = {
 
 const TIERS = [
   { id: 0, n: '普通', c: '#a0a0a0', bg: 'rgba(160,160,160,0.22)', mul: 1.0, scrap: 1 },
-  { id: 1, n: '优质', c: '#00d2d3', bg: 'rgba(0,210,211,0.25)', mul: 1.4, scrap: 2 },
-  { id: 2, n: '稀有', c: '#2e86de', bg: 'rgba(46,134,222,0.28)', mul: 2.0, scrap: 4 },
-  { id: 3, n: '史诗', c: '#a55eea', bg: 'rgba(165,94,234,0.32)', mul: 3.0, scrap: 8 },
-  { id: 4, n: '传说', c: '#ffd32a', bg: 'rgba(255,211,42,0.36)', mul: 4.6, scrap: 16 },
-  { id: 5, n: '神话', c: '#ff3838', bg: 'rgba(255,56,56,0.42)', mul: 6.8, scrap: 32 }
+  { id: 1, n: '优质', c: '#00d2d3', bg: 'rgba(0,210,211,0.25)', mul: 1.25, scrap: 2 },
+  { id: 2, n: '稀有', c: '#2e86de', bg: 'rgba(46,134,222,0.28)', mul: 1.6, scrap: 4 },
+  { id: 3, n: '史诗', c: '#a55eea', bg: 'rgba(165,94,234,0.32)', mul: 2.1, scrap: 8 },
+  { id: 4, n: '传说', c: '#ffd32a', bg: 'rgba(255,211,42,0.36)', mul: 2.8, scrap: 16 },
+  { id: 5, n: '神话', c: '#ff3838', bg: 'rgba(255,56,56,0.42)', mul: 3.8, scrap: 32 }
 ];
 
 const ITEM_NAMES = {
@@ -78,6 +78,8 @@ const ITEM_NAMES = {
 };
 
 // 装备生成器（支持最高 500 级属性平滑曲线与需求等级）
+const EQ_K = 0.6;   // 装备基础数值倍率（越小装备越弱）
+const TIER_MUL_OLD = [1.0, 1.4, 2.0, 3.0, 4.6, 6.8];   // 旧版品质倍率，仅用于旧存档迁移
 function genItem(slot, tier, lvl = 1) {
   const slotKeys = Object.keys(SLOTS);
   if (!slot) slot = slotKeys[(Math.random() * slotKeys.length) | 0];
@@ -117,7 +119,11 @@ function genItem(slot, tier, lvl = 1) {
     if (tier >= 1) s.crit = +(0.01 + tier * 0.01).toFixed(3);
   }
 
+  // 装备数值整体削减（EQ_K）
+  for (const k in s) s[k] = k === 'crit' ? +(s[k] * EQ_K).toFixed(3) : Math.round(s[k] * EQ_K);
+
   return {
+    v: 2,
     id: 'eq_' + (++uid) + '_' + Math.random().toString(36).slice(2, 7),
     name,
     slot,
@@ -143,8 +149,8 @@ if (S.inv.length === 0 && !S.eq.weapon) {
 
 // ===== 强化 / 升星 / 分解 公共计算 =====
 const MAX_STAR = 5;                 // 满星 5 星
-const STAR_BONUS = 0.25;            // 每星全属性 +25%
-const UP_BONUS = 0.12;              // 每级强化基础属性 +12%
+const STAR_BONUS = 0.15;            // 每星全属性 +25%
+const UP_BONUS = 0.08;              // 每级强化基础属性 +12%
 const starStr = it => '⭐'.repeat(it.star | 0) + '☆'.repeat(MAX_STAR - (it.star | 0));
 
 // 统一重算装备属性 = 基础 × 强化加成 × 星级加成（暴击率保留小数，不再被取整成 0）
@@ -360,4 +366,19 @@ function discardItem(item) {
   selItem = null;
   save();
   bagNotice = '已丢弃该装备'; bagNoticeT = 1.8;
-}
+}
+
+// ===== 旧存档迁移：把旧版（v1）装备的基础属性按新倍率削减一次 =====
+(function migrateEquip() {
+  const fix = it => {
+    if (!it || it.v === 2 || !it.baseStats) return;
+    const t = it.tier | 0, k = TIERS[t].mul / TIER_MUL_OLD[t] * EQ_K;
+    for (const key in it.baseStats) {
+      const b = it.baseStats[key]; if (!b) continue;
+      it.baseStats[key] = key === 'crit' ? +(b * EQ_K).toFixed(3) : Math.max(1, Math.round(b * k));
+    }
+    it.v = 2; recalcItem(it);
+  };
+  (S.inv || []).forEach(fix);
+  for (const s in (S.eq || {})) fix(S.eq[s]);
+})();

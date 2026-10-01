@@ -8,6 +8,7 @@ const A = 'Assets/',
       KR = A + 'Kamen Rider Malaya/',
       RYUKI = A + 'Kamen Rider Ryuki/',
       FAIZ = A + 'Kamen Rider 555/',
+      BLADE = A + 'Kamen Rider Blade/',
       TRANS = A + 'Transform/',
       DRAW = A + 'Draw/',
       ED = A + 'Enemies/',
@@ -16,31 +17,31 @@ const A = 'Assets/',
 
 // Malaya 原生动作
 const SH = {
-  run: { f: 'KR_Malaya_Run.jpg', c: 3, r: 4, ref: 0 },
-  jump: { f: 'KR_Malaya_Jump.jpg', c: 4, r: 3, ref: 8, cut: 8 },
-  trans: { f: 'KR_Malaya_Transform.jpg', c: 4, r: 4, ref: 15 },
-  sword: { f: 'KR_Malaya_Sword.jpg', c: 4, r: 4, ref: 0, w: 110, mid: 1 },
-  fv: { f: 'KR_Malaya_FinalVent.jpg', c: 4, r: 4, ref: 15 },
-  atk: { f: 'KR_Malaya_NormalAttack.jpg', c: 4, r: 4, ref: 12 }
+  run: { f: 'KR_Malaya_Run.png', c: 3, r: 4, ref: 0 },
+  jump: { f: 'KR_Malaya_Jump.png', c: 4, r: 3, ref: 8, cut: 8 },
+  trans: { f: 'KR_Malaya_Transform.png', c: 4, r: 4, ref: 15 },
+  sword: { f: 'KR_Malaya_Sword.png', c: 4, r: 4, ref: 0, w: 110, mid: 1 },
+  fv: { f: 'KR_Malaya_FinalVent.png', c: 4, r: 4, ref: 15 },
+  atk: { f: 'KR_Malaya_NormalAttack.png', c: 4, r: 4, ref: 12 }
 };
 
 // Ryuki 动作模组
 const SHR = {
-  run: { f: 'KR_Ryuki_Run.jpg', c: 4, r: 2, ref: 0 },
-  jump: { f: 'KR_Ryuki_Jump.jpg', c: 4, r: 3, ref: 8, cut: 8 },
-  sword: { f: 'KR_Ryuki_Sword.jpg', c: 4, r: 4, ref: 0, w: 110, mid: 1 },
-  fv: { f: 'KR_Ryuki_FinalVent.jpg', c: 4, r: 4, ref: 15 },
-  atk: { f: 'KR_Ryuki_NormalAttack.jpg', c: 4, r: 4, ref: 0 }
+  run: { f: 'KR_Ryuki_Run.png', c: 4, r: 2, ref: 0 },
+  jump: { f: 'KR_Ryuki_Jump.png', c: 4, r: 3, ref: 8, cut: 8 },
+  sword: { f: 'KR_Ryuki_Sword.png', c: 4, r: 4, ref: 0, w: 110, mid: 1 },
+  fv: { f: 'KR_Ryuki_FinalVent.png', c: 4, r: 4, ref: 15 },
+  atk: { f: 'KR_Ryuki_NormalAttack.png', c: 4, r: 4, ref: 0 }
 };
 
 // ===== 555 (Faiz) 动作模组 =====
 // 555 全部素材统一缩放（站立身高 ≈ PH），避免各表格帧尺寸不同造成忽大忽小
 const FAIZ_SCALE = PH / 484;
 const SH5 = {
-  run:  { f: 'KR_555_Run.jpg',          c: 3, r: 4, ref: 0 },
-  jump: { f: 'KR_555_Jump.jpg',         c: 4, r: 2, ref: 2 },
-  atk:  { f: 'KR_555_NormalAttack.jpg', c: 4, r: 3, ref: 0 },
-  fv:   { f: 'KR_555_FinalVent.jpg',    c: 4, r: 4, ref: 15 }
+  run:  { f: 'KR_555_Run.png',          c: 3, r: 4, ref: 0 },
+  jump: { f: 'KR_555_Jump.png',         c: 4, r: 2, ref: 2 },
+  atk:  { f: 'KR_555_NormalAttack.png', c: 4, r: 3, ref: 0 },
+  fv:   { f: 'KR_555_FinalVent.png',    c: 4, r: 4, ref: 15 }
   // trans（变身表 4×4）在 main.js 里加载后挂到 SH5.trans
 };
 // 变身动画：每 0.12s 一步，值 = 变身表里的帧号（0~3 Malaya → 4~7 光环/粒子/爆发 → 8~11 555 → 8 待机）
@@ -55,6 +56,60 @@ const FAIZ_FV = { charge: .72, rise: 1.08, hold: 1.16, dive: 1.72, tip: 92 };
 const FAIZ_GUN = { pose: 10, hx: 416, hy: 168, w: 64, gx: .133, gy: .72, mx: .996, my: .318, spd: 1500 };
 let GUN5 = null, BUL5 = null;
 const CAP_IMGS = {};   // 胶囊卡面：id → Image
+
+// ===== Blade 动作模组（素材：Assets/Kamen Rider Blade/）=====
+// 各表格统一以“站立身高 ≈ PH”缩放（由 sliceSheet 的 ref 帧决定）。
+const SH6 = {
+  run:  { f: 'KR_Blade_Run.png',          c: 3, r: 2, ref: 0 },
+  jump: { f: 'KR_Blade_Jump.png',         c: 4, r: 3, ref: 8 },
+  atk:  { f: 'KR_Blade_NormalAttack.png', c: 4, r: 4, ref: 12 },
+  fv:   { f: 'KR_Blade_FinalVent.png',    c: 4, r: 4, ref: 15 }
+};
+// 每一帧里角色的水平锚点（原图像素：头部红眼 / 身体质心），保证切换动作时模型不前后晃动
+const BLADE_AX = {
+  run:  [367, 363, 381, 376, 369, 374],
+  jump: [380, 401, 385, 361, 355, 372, 359, 356, 361, 369, 379, 363],
+  atk:  [312, 321, 302, 316, 350, 361, 325, 334, 350, 326, 315, 299, 301, 292, 290, 287],
+  fv:   [131, 128, 187, 134, 134, 136, 147, 148, 129, 133, 112, 124, 150, 128, 168, 136]
+};
+const BLADE_FOOT = { run: [505, 530, 501, 476, 482, 482] };   // 跑步表逐帧脚底
+// 普通攻击：按 P.t*14 取帧（第 3、5 步为判定帧 = 第一道蓝色刀光 / 金色刀光）
+const BLADE_ATK_SEQ = [1, 3, 4, 5, 6, 7, 8];
+// 变身表 Transform/KR_Malaya_TransformTo_KR_Blade.png（5列×4行=20帧）：0~1 Malaya → 2~4 取牌 → 5~12 卡牌环 → 13~14 装甲生成 → 15~19 Blade；若朝向反了把 BLADE_TRANS_FLIP 改成 -1
+const BLADE_TRANS_FLIP = 1;
+// ★ 变身时间轴：对齐 Assets/SoundFX/Kamen_Rider_Blade_Henshin.mp3（11.35 秒）。下面的时间都是“音频原速的秒数”，
+//   实际播放按音频真实时长等比换算，并且动画时钟直接跟随音频的 currentTime（暂停/卡顿后也不会错位）。
+//   时间点来自音频的能量/低频分析：0.44 首个音头 · 3.0 低音鼓点进入(每 ~0.9s 一拍) · 6.87 大冲击 · 7.48 全曲最强一击 · 9.0 / 9.82 两次重音 · 10.5 起淡出
+const BLADE_AUDIO_LEN = 11.35;
+const BLADE_TL = {
+  draw: .44,                              // 抽牌
+  belt: 1.25,                             // 腰带亮起
+  spark: 2.0,                             // 卡牌开始飞出
+  beats: [3.0, 3.9, 4.8, 5.6, 6.25],      // 鼓点：每拍一圈地面涟漪
+  gate: 6.87,                             // 穿过觉醒之门（卡牌环扫过全身）
+  burst: 7.48,                            // 水花炸开、脱去 Malaya
+  scans: [8.0, 8.45, 8.9],                // 装甲逐段生成（扫描光带）
+  wave: 9.0,                              // 第二次重音
+  fin: 9.82,                              // 眼睛变红，OPEN UP
+  calm: 10.5                              // 余韵
+};
+// [时间, 变身表帧号, 是否硬切]；'spin' = 卡牌环旋转（8/9/10 三帧循环）直到下一个关键帧
+const BLADE_KEYS = [[0, 0], [.44, 2], [1.25, 3], [2.0, 4], [3.0, 5], [3.9, 6], [4.8, 7], [5.45, 'spin'],
+  [6.87, 11, 1], [7.2, 12], [7.48, 13, 1], [8.0, 14], [8.45, 15], [8.9, 16], [9.3, 17], [9.82, 18, 1], [10.15, 19]];
+const BLADE_IDLE_FLIP = 1;   // 待机(帧12/13) 与 L 技能姿势(帧10) 的镜像系数：素材里这几帧朝右，所以不镜像；若发现反了，改成 -1
+const ATK_REACH = 220;   // 所有形态普攻判定向前延伸的距离（原来是 180；想更长/更短改这里）
+const BLADE_ATK_FLIP = 1;    // 攻击/待机表里角色朝左，所以镜像；若发现刀光出现在身后，改成 1
+// 大招时间线（秒）：charge 蓄力 → rise 跳起 → hold 顶点 → dive 锥体定身停顿结束、开始砸落；tip=落点在身前多少像素
+const BLADE_FV = { charge: .86, rise: 1.2, hold: 1.32, dive: 1.82, tip: 105 };
+// L 技能：手持剑召雷。pose=攻击表中“无剑、前伸拳头”的帧；hx/hy=该帧里拳头位置(512格内像素)；
+// fireT=放出闪电的时刻；dur=整个技能时长
+const BLADE_L = { pose: 10, hx: 425, hy: 222, fireT: .3, dur: .8 };
+// 剑图几何：len=游戏中整把剑长度；gripR=握柄点离剑柄端占全长比例；gx/gy=握柄点在(裁边后)剑图中的位置比例；
+// axisR=剑轴长/剑图宽；phi=剑图中“握柄→剑尖”的方向角（弧度，剑尖朝左下）
+const BLADE_SWORD = { vf: -1, len: 125, gripR: .38, gx: .6152, gy: .4261, axisR: 1.1532, phi: 2.6208 };
+// 闪电束：L=射程；t=持续秒数；ticks=结算时刻；mul=各次伤害倍率（乘攻击力）；w=束半宽（判定）
+// phi=闪电贴图主干方向角(弧度,≈22°)；sy=垂直于束方向的压缩系数（<1 更细长）
+const BLADE_BOLT = { L: 760, t: .46, ticks: [0, .15, .3], mul: [1.3, .8, .8], w: 140, phi: .3869, sy: .8 };
 
 // 敌人基础属性
 const ET = {
@@ -133,7 +188,9 @@ WB.forEach(w => {
 });
 
 // 怪物强度由推荐等级 r 推导（想整体调难度只改下面两个系数即可）
-const HP_K = 0.6, DM_K = 0.025;
+const HP_K = 0.7, DM_K = 0.03;   // 怪物生命 / 伤害系数（原 0.6 / 0.025）
+// 升级所需经验（原来是 等级×40，升得太快）
+const xpNeed = lv => Math.round(60 + lv * 45 + lv * lv * 1.1);
 const atkExp = r => (14 + 19 * r) * (1 + .02 * r);      // 该等级玩家的大致攻击力
 const hpExp  = r => (100 + 75 * r) * (1 + .02 * r);     // 该等级玩家的大致生命值
 ST.forEach(z => {
@@ -254,10 +311,10 @@ const CHAPTERS = [
 
 // 天赋配置
 const TL = [
-  ['攻击强化', '伤害 +8%'],
-  ['生命强化', '最大生命 +10%'],
-  ['魔力强化', '最大魔力 +10%'],
-  ['会心一击', '暴击率 +3%（暴击×2）']
+  ['攻击强化', '伤害 +5%'],
+  ['生命强化', '最大生命 +6%'],
+  ['魔力强化', '最大魔力 +6%'],
+  ['会心一击', '暴击率 +2%（暴击×2）']
 ];
 
 // ===== 变身胶囊注册中心（仅保留拥有实际美术与动作素材的骑士） =====
@@ -293,6 +350,22 @@ const CAPSULES = [
     finisher: 'EXCEED CHARGE · 红锥飞踢 (跃起→锥体定身→砸落)',
     trait: '光速机动 · 手机枪射击 · 红锥必杀',
     atkMul: 1.22, crAdd: .10, spdMul: 1.15
+  },
+  {
+    id: 'blade',
+    name: '假面骑士 Blade',
+    short: 'Blade',
+    slotName: 'Blade 黑桃胶囊',
+    rider: 'BLADE',
+    tier: 4, // 传说
+    c: '#3aa0ff',
+    tag: '黑桃之刃',
+    desc: '佩戴 Blay Buckle 的黑桃王牌，手持 Blay Rouzer，召唤雷电斩破一切。',
+    buff: '攻击力 +26%，暴击率 +12%，移速 +8%',
+    skill: 'L · 召雷（持剑召唤贯穿闪电，自动瞄准）',
+    finisher: 'LIGHTNING SONIC · 雷电音速踢 (跃起→锥体定身→砸落→黑桃爆发)',
+    trait: '雷电缠身 · 持剑召雷 · 黑桃必杀',
+    atkMul: 1.26, crAdd: .12, spdMul: 1.08
   }
 ];
 
@@ -304,7 +377,7 @@ let curSelCapId = 'ryuki', capPage = 0, capFilter = 'all';
 let uid = 0;
 let G = 'load', msg = '加载中…', T = 0, cam = 0, shake = 0;
 let E = [], PJ = [], EP = [], FX = [], DT = [], OR = [], GH = [], HZ = [], TQ = [];
-let kills = 0, bs = 0, sp = 1, cur = 0, RG = 0, FG = 0;
+let kills = 0, bs = 0, sp = 1, cur = 0, RG = 0, FG = 0, FD = 0;   // FD：本次通关获得的钻石（首通奖励）
 let EN = {}, ENS = {}, BK, SC, SC_MAP = {}, CAP_IMG = null, COVER_IMG = null, miss = [], ENL = [], EMAP = null, IM = {};
 let showChar = false, gachaModal = null, showCapModal = false; // showCapModal 独立胶囊界面状态
 let M = 0, RM = null, NR = null;
@@ -327,8 +400,10 @@ const sn = v => Math.round(v * DPR) / DPR;
 const K = {}, PR = {};
 
 // 存档结构与持久化
+// 钻石：高级货币（初始 1000；首通关卡 +FIRST_CLEAR_DIAMOND；用于扭蛋）
+const FIRST_CLEAR_DIAMOND = 100;
 const S = {
-  g: 200, hp: 2, mp: 1, sw: 0, ar: 0, bt: 0, lv: 1, xp: 0, tp: 0, ta: [0, 0, 0, 0], cl: 0,
+  g: 200, d: 1000, hp: 2, mp: 1, sw: 0, ar: 0, bt: 0, lv: 1, xp: 0, tp: 0, ta: [0, 0, 0, 0], cl: 0,
   caps: [], eqCap: null,
   inv: [],
   eq: { weapon: null, chest: null, belt: null, legs: null, boots: null, necklace: null, ring: null },
@@ -342,6 +417,7 @@ try {
   if (!S.eq || typeof S.eq !== 'object') S.eq = { weapon: null, chest: null, belt: null, legs: null, boots: null, necklace: null, ring: null };
   if (typeof S.mat !== 'number') S.mat = 20;
   if (typeof S.scr !== 'number') S.scr = 3;
+  if (typeof S.d !== 'number') S.d = 1000;
 } catch (e) {}
 
 const save = () => { try { localStorage.malaya = JSON.stringify(S) } catch (e) {} };
@@ -350,37 +426,14 @@ const cl = (v, a, b) => Math.max(a, Math.min(b, v));
 // 图像切片与去色去噪图形工具
 const load = s => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(s); i.src = encodeURI(s) });
 
-function key(im, x, y, w, h) {
-  const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); g.drawImage(im, x, y, w, h, 0, 0, w, h);
-  const d = g.getImageData(0, 0, w, h), p = d.data;
-  for (let i = 0; i < p.length; i += 4) {
-    const r = p[i], gg = p[i + 1], b = p[i + 2], k = gg - Math.max(r, b);
-    if (gg > 80 && k > 45) {
-      if (k > 80) p[i + 3] = 0;
-      else p[i + 3] = Math.max(0, 255 * (80 - k) / 35);
-    }
-  }
-  g.putImageData(d, 0, 0); return c;
-}
-
-// 发光弹体抠图：绿幕背景 r≈0，光体 r 很高 → 以红通道决定透明度，并压掉边缘绿色溢色；配合 'lighter' 叠加绘制
-function glowKey(im) {
+// 透明 PNG：直接裁切，不再需要任何抠底处理
+function toCanvas(im) {
   const c = document.createElement('canvas'); c.width = im.width; c.height = im.height;
-  const g = c.getContext('2d'); g.drawImage(im, 0, 0);
-  const d = g.getImageData(0, 0, c.width, c.height), p = d.data;
-  for (let i = 0; i < p.length; i += 4) {
-    const r = p[i], gg = p[i + 1], b = p[i + 2];
-    p[i + 3] = 255 * Math.max(0, Math.min(1, (r - 60) / 140));
-    p[i + 1] = Math.min(gg, r * .75 + b * .5);
-  }
-  g.putImageData(d, 0, 0); return c;
+  c.getContext('2d').drawImage(im, 0, 0); return c;
 }
-
-// 去绿边：半透明边缘里偏绿的像素拉回中性
-function despill(c) {
-  const g = c.getContext('2d'), d = g.getImageData(0, 0, c.width, c.height), p = d.data;
-  for (let i = 0; i < p.length; i += 4) if (p[i + 3]) { const m = Math.max(p[i], p[i + 2]); if (p[i + 1] > m) p[i + 1] = m + (p[i + 1] - m) * .15 }
-  g.putImageData(d, 0, 0); return c;
+function crop(im, x, y, w, h) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  c.getContext('2d').drawImage(im, x, y, w, h, 0, 0, w, h); return c;
 }
 
 function cleanFrame(canvas) {
@@ -435,7 +488,7 @@ function trim(c) { const b = bb(c), w = b.x1 - b.x0 + 1, h = b.y1 - b.y0 + 1, o 
 function sliceSheet(im, cNum, rNum, refIdx = 0, cut = 0, doClean = false) {
   const cw = im.width / cNum | 0, ch = im.height / rNum | 0, fr = [];
   for (let r = 0; r < rNum; r++) for (let c = 0; c < cNum; c++) {
-    let k = key(im, c * cw, r * ch, cw, ch);
+    let k = crop(im, c * cw, r * ch, cw, ch);
     if (cut && r === rNum - 1) k.getContext('2d').clearRect(0, ch - cut, cw, cut);
     if (doClean) k = cleanFrame(k);
     fr.push(k);
@@ -445,36 +498,111 @@ function sliceSheet(im, cNum, rNum, refIdx = 0, cut = 0, doClean = false) {
 }
 function ph(c) { const o = document.createElement('canvas'); o.width = 80; o.height = 120; const g = o.getContext('2d'); g.fillStyle = c; g.fillRect(10, 10, 60, 110); return o }
 
-function bkey(im) {
-  const w = im.width, h = im.height, c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); g.drawImage(im, 0, 0);
-  const d = g.getImageData(0, 0, w, h), p = d.data, sd = [[0, 0], [w - 1, 0], [w >> 1, 0], [0, h >> 1], [w - 1, h >> 1], [0, h - 1], [w - 1, h - 1], [w >> 1, h - 1], [0, h * .9 | 0], [w - 1, h * .9 | 0]].map(([x, y]) => { const i = (y * w + x) * 4; return [p[i], p[i + 1], p[i + 2]] });
-  const seen = new Uint8Array(w * h), st = [], push = (x, y) => { const n = y * w + x, i = n * 4; if (!seen[n] && sd.some(s => Math.abs(p[i] - s[0]) + Math.abs(p[i + 1] - s[1]) + Math.abs(p[i + 2] - s[2]) < 45)) { seen[n] = 1; st.push(n) } };
-  for (let x = 0; x < w; x++) { push(x, 0); push(x, h - 1) } for (let y = 0; y < h; y++) { push(0, y); push(w - 1, y) }
-  while (st.length) { const n = st.pop(), x = n % w, y = n / w | 0; p[n * 4 + 3] = 0; if (x > 0) push(x - 1, y); if (x < w - 1) push(x + 1, y); if (y > 0) push(x, y - 1); if (y < h - 1) push(x, y + 1) }
-  g.putImageData(d, 0, 0); const cx = new Int32Array(w), cy = new Int32Array(h);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (p[(y * w + x) * 4 + 3]) { cx[x]++; cy[y]++ }
-  const f = (a, n) => { let i = 0, j = n - 1; while (i < n && a[i] < 12) i++; while (j > 0 && a[j] < 12) j--; return [i, j] }, [x0, x1] = f(cx, w), [y0, y1] = f(cy, h), o = document.createElement('canvas');
-  o.width = x1 - x0 + 1; o.height = y1 - y0 + 1; o.getContext('2d').drawImage(c, x0, y0, o.width, o.height, 0, 0, o.width, o.height); return o;
-}
-
+// 敌人切片（精准版）：
+// 1) 只用“实心像素”(alpha>128) 做 8 邻域连通分析，不再做会把相邻怪物粘在一起的膨胀；
+// 2) 面积够大的连通块 = 独立的怪（主体）；零碎部件（翅膀尖 / 喷出的火球 / 熔岩碎块…）按像素距离归到最近的主体；离群小噪点丢弃；
+// 3) 半透明的边缘 / 光晕像素：只保留主体 10px 内的，并借用最近实心像素的颜色（去掉抠图残留的绿边），背景里零散的低 alpha 噪点全部清除；
+// 4) 每只怪只拷贝属于自己的像素，所以包围盒重叠（一只怪的火球飘进另一只怪的框里）也不会串。
 function cut(im) {
-  const w = im.width, h = im.height, c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); g.drawImage(im, 0, 0);
-  const d = g.getImageData(0, 0, w, h), p = d.data, cs = [0, (w - 1) * 4, (h - 1) * w * 4, (h * w - 1) * 4], bc = [0, 1, 2].map(j => cs.map(i => p[i + j]).sort((a, b) => a - b)[1]);
-  const seen = new Uint8Array(w * h), st = [], push = (x, y) => { const n = y * w + x, i = n * 4; if (!seen[n] && Math.abs(p[i] - bc[0]) + Math.abs(p[i + 1] - bc[1]) + Math.abs(p[i + 2] - bc[2]) < 110) { seen[n] = 1; st.push(n) } };
-  for (let x = 0; x < w; x++) { push(x, 0); push(x, h - 1) } for (let y = 0; y < h; y++) { push(0, y); push(w - 1, y) }
-  while (st.length) { const n = st.pop(), x = n % w, y = n / w | 0; p[n * 4 + 3] = 0; if (x > 0) push(x - 1, y); if (x < w - 1) push(x + 1, y); if (y > 0) push(x, y - 1); if (y < h - 1) push(x, y + 1) }
-  g.putImageData(d, 0, 0); const gw = Math.ceil(w / 4), gh = Math.ceil(h / 4), m = new Uint8Array(gw * gh), D = new Uint8Array(gw * gw);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (p[(y * w + x) * 4 + 3]) m[(y >> 2) * gw + (x >> 2)] = 1;
-  for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) if (m[y * gw + x]) for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) { const X = x + i, Y = y + j; if (X >= 0 && X < gw && Y >= 0 && Y < gh) D[Y * gw + X] = 1 }
-  const out = [];
-  for (let s0 = 0; s0 < D.length; s0++) {
-    if (D[s0] !== 1) continue; let x0 = gw, y0 = gh, x1 = 0, y1 = 0, cnt = 0; const q = [s0]; D[s0] = 2;
-    while (q.length) {
-      const n = q.pop(), x = n % gw, y = n / gw | 0; cnt += m[n]; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
-      for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const X = x + a, Y = y + b; if (X >= 0 && X < gw && Y >= 0 && Y < gh && D[Y * gw + X] === 1) { D[Y * gw + X] = 2; q.push(Y * gw + X) } }
+  const w = im.width, h = im.height, N = w * h, c = toCanvas(im), g0 = c.getContext('2d');
+  const img = g0.getImageData(0, 0, w, h), p = img.data, SOL = 128;
+
+  // ---- 1. 实心像素连通块 ----
+  const lab = new Int32Array(N), comps = [];
+  for (let s = 0; s < N; s++) {
+    if (lab[s] || p[s * 4 + 3] <= SOL) continue;
+    const id = comps.length + 1, q = [s]; lab[s] = id;
+    for (let head = 0; head < q.length; head++) {
+      const cur = q[head], cx = cur % w, cy = (cur / w) | 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const X = cx + dx, Y = cy + dy; if (X < 0 || X >= w || Y < 0 || Y >= h) continue;
+        const k = Y * w + X; if (!lab[k] && p[k * 4 + 3] > SOL) { lab[k] = id; q.push(k) }
+      }
     }
-    if (cnt < gw * gh * .0015) continue; const o = document.createElement('canvas'), ow = (x1 - x0 + 1) * 4, oh = (y1 - y0 + 1) * 4; o.width = ow; o.height = oh;
-    o.getContext('2d').drawImage(c, x0 * 4, y0 * 4, ow, oh, 0, 0, ow, oh); const t = trim(o); t.ry = Math.round((y0 + y1) / 2 / (gh / 6)); t.rx = x0; out.push(t)
+    comps.push({ id, px: q, n: q.length });
+  }
+  if (!comps.length) return [];
+  const maxN = Math.max(...comps.map(o => o.n)), minMain = Math.max(400, maxN * .02);
+  const mains = comps.filter(o => o.n >= minMain);
+
+  // ---- 2. 从主体像素向外做距离扩散（4 邻域 BFS），给每个像素标上“最近的主体” ----
+  const own = new Int32Array(N), dist = new Int16Array(N).fill(-1), mainId = new Int32Array(comps.length + 1);
+  mains.forEach((o, i) => mainId[o.id] = i + 1);
+  function spread(seedList, seedOwn, R) {
+    own.fill(0); dist.fill(-1);
+    const q = [];
+    for (const k of seedList) { own[k] = seedOwn(k); dist[k] = 0; q.push(k) }
+    for (let head = 0; head < q.length; head++) {
+      const cur = q[head], d = dist[cur]; if (d >= R) continue;
+      const cx = cur % w, cy = (cur / w) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const X = cx + dx, Y = cy + dy; if (X < 0 || X >= w || Y < 0 || Y >= h) continue;
+        const k = Y * w + X; if (dist[k] < 0) { dist[k] = d + 1; own[k] = own[cur]; q.push(k) }
+      }
+    }
+  }
+  const seedsA = []; for (const o of mains) for (const k of o.px) seedsA.push(k);
+  spread(seedsA, k => mainId[lab[k]], 80);
+  // 零碎块归属 = 离它最近的主体（取块内离主体最近的像素）；太远的小噪点丢掉
+  const grpOf = new Int32Array(comps.length + 1);
+  for (const o of comps) {
+    if (mainId[o.id]) { grpOf[o.id] = mainId[o.id]; continue }
+    let bd = 1e9, bg = 0; for (const k of o.px) if (dist[k] >= 0 && dist[k] < bd) { bd = dist[k]; bg = own[k] }
+    grpOf[o.id] = (bg && (bd <= 40 || o.n >= 40)) ? bg : 0;
+  }
+
+  // ---- 3. 实心像素定主；再向外扩 10px 收半透明光晕（借色去绿边） ----
+  const solid = []; for (let k = 0; k < N; k++) if (lab[k] && grpOf[lab[k]]) solid.push(k);
+  const src = new Int32Array(N).fill(-1);
+  spread(solid, k => grpOf[lab[k]], 10);
+  // 再扩一遍记录“最近实心像素”(用于借色)：沿用同一 BFS 顺序
+  {
+    const q = []; src.fill(-1);
+    for (const k of solid) { src[k] = k; q.push(k) }
+    for (let head = 0; head < q.length; head++) {
+      const cur = q[head]; if (dist[cur] >= 10) continue;
+      const cx = cur % w, cy = (cur / w) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const X = cx + dx, Y = cy + dy; if (X < 0 || X >= w || Y < 0 || Y >= h) continue;
+        const k = Y * w + X; if (src[k] < 0 && dist[k] >= 0 && own[k] === own[cur]) { src[k] = src[cur]; q.push(k) }
+      }
+    }
+  }
+
+  // ---- 4. 每只怪各自输出一张画布 ----
+  const G = mains.length, box = Array.from({ length: G + 1 }, () => ({ x0: w, y0: h, x1: -1, y1: -1, n: 0 }));
+  for (let k = 0; k < N; k++) {
+    const gi = own[k]; if (!gi || dist[k] < 0 || p[k * 4 + 3] <= 8) continue;
+    const x = k % w, y = (k / w) | 0, b = box[gi]; b.n++;
+    if (x < b.x0) b.x0 = x; if (x > b.x1) b.x1 = x; if (y < b.y0) b.y0 = y; if (y > b.y1) b.y1 = y;
+  }
+  const out = [];
+  for (let gi = 1; gi <= G; gi++) {
+    const b = box[gi]; if (b.n < w * h * .0015) continue;
+    const ow = b.x1 - b.x0 + 1, oh = b.y1 - b.y0 + 1, o = document.createElement('canvas'), g = o.getContext('2d');
+    o.width = ow; o.height = oh;
+    const id = g.createImageData(ow, oh), d = id.data;
+    for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) {
+      const k = y * w + x; if (own[k] !== gi || dist[k] < 0) continue;
+      const a = p[k * 4 + 3]; if (a <= 8) continue;
+      let s = (a > SOL || src[k] < 0) ? k : src[k];
+      // 抠图残留的绿边：边缘(alpha<250)且偏绿的像素，改用 3px 内最近的“芯”像素(alpha>=250)的颜色
+      const r0 = p[s * 4], g1 = p[s * 4 + 1], b0 = p[s * 4 + 2];
+      if (a < 250 && g1 > r0 + 25 && g1 > b0 + 25) {
+        let bd = 99, bs = -1;
+        for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) {
+          const X = x + i, Y = y + j; if (X < 0 || X >= w || Y < 0 || Y >= h) continue;
+          const kk = Y * w + X, dd = i * i + j * j;
+          if (dd < bd && p[kk * 4 + 3] >= 250 && own[kk] === gi && !(p[kk * 4 + 1] > p[kk * 4] + 25 && p[kk * 4 + 1] > p[kk * 4 + 2] + 25)) { bd = dd; bs = kk }
+        }
+        if (bs >= 0) s = bs;
+      }
+      const t = ((y - b.y0) * ow + (x - b.x0)) * 4;
+      d[t] = p[s * 4]; d[t + 1] = p[s * 4 + 1]; d[t + 2] = p[s * 4 + 2]; d[t + 3] = a;
+    }
+    g.putImageData(id, 0, 0);
+    const t = trim(o); t.ry = Math.round((b.y0 + b.y1) / 2 / (h / 6)); t.rx = b.x0; out.push(t);
   }
   return out.sort((a, b) => a.ry - b.ry || a.rx - b.rx);
 }

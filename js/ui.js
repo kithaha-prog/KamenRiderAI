@@ -173,7 +173,7 @@ function drawPlayerHUD(x, y) {
   }
 
   // 等级徽章：外圈即经验进度
-  const cx = x + 42, cy = y + 38, R = 25, maxExp = S.lv * 40, ep = cl(S.xp / maxExp, 0, 1);
+  const cx = x + 42, cy = y + 38, R = 25, maxExp = xpNeed(S.lv), ep = cl(S.xp / maxExp, 0, 1);
   ctx.save();
   ctx.beginPath(); ctx.arc(cx, cy, R + 3, 0, 7); ctx.fillStyle = 'rgba(3,6,14,.92)'; ctx.fill();
   ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,.1)'; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.stroke();
@@ -189,7 +189,7 @@ function drawPlayerHUD(x, y) {
   ht(S.lv, cx, cy + 5, 17, '#ffd84a', 'center');
 
   const bx = x + 82, bw = w - 82 - 14;
-  ht(P.ryuki ? 'KAMEN RIDER RYUKI' : P.k5 ? 'KAMEN RIDER 555' : 'KAMEN RIDER MALAYA', bx, y + 11, 10, acc);
+  ht(formName(), bx, y + 11, 10, acc);
   ht('EXP ' + Math.floor(ep * 100) + '%', bx + bw, y + 11, 10, '#9fb0c4', 'right');
   rpath(bx, y + 19, bw, 3, 1.5); ctx.fillStyle = 'rgba(255,255,255,.1)'; ctx.fill();
   if (ep > 0) { rpath(bx, y + 19, bw * ep, 3, 1.5); ctx.fillStyle = acc; ctx.fill() }
@@ -224,21 +224,70 @@ function drawStaminaHUD(x, y) {
   ht(fmtC(P.sta) + ' / ' + fmtC(P.stm), bx + bw - 7, y + 17.5, 10, '#1a1200', 'right');
 }
 
+// ===== 货币图标（Assets/Icon/Coin.png / Diamond.png）=====
+// 载入时裁掉透明边并逐级缩小到 96px 高（直接把 2000px 大图画成 20px 会有锯齿）；没载入到就退回原来的矢量图 / emoji
+const ICO = { g: null, d: null };
+function mkIcon(im, H = 96) {
+  if (!im) return null;
+  let c = trim(toCanvas(im));
+  while (c.height > H * 2) { const n = document.createElement('canvas'); n.width = Math.max(1, c.width >> 1); n.height = Math.max(1, c.height >> 1); const g = n.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(c, 0, 0, n.width, n.height); c = n }
+  if (c.height > H) { const o = document.createElement('canvas'); o.height = H; o.width = Math.round(c.width * H / c.height); const g = o.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(c, 0, 0, o.width, o.height); c = o }
+  return c;
+}
+// 把大图缩到指定高度（逐级对半）。主页卡顿的元凶是每帧把几千像素的大图缩成几百像素来画
+function shrinkH(c, H) {
+  if (!c || c.height <= H) return c;
+  let cur = c;
+  while (cur.height > H) {
+    const nh = cur.height > H * 2 ? cur.height >> 1 : H, n = document.createElement('canvas');
+    n.height = nh; n.width = Math.max(1, Math.round(cur.width * nh / cur.height));
+    const g = n.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(cur, 0, 0, n.width, n.height); cur = n;
+  }
+  return cur;
+}
+const icoW = (ic, h) => ic.width * h / ic.height;
+function drawIco(ic, cx, cy, h) { if (!ic) return false; const w = icoW(ic, h); ctx.drawImage(ic, cx - w / 2, cy - h / 2, w, h); return true }
+// 文字开头的 🪙/💰/💎 换成图标；go=true 时只换金币（材料也用 💎，不是钻石）
+function curParse(s, go) { const m = /^(🪙|💰|💎) ?/.exec(s); if (!m || (go && m[1] === '💎')) return null; const ic = m[1] === '💎' ? ICO.d : ICO.g; return ic ? { ic, rest: s.slice(m[0].length) } : null }
+function curW(s, sz, go) { const c = curParse(s, go); return c ? icoW(c.ic, sz * 1.05) + 3 + tw(c.rest, sz) : tw(s, sz) }
+function curT(s, x, y, sz, col, al = 'left', tf = txt, go) {
+  const c = curParse(s, go); if (!c) return tf(s, x, y, sz, col, al);
+  const ih = sz * 1.05, iw = icoW(c.ic, ih), w = iw + 3 + tw(c.rest, sz), x0 = al === 'center' ? x - w / 2 : al === 'right' ? x - w : x;
+  drawIco(c.ic, x0 + iw / 2, y, ih); tf(c.rest, x0 + iw + 3, y, sz, col, 'left');
+}
+
 function drawGoldHUD() {
   const dt = hudDt();
   if (HUDS.g === null) HUDS.g = S.g;
   const df = S.g - HUDS.g; HUDS.g = Math.abs(df) < 1 ? S.g : HUDS.g + df * Math.min(1, dt * 8 + .02);
-  const s = Math.round(HUDS.g).toLocaleString(), w = Math.max(132, tw(s, 15) + 74), h = 32, x = 960 - 16 - w, y = 14;
-  hudPanel(x, y, w, h, '#ffd84a', 9);
-  const cx = x + 24, cy = y + 16;
-  ctx.save();
-  ctx.beginPath(); ctx.arc(cx, cy, 9.5, 0, 7);
-  const g = ctx.createRadialGradient(cx - 3, cy - 3, 1, cx, cy, 10); g.addColorStop(0, '#fff4b0'); g.addColorStop(1, '#e0a010');
-  ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1.2; ctx.strokeStyle = '#8a5a00'; ctx.stroke();
-  ctx.restore();
-  ht('G', cx, cy + .5, 10, '#7a4a00', 'center');
-  ht(s, x + w - 32, cy, 15, '#ffe27a', 'right');
-  ht('G', x + w - 16, cy + 1, 11, '#c9a64a', 'center');
+  const s = Math.round(HUDS.g).toLocaleString(), w = Math.max(92, tw(s, 12) + 52), h = 22, x = 960 - 16 - w, y = 14;
+  hudPanel(x, y, w, h, '#ffd84a', 6);
+  const cx = x + 15, cy = y + 11;
+  if (!drawIco(ICO.g, cx, cy, 15)) {   // 没有图标素材时用矢量金币
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, 6.5, 0, 7);
+    const g = ctx.createRadialGradient(cx - 2, cy - 2, 1, cx, cy, 7); g.addColorStop(0, '#fff4b0'); g.addColorStop(1, '#e0a010');
+    ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = '#8a5a00'; ctx.stroke();
+    ctx.restore();
+  }
+  ht(s, x + w - 24, cy, 12, '#ffe27a', 'right');
+  ht('G', x + w - 12, cy + 1, 9, '#c9a64a', 'center');
+  drawDiamondHUD(y + h + 4);
+}
+
+// 钻石 HUD：金币条正下方
+function drawDiamondHUD(y) {
+  const s = Math.round(S.d).toLocaleString(), w = Math.max(92, tw(s, 12) + 52), h = 22, x = 960 - 16 - w;
+  hudPanel(x, y, w, h, '#4fe3ff', 6);
+  const cx = x + 15, cy = y + 11;
+  if (!drawIco(ICO.d, cx, cy, 15)) {   // 没有图标素材时用矢量钻石
+    ctx.save();
+    ctx.beginPath(); ctx.moveTo(cx, cy - 7); ctx.lineTo(cx + 6, cy - 1); ctx.lineTo(cx, cy + 7); ctx.lineTo(cx - 6, cy - 1); ctx.closePath();
+    const g = ctx.createLinearGradient(cx - 6, cy - 7, cx + 6, cy + 7); g.addColorStop(0, '#e6fdff'); g.addColorStop(.5, '#5fe0ff'); g.addColorStop(1, '#2a8de0');
+    ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = '#1b5f9a'; ctx.stroke();
+    ctx.restore();
+  }
+  ht(s, x + w - 12, cy, 12, '#a8f0ff', 'right');
 }
 
 function drawMinimapHUD() {
@@ -297,7 +346,7 @@ function chip(x, y, w, h, label, good, sz = 11) {
   rpath(x, y, w, h, 5);
   ctx.fillStyle = good ? 'rgba(46,213,115,.16)' : 'rgba(255,71,87,.18)'; ctx.fill();
   ctx.lineWidth = 1; ctx.strokeStyle = good ? 'rgba(46,213,115,.65)' : 'rgba(255,90,100,.75)'; ctx.stroke();
-  txt(label, x + w / 2, y + h / 2, sz, good ? '#a6ffc4' : '#ff9aa4', 'center', false);
+  curT(label, x + w / 2, y + h / 2, sz, good ? '#a6ffc4' : '#ff9aa4', 'center', ht, true);
 }
 
 // 信息卡片底板
@@ -352,19 +401,21 @@ function drawCharPanel() {
   ctx.strokeStyle = inForm() ? formCol() : '#00e5ff'; ctx.stroke();
   ctx.save();
   ctx.beginPath(); ctx.ellipse(lx + 55, ly + 108, 36, 11, 0, 0, Math.PI * 2);
-  ctx.fillStyle = P.ryuki ? 'rgba(255,71,87,0.3)' : P.k5 ? 'rgba(255,180,0,0.3)' : 'rgba(0,229,255,0.25)'; ctx.fill();
+  ctx.fillStyle = P.ryuki ? 'rgba(255,71,87,0.3)' : P.k5 ? 'rgba(255,180,0,0.3)' : P.bl ? 'rgba(58,160,255,0.3)' : 'rgba(0,229,255,0.25)'; ctx.fill();
   ctx.strokeStyle = inForm() ? formCol() : '#00e5ff'; ctx.stroke();
   // 头像按真实像素包围盒居中（555 的变身表帧内角色偏右，旧写法按格子中心画会不居中）
   if (P.ryuki && SH.ryukiTrans && SH.ryukiTrans.f[15]) drCenter(SH.ryukiTrans, 15, lx + 55, ly + 111, .48);
   else if (P.k5 && okS(SH5.trans)) drCenter(SH5.trans, 8, lx + 55, ly + 111, .48);
+  else if (P.bl && okS(SH6.atk)) drCenter(SH6.atk, 12, lx + 55, ly + 111, .48);
   else if (SH.atk && SH.atk.f[12]) drCenter(SH.atk, 12, lx + 55, ly + 111, .48);
   ctx.restore();
   txt('假面骑士 MALAYA', lx + 112, ly + 26, 15, '#ffd84a');
-  txt(P.ryuki ? '★ 龙骑契约形态' : P.k5 ? '★ 555 智脑形态' : '原生基础形态', lx + 112, ly + 47, 12, P.ryuki ? '#ff7675' : P.k5 ? '#ffd166' : '#7df9ff');
+  txt(P.ryuki ? '★ 龙骑契约形态' : P.k5 ? '★ 555 智脑形态' : P.bl ? '★ Blade 黑桃形态' : '原生基础形态', lx + 112, ly + 47, 12, P.ryuki ? '#ff7675' : P.k5 ? '#ffd166' : P.bl ? '#7fd0ff' : '#7df9ff');
   txt('等级 Lv.' + S.lv + ' / 500', lx + 112, ly + 67, 13, '#fff');
-  txt('💰 ' + fmtN(S.g) + ' G', lx + 112, ly + 88, 12, '#ffd84a');
-  txt('💎 ' + fmtN(S.mat), lx + 112, ly + 106, 12, '#c58bff');
-  txt('📜 ' + (S.scr || 0), lx + 222, ly + 106, 12, '#ffa502');
+  curT('💰 ' + fmtN(S.g) + ' G', lx + 112, ly + 88, 12, '#ffd84a', 'left', txt, true);
+  curT('💎 ' + fmtN(S.d), lx + 112, ly + 106, 12, '#7fe9ff', 'left', txt);
+  txt('◆碎晶 ' + fmtN(S.mat), lx + 170, ly + 106, 12, '#c58bff');
+  txt('📜 ' + (S.scr || 0), lx + 250, ly + 106, 12, '#ffa502');
 
   // 穿戴槽：2 列 × 4 行，高 46
   const SW = 151, SHt = 46, sx0 = lx + 10, sy0 = ly + 128;
@@ -549,7 +600,7 @@ function drawBagDetail(rx, ry, rw) {
   const RX = X + 258, rcw = IW - 258;
   card(RX, cy, rcw, 82);
   txt('🔨 强化  +' + it.lvl + ' → +' + (it.lvl + 1), RX + 10, cy + 18, 14, '#ffa502', 'left', false);
-  txt('+12%/级', RX + rcw - 10, cy + 18, 11, '#8fa0b3', 'right', false);
+  txt('+8%/级', RX + rcw - 10, cy + 18, 11, '#8fa0b3', 'right', false);
   chip(RX + 8, cy + 48, 78, 24, '💰 ' + fmtN(uc.g), S.g >= uc.g, 12);
   chip(RX + 90, cy + 48, 78, 24, '💎 ' + fmtN(uc.mat), S.mat >= uc.mat, 12);
   chip(RX + 172, cy + 48, 76, 24, '📜 ' + uc.scr, (S.scr || 0) >= uc.scr, 12);
@@ -561,7 +612,7 @@ function drawBagDetail(rx, ry, rw) {
     txt('⭐ 已满星（5 / 5）', RX + rcw / 2, sy + 41, 15, '#ffd84a', 'center');
   } else {
     txt('⭐ 升星  ' + star + ' → ' + (star + 1), RX + 10, sy + 18, 14, '#ffd84a', 'left', false);
-    txt('全属性 +25%/星', RX + rcw - 10, sy + 18, 11, '#8fa0b3', 'right', false);
+    txt('全属性 +15%/星', RX + rcw - 10, sy + 18, 11, '#8fa0b3', 'right', false);
     chip(RX + 8, sy + 48, 100, 24, '💰 ' + fmtN(sc), S.g >= sc, 12);
     chip(RX + 112, sy + 48, 136, 24, '📦 同名同品质 ' + Math.min(mats, 99) + '/2', mats >= 2, 11);
   }
@@ -796,7 +847,8 @@ function buy(o) {
 // ===== 扭蛋：奖池 / 概率 / 抽取 =====
 // 每次抽取独立随机：各胶囊按下表概率，其余为体力药水与「谢谢惠顾」。重复抽中已拥有的胶囊——什么也不会返还。
 // 新增胶囊时只要在 CAPSULES 里加一项；没写概率的默认 10%，总和超过 100% 会自动等比缩小。
-const GACHA_COST = 150, GACHA_RATE = { ryuki: 20, '555': 20 }, GACHA_POTION = 25;
+const GACHA_COST = 160,   // 单抽钻石价（十连 = ×10 = 1600）
+   GACHA_RATE = { ryuki: 20, '555': 20, blade: 20 }, GACHA_POTION = 25;
 let gachaQ = [];      // 十连结算后，等待依次展示的新胶囊卡面
 
 function gachaTable() {
@@ -810,8 +862,8 @@ function gachaTable() {
 
 function gachaPull(n) {
   const cost = GACHA_COST * n;
-  if (S.g < cost) return say('金币不足');
-  S.g -= cost;
+  if (S.d < cost) return say('钻石不足');
+  S.d -= cost;
   const tb = gachaTable(), res = [], fresh = [];
   for (let i = 0; i < n; i++) {
     let r = Math.random() * 100, hit = tb[tb.length - 1];

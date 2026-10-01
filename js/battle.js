@@ -10,7 +10,7 @@ function begin(k) {
 
 function fin(w) {
   if (G !== 'play') return;
-  G = w ? 'win' : 'over';
+  G = w ? 'win' : 'over'; FD = 0;
   const z = ST[cur];
   if (z.wb) {
     // 世界BOSS：按伤害占比结算金币，击杀额外 +50%；不影响章节进度
@@ -22,7 +22,10 @@ function fin(w) {
     if (w) W.kills[i] = (W.kills[i] || 0) + 1;
   } else {
     FG = w ? RG + z.g : RG >> 1;
-    if (w) S.cl = Math.max(S.cl, cur + 1);
+    if (w) {
+      if (cur >= S.cl) { FD = FIRST_CLEAR_DIAMOND; S.d += FD }   // 首通奖励钻石（S.cl 更新前判断）
+      S.cl = Math.max(S.cl, cur + 1);
+    }
   }
   S.g += FG;
   save();
@@ -30,8 +33,8 @@ function fin(w) {
 
 function gain(n) {
   S.xp += n | 0;
-  while (S.xp >= S.lv * 40) {
-    S.xp -= S.lv * 40; S.lv++; S.tp++; calc();
+  while (S.xp >= xpNeed(S.lv)) {
+    S.xp -= xpNeed(S.lv); S.lv++; S.tp++; calc();
     P.hp = P.mh; P.mp = P.mm;
     DT.push({ x: P.x, y: P.y - 210, s: 'LEVEL UP! +1天赋点', t: 1.5, c: '#7dff9a' });
   }
@@ -51,26 +54,27 @@ function dropLoot(e) {
   }
 
   // 击杀数已翻倍，装备掉率相应下调
-  const dropRate = isBoss ? 1.0 : (e.t === 'wd' ? 0.28 : 0.12);
+  const dropRate = isBoss ? 0.6 : (e.t === 'wd' ? 0.10 : 0.04);
   if (Math.random() > dropRate) return;
 
   let tr = 0;
   const r = Math.random();
   const d = Math.min(cur, 29);
   if (isBoss) {
-    if (r < 0.16 + d * 0.05) tr = 5;
-    else if (r < 0.52 + d * 0.05) tr = 4;
-    else if (r < 0.88) tr = 3;
-    else tr = 2;
+    if (r < 0.02 + d * 0.006) tr = 5;
+    else if (r < 0.12 + d * 0.010) tr = 4;
+    else if (r < 0.50) tr = 3;
+    else if (r < 0.85) tr = 2;
+    else tr = 1;
   } else if (e.t === 'wd') {
-    if (r < 0.03 + d * 0.02) tr = 4;
-    else if (r < 0.18 + d * 0.04) tr = 3;
-    else if (r < 0.55) tr = 2;
+    if (r < 0.004 + d * 0.0025) tr = 4;
+    else if (r < 0.06 + d * 0.006) tr = 3;
+    else if (r < 0.35) tr = 2;
     else tr = 1;
   } else {
-    if (r < 0.04) tr = 3;
-    else if (r < 0.22) tr = 2;
-    else if (r < 0.65) tr = 1;
+    if (r < 0.01) tr = 3;
+    else if (r < 0.08) tr = 2;
+    else if (r < 0.40) tr = 1;
     else tr = 0;
   }
 
@@ -102,7 +106,7 @@ function hurt(e, d) {
   shake = Math.max(shake, 4);
 
   if (e.hp <= 0 && !e.dead) {
-    e.dead = 1; kills++; gain(ET[e.t].xp * (1 + Math.min(cur, 29) * .4)); RG += ET[e.t].g * (1 + Math.min(cur, 29) * .3) | 0;
+    e.dead = 1; kills++; gain(ET[e.t].xp * .6 * (1 + Math.min(cur, 29) * .3)); RG += ET[e.t].g * (1 + Math.min(cur, 29) * .3) | 0;
     if (Math.random() < .35) OR.push({ x: e.x, k: Math.random() < .5 ? 'h' : 'm' });
     dropLoot(e);
     if (e.t === 'boss') fin(1);

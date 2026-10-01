@@ -93,12 +93,12 @@ function mnFrame(th, backIdx) {
   mFit(RM.npc + '：' + RM.hi, X + 28, Y + 65, 470, 13, '#c9d6e4');
 
   // 资源胶囊（右上）
-  const pills = [['🪙 ' + S.g.toLocaleString(), '#ffd84a'], ['Lv.' + S.lv, '#7dff9a'], ['天赋点 ' + S.tp, '#b8a8ff']];
+  const pills = [['💎 ' + S.d.toLocaleString(), '#4fe3ff'], ['🪙 ' + S.g.toLocaleString(), '#ffd84a'], ['Lv.' + S.lv, '#7dff9a'], ['天赋点 ' + S.tp, '#b8a8ff']];
   let px = X + W - 22;
   for (let i = pills.length - 1; i >= 0; i--) {
-    const w = tw(pills[i][0], 13) + 22; px -= w;
+    const w = curW(pills[i][0], 13) + 22; px -= w;
     rpath(px, Y + 16, w, 26, 13); ctx.fillStyle = 'rgba(6,9,20,.72)'; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = pills[i][1] + '88'; ctx.stroke();
-    mt(pills[i][0], px + w / 2, Y + 29, 13, pills[i][1], 'center'); px -= 8;
+    curT(pills[i][0], px + w / 2, Y + 29, 13, pills[i][1], 'center', mt); px -= 8;
   }
 
   // 战斗数值条
@@ -292,7 +292,7 @@ function mnGacha(it, th, backIdx) {
   // 右：单抽 / 十连
   const cx = X + lw + 14, cw = MN_W - 40 - lw - 14, gp = 12, ch = (H - gp) / 2;
   [[1, '单抽', '抽取 1 次', 0], [10, '十连抽', '连续抽取 10 次，每次独立判定', 1]].forEach(([c, title, sub, idx]) => {
-    const y = y0 + idx * (ch + gp), cost = GACHA_COST * c, ok = S.g >= cost, sel = V.i === idx;
+    const y = y0 + idx * (ch + gp), cost = GACHA_COST * c, ok = S.d >= cost, sel = V.i === idx;
     rpath(cx, y, cw, ch, 16); ctx.fillStyle = sel ? acc + '1f' : 'rgba(255,255,255,.035)'; ctx.fill();
     if (sel) { ctx.save(); ctx.shadowColor = acc; ctx.shadowBlur = 12; ctx.lineWidth = 1.6; ctx.strokeStyle = acc; ctx.stroke(); ctx.restore() }
     else { ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.1)'; ctx.stroke() }
@@ -300,10 +300,10 @@ function mnGacha(it, th, backIdx) {
 
     mt(title, cx + 22, y + 34, 24, '#fff');
     mt(sub, cx + 22, y + 62, 12, '#8fa2b8');
-    ctx.beginPath(); ctx.arc(cx + 30, y + ch - 30, 8, 0, 7); ctx.fillStyle = '#f2b81c'; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = '#8a5a00'; ctx.stroke();
-    mt(cost.toLocaleString() + ' G', cx + 46, y + ch - 30, 18, ok ? '#ffd84a' : '#ff8f9a');
+    { const dx = cx + 30, dy = y + ch - 30; ctx.beginPath(); ctx.moveTo(dx, dy - 10); ctx.lineTo(dx + 8, dy - 2); ctx.lineTo(dx, dy + 10); ctx.lineTo(dx - 8, dy - 2); ctx.closePath(); ctx.fillStyle = '#5fe0ff'; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = '#1b5f9a'; ctx.stroke() }
+    mt(cost.toLocaleString() + ' 钻石', cx + 46, y + ch - 30, 18, ok ? '#7fe9ff' : '#ff8f9a');
     const bw = 130, bh = 46, bx = cx + cw - 20 - bw, by = y + (ch - bh) / 2;
-    mBtn(bx, by, bw, bh, ok ? '抽取 ×' + c : '金币不足', ok ? 'main' : 'lack', acc, false, 16);
+    mBtn(bx, by, bw, bh, ok ? '抽取 ×' + c : '钻石不足', ok ? 'main' : 'lack', acc, false, 16);
     mHit(cx, y, cw, ch, idx, false, () => { V.i = idx });
     mHit(bx, by, bw, bh, idx, true);
   });
@@ -355,9 +355,9 @@ function drawV() {
   MN.hit = [];
 
   const key = V.pg + ':' + G;
-  if (MN.key !== key) { MN.key = key; MN.t0 = T; MN.lastG = S.g; MN.lastTp = S.tp; MN.flashI = -1; MN.sc = MN.st = 0; MN.si = -1; MN.rates = false }
-  if (S.g < MN.lastG || S.tp < MN.lastTp) { MN.flashT = T; MN.flashI = V.i }      // 花了钱/点：选中项闪一下
-  MN.lastG = S.g; MN.lastTp = S.tp;
+  if (MN.key !== key) { MN.key = key; MN.t0 = T; MN.lastG = S.g; MN.lastD = S.d; MN.lastTp = S.tp; MN.flashI = -1; MN.sc = MN.st = 0; MN.si = -1; MN.rates = false }
+  if (S.g < MN.lastG || S.d < MN.lastD || S.tp < MN.lastTp) { MN.flashT = T; MN.flashI = V.i }      // 花了钱/点：选中项闪一下
+  MN.lastG = S.g; MN.lastD = S.d; MN.lastTp = S.tp;
 
   const e = Math.min(1, (T - MN.t0) / .18), ez = 1 - Math.pow(1 - e, 3);         // 打开动画
   ctx.save();

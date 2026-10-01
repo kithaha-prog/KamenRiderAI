@@ -53,15 +53,16 @@ async function prep() {
     } catch (e) { miss.push('Kamen Rider 555/' + o.f); }
   }
   try {
-    const trIm = await load(TRANS + 'KR_Malaya_TransformTo_KR_555.jpg');
+    const trIm = await load(TRANS + 'KR_Malaya_TransformTo_KR_555.png');
     SH5.trans = sliceSheet(trIm, 4, 4, 8, 0, false); SH5.trans.s = FAIZ_SCALE;
-  } catch (e) { miss.push('Transform/KR_Malaya_TransformTo_KR_555.jpg'); }
-  try { const g = await load(FAIZ + 'KR_555_Gun.jpg'); GUN5 = trim(despill(key(g, 0, 0, g.width, g.height))); } catch (e) { miss.push('Kamen Rider 555/KR_555_Gun.jpg'); }
-  try { const b = await load(FAIZ + 'KR_555_Bullet.jpg'); BUL5 = trim(glowKey(b)); } catch (e) { miss.push('Kamen Rider 555/KR_555_Bullet.jpg'); }
+  } catch (e) { miss.push('Transform/KR_Malaya_TransformTo_KR_555.png'); }
+  try { const g = await load(FAIZ + 'KR_555_Gun.png'); GUN5 = trim(toCanvas(g)); } catch (e) { miss.push('Kamen Rider 555/KR_555_Gun.png'); }
+  try { const b = await load(FAIZ + 'KR_555_Bullet.png'); BUL5 = trim(toCanvas(b)); } catch (e) { miss.push('Kamen Rider 555/KR_555_Bullet.png'); }
+  await loadBladeAssets();   // Blade 素材见 blade.js
 
   for (let n = 1; n <= 10; n++) {
-    try { const im = await load(ED + 'Enemies_' + n + '.jpg'); const sp = cut(im); ENL.push(...sp); ENS[n] = assign(sp) }
-    catch (e) { miss.push('Enemies_' + n + '.jpg'); ENS[n] = { imp: [ph(ET.imp.col)], wd: [ph(ET.wd.col)], boss: [ph(ET.boss.col)] } }
+    try { const im = await load(ED + 'Enemies_' + n + '.png'); const sp = cut(im); ENL.push(...sp); ENS[n] = assign(sp) }
+    catch (e) { miss.push('Enemies_' + n + '.png'); ENS[n] = { imp: [ph(ET.imp.col)], wd: [ph(ET.wd.col)], boss: [ph(ET.boss.col)] } }
   }
   const R = assign(ENL); for (const k in ET) EN[k] = R[k] && R[k].length ? R[k] : ENL.length ? ENL : [ph(ET[k].col)];
   const li = async f => {
@@ -75,26 +76,40 @@ async function prep() {
   }
 };
   IM.v = await li(A + 'Interior/基地.jpg');
-  { const pi = await li(A + 'Buildings/传送门.jpg'); if (pi) PG.bi = bkey(pi); }   // 传送门贴图
+  ICO.g = mkIcon(await li(A + 'Icon/Coin.png')); ICO.d = mkIcon(await li(A + 'Icon/Diamond.png'));   // 金币 / 钻石图标（Assets/Icon/）
+  { const pi = await li(A + 'Buildings/传送门.png'); if (pi) PG.bi = trim(toCanvas(pi)); }   // 传送门贴图
   for (const b of BD) {
   if (b.rf) b.ri = await li(A + 'Interior/' + b.rf);
   if (b.bf) {
     const im = await li(A + 'Buildings/' + b.bf);
-    if (im) b.bi = bkey(im);
+    if (im) b.bi = trim(toCanvas(im));
   }
 }
-  const bi = await load(KR + 'KR_Malaya_Vehicles.jpg'); BK = trim(key(bi, 0, 0, bi.width, bi.height)); G = 'title';
+  layoutVillage();   // 建筑贴图都载入后，按实际宽度排布村庄（排布只看宽高比，之后缩小贴图不影响位置）
+  // —— 性能：把所有大图预缩小到“显示尺寸的 1.5 倍”，主页每帧不再缩放几千像素的大图 ——
+  for (const b of BD) {
+    if (b.bi) b.bi = shrinkH(b.bi, Math.round(b.h * 1.5));
+    if (b.ri) b.ri = shrinkH(toCanvas(b.ri), 810);
+  }
+  if (PG.bi) PG.bi = shrinkH(PG.bi, Math.round(PG.h * 1.5));
+  if (IM.v) IM.v = shrinkH(toCanvas(IM.v), 810);
+  const bi = await load(KR + 'KR_Malaya_Vehicles.png'); BK = trim(toCanvas(bi)); G = 'title';
 
   try {
     let agongRaw;
-    try { agongRaw = await load('NPC/阿公.jpg'); }
-    catch(e) { agongRaw = await load(A + 'NPC/阿公.jpg'); }
-    EL.im = trim(key(agongRaw, 0, 0, agongRaw.width, agongRaw.height));
+    try { agongRaw = await load('NPC/阿公.png'); }
+    catch(e) { agongRaw = await load(A + 'NPC/阿公.png'); }
+    EL.im = shrinkH(trim(toCanvas(agongRaw)), 290);
   } catch (e) {
-    miss.push('/Assets/NPC/阿公.jpg');
+    miss.push('/Assets/NPC/阿公.png');
   }
 }
 prep().catch(e => { G = 'err'; msg = '加载出现问题，请确保使用本地服务器(http://)并放置素材。' });
+
+// ===== 普攻音效（Assets/SoundFX/Sword_Hit.mp3）：4 个音频轮流播，连击时不会互相打断 =====
+const HIT_SND = []; let hitSndI = 0;
+(function () { for (let i = 0; i < 4; i++) { const a = new Audio(); a.preload = 'auto'; a.volume = .6; a.src = encodeURI(A + 'SoundFX/Sword_Hit.mp3'); HIT_SND.push(a) } })();
+function playSwordHit() { const a = HIT_SND[hitSndI++ % HIT_SND.length]; try { a.currentTime = 0; const p = a.play(); if (p && p.catch) p.catch(() => { }) } catch (e) { } }
 
 // ===== 游戏主逻辑帧刷新 =====
 function upd(dt) {
@@ -118,20 +133,22 @@ function upd(dt) {
   if (PR.KeyP) { triggerRyukiTransform(); delete PR.KeyP }
 
   // 当离开对应状态时，停掉大招和变身音效
-  if (P.st !== 'trans_ryuki') { stopFaizHenshin(); stopRyukiHenshin(); }
+  if (P.st !== 'trans_ryuki') { stopFaizHenshin(); stopRyukiHenshin(); stopBladeHenshin(); }
   if (P.st !== 'fv') { stopAllRyukiFVSounds(); }
   if (P.st === 'trans_ryuki') {
     P.vx = 0; P.t += dt; P.inv = 1;
-    const is5 = P.trk === '555';
+    const is5 = P.trk === '555', isB = P.trk === 'blade';
+    if (isB) { P.t = bladeSyncT(P.t); updBladeTrans() }   // Blade：动画时钟跟随音频，节拍事件见 blade.js
     const tdur = P.tdur || 16 * 0.12, frame = Math.min(15, Math.floor(P.t / tdur * 16));
-    if (frame >= (is5 ? 8 : 10) && !P.hit['burst']) {
+    if (!isB && frame >= (is5 ? 8 : 10) && !P.hit['burst']) {
       P.hit['burst'] = 1; shake = 24;
       if (G === 'play') area(P.x - 360, P.x + 360, P.atk * 3.5);
-      DT.push(is5 ? { x: P.x, y: P.y - 210, s: '555 · COMPLETE！', t: 1.6, c: '#ffb400' }
+      DT.push(isB ? { x: P.x, y: P.y - 210, s: 'BLADE · OPEN UP！', t: 1.6, c: '#3aa0ff' }
+            : is5 ? { x: P.x, y: P.y - 210, s: '555 · COMPLETE！', t: 1.6, c: '#ffb400' }
                   : { x: P.x, y: P.y - 210, s: '赤龙契约·烈焰爆发！', t: 1.6, c: '#ff3838' });
     }
     if (P.t > tdur) {
-      P.st = 'idle'; if (is5) P.k5 = true; else P.ryuki = true; P.inv = .6; calc();
+      P.st = 'idle'; P.k5 = is5; P.bl = isB; P.ryuki = !is5 && !isB; P.inv = .6; calc();
     }
     return;
   }
@@ -215,7 +232,7 @@ function upd(dt) {
   }
   if (P.exh && P.sta >= P.stm * .3) P.exh = false;
 
-  if ((P.st === 'dodge' || P.spr || (P.st === 'fv' && P.ryuki && P.t >= RYUKI_FV.dive && P.y < GY) || (P.st === 'fv' && P.k5 && P.t >= FAIZ_FV.dive && P.y < GY)) && P.gt <= 0) {
+  if ((P.st === 'dodge' || P.spr || (P.st === 'fv' && P.ryuki && P.t >= RYUKI_FV.dive && P.y < GY) || (P.st === 'fv' && P.k5 && P.t >= FAIZ_FV.dive && P.y < GY) || (P.st === 'fv' && P.bl && P.t >= BLADE_FV.dive && P.y < GY)) && P.gt <= 0) {
     P.gt = .038;
     GH.push({ x: P.x, y: P.y, f: P.f, st: P.st, t: .32, d: .32 });
   }
@@ -230,21 +247,22 @@ function upd(dt) {
       P.vx = P.f * 40;
     }
     for (const q of [3, 5]) if (i >= q && !(P.h >> q & 1)) {
-      P.h |= 1 << q;
-      const a = P.x + P.f * 10, b = P.x + P.f * 180;
+      P.h |= 1 << q; if (q === 3) playSwordHit();
+      const a = P.x + P.f * 10, b = P.x + P.f * ATK_REACH;
       area(Math.min(a, b), Math.max(a, b), P.atk * (q == 3 ? 1.2 : 1));
     }
     if (P.t > .5) P.st = (P.y < GY) ? 'air' : 'idle';
   }
   else if (P.st === 'thr') {
     if (P.y >= GY) P.vx = 0;
-    if (P.t >= .12 && !P.h) {
+    if (P.t >= (P.bl ? BLADE_L.fireT : .12) && !P.h) {
       P.h = 1;
-      if (P.k5) fireFaiz();
+      if (P.bl) fireBlade();
+      else if (P.k5) fireFaiz();
       else if (P.ryuki) fireRyukiGun();
       else PJ.push({ x: P.x + P.f * 60, y: P.y - 100, vx: P.f * 800, f: P.f, t: 1.1, h: {} });
     }
-    if (P.t > .3) P.st = (P.y < GY) ? 'air' : 'idle';
+    if (P.t > (P.bl ? BLADE_L.dur : .3)) P.st = (P.y < GY) ? 'air' : 'idle';
   }
   else if (P.st === 'fv') {
     P.inv = 1;
@@ -252,6 +270,8 @@ function upd(dt) {
       updRyukiFV(dt);
     } else if (P.k5) {
       updFaizFV(dt);
+    } else if (P.bl) {
+      updBladeFV(dt);
     } else {
       const i = P.t / .11 | 0;
       if (P.t < .99 && i >= 4) {
@@ -282,7 +302,7 @@ function upd(dt) {
     if (P.t >= .3) { P.st = (P.y < GY) ? 'air' : 'idle'; P.vx = 0; P.inv = Math.max(P.inv, .12); }
   }
 
-  const applyGravity = P.st !== 'dash' && P.st !== 'dodge' && !(P.st === 'fv' && (P.ryuki || P.k5));
+  const applyGravity = P.st !== 'dash' && P.st !== 'dodge' && !(P.st === 'fv' && (P.ryuki || P.k5 || P.bl));
   if (applyGravity) {
     const gMul = (P.st === 'atk' || P.st === 'thr') ? 0.65 : 1.0;
     P.vy += 1900 * gMul * dt;
@@ -340,6 +360,7 @@ function upd(dt) {
     }
   }
   PJ = PJ.filter(s => s.t > 0);
+  updBladeBolts(dt);
 
   for (const o of OR) {
     if (Math.abs(o.x - P.x) < 45) {
@@ -427,8 +448,10 @@ function draw() {
   }
 
   drawFaizMark();
+  drawBladeMark();
   drawRyukiMark();
   drawP();
+  drawBladeBolts();
 
   for (const f of FX) {
     const p = f.t / f.d;
@@ -454,7 +477,7 @@ function draw() {
 
   drawPlayerHUD(16, 14); drawStaminaHUD(16, 96); drawGoldHUD(); drawMinimapHUD(); drawLocationHUD(ST[cur].n);
 
-  const rw = 160, rh = 78, rx = 960 - 18 - rw, ry = 56;
+  const rw = 160, rh = 78, rx = 960 - 18 - rw, ry = 74;   // 在金币条、钻石条下方
   rpath(rx, ry, rw, rh, 12); ctx.fillStyle = 'rgba(10,12,24,0.82)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,216,74,0.3)'; ctx.stroke();
   if (ST[cur].wb) {
     const tl = Math.ceil(WBT);
@@ -467,7 +490,7 @@ function draw() {
   txt('药水: [1]×' + S.hp + '  [2]×' + S.mp, rx + rw - 12, ry + 59, 12, '#9df', 'right');
 
   const henshinPrompt = inForm() ? '[P] 解除变身' : (S.eqCap ? '[P] ' + capShort() + '变身' : '[P] 变身');
-  txt('J 剑击   L ' + (P.k5 ? '手枪' : '飞剑') + '   K 终结技   E 机车   Shift 闪避/疾跑   ' + henshinPrompt + '   [C] 背包   [N] 胶囊   Esc 撤退', 480, 524, 12, '#bbb', 'center');
+  txt('J 剑击   L ' + lSkillName() + '   K 终结技   E 机车   Shift 闪避/疾跑   ' + henshinPrompt + '   [C] 背包   [N] 胶囊   Esc 撤退', 480, 524, 12, '#bbb', 'center');
 
   const b = E.find(e => e.t === 'boss');
   if (b) {
@@ -488,7 +511,7 @@ function draw() {
     txt('战败…', 480, 225, 36, '#ff6b81', 'center'); txt('保留一半战利品：金币 +' + FG + '\n按 Enter 回村', 480, 285, 16, '#fff', 'center');
   } else if (G === 'win') {
     rpath(280, 180, 400, 180, 18); ctx.fillStyle = 'rgba(10,12,22,0.92)'; ctx.fill(); ctx.strokeStyle = '#ffd84a'; ctx.stroke();
-    txt('关卡完成！', 480, 225, 38, '#ffd84a', 'center'); txt('通关奖赏：金币 +' + FG + '   Lv.' + S.lv + '\n按 Enter 前往下一战役', 480, 285, 16, '#fff', 'center');
+    txt('关卡完成！', 480, 225, 38, '#ffd84a', 'center'); txt('通关奖赏：金币 +' + FG + (FD ? '   钻石 +' + FD + '（首通）' : '') + '   Lv.' + S.lv + '\n按 Enter 前往下一战役', 480, 285, 16, '#fff', 'center');
   }
 
   if (gachaModal) drawGachaModalOverlay();
@@ -501,8 +524,20 @@ let last = performance.now();
 (function loop(n) {
   const dt = Math.min(.05, (n - last) / 1000);
   last = n;
-  upd(dt);
-  draw();
+  try {
+    upd(dt);
+    draw();
+  } catch (err) {
+    // 任何一帧出错都不再让整个循环停掉；把错误打印到控制台并显示在画面左上角，方便定位
+    console.error('[game loop error]', err);
+    try {
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = 'rgba(0,0,0,.8)'; ctx.fillRect(0, 0, 960, 56);
+      ctx.fillStyle = '#ff6b6b'; ctx.font = '13px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      const m = String(err && err.stack || err).split('\n');
+      ctx.fillText(m[0].slice(0, 120), 8, 6); ctx.fillText((m[1] || '').trim().slice(0, 120), 8, 22); ctx.fillText((m[2] || '').trim().slice(0, 120), 8, 38);
+    } catch (_) { }
+  }
   for (const k in PR) delete PR[k];
   requestAnimationFrame(loop);
 })(last);
@@ -568,7 +603,7 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
   const dgBtn = ui.querySelector('.b.dg');
   const lBtn = [...ui.querySelectorAll('.b')].find(b => b.textContent === '飞剑');
   setInterval(() => {
-    if (lBtn) { const t = P.k5 ? '手枪' : '飞剑'; if (lBtn.textContent !== t) lBtn.textContent = t }
+    if (lBtn) { const t = lSkillName(); if (lBtn.textContent !== t) lBtn.textContent = t }
     if (!dgBtn) return;
     const cd = G === 'play' ? Math.max(0, P.dcd / DODGE_CD) : 0;
     dgBtn.style.background = cd > 0 ? `conic-gradient(rgba(0,0,0,.6) ${cd * 360}deg, rgba(0,190,200,.5) 0)` : '';
@@ -694,12 +729,12 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
         } else if (S.eqCap === selCap.id) {
           // 卸下胶囊
           S.eqCap = null;
-          if (inForm()) { P.ryuki = false; P.k5 = false; calc(); }
+          if (inForm()) { clearForms(); calc(); }
           save();
         } else {
           // 装配胶囊
           S.eqCap = selCap.id;
-          if (inForm()) P.ryuki = P.k5 = false;   // 换胶囊：先解除旧形态
+          if (inForm()) clearForms();   // 换胶囊：先解除旧形态
           save();
           calc();
         }

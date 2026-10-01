@@ -7,20 +7,20 @@ async function loadRyukiAssets() {
 
   try {
     let trIm;
-    try { trIm = await load(TRANS + 'KR_Malaya_TrasnformTo_KR_Ryuki.jpg'); }
-    catch (e) { trIm = await load(TRANS + 'KR_Malaya_TransformTo_KR_Ryuki.jpg'); }
+    try { trIm = await load(TRANS + 'KR_Malaya_TrasnformTo_KR_Ryuki.png'); }
+    catch (e) { trIm = await load(TRANS + 'KR_Malaya_TransformTo_KR_Ryuki.png'); }
     SH.ryukiTrans = sliceSheet(trIm, 4, 4, 0, 0, true);
-  } catch (e) { miss.push('Transform/KR_Malaya_TrasnformTo_KR_Ryuki.jpg'); }
+  } catch (e) { miss.push('Transform/KR_Malaya_TrasnformTo_KR_Ryuki.png'); }
 
-  // 龙骑 L 技能素材：召龙手枪 + 火球子弹（绿幕抠图）
-  try { const g = await load(RYUKI + 'KR_Ryuki_HandDragon.jpg'); GUNR = trim(despill(key(g, 0, 0, g.width, g.height))); } catch (e) { miss.push('Kamen Rider Ryuki/KR_Ryuki_HandDragon.jpg'); }
-  try { const b = await load(RYUKI + 'KR_Ryuki_Bullet.jpg'); BULR = trim(glowKey(b)); } catch (e) { miss.push('Kamen Rider Ryuki/KR_Ryuki_Bullet.jpg'); }
+  // 龙骑 L 技能素材：召龙手枪 + 火球子弹
+  try { const g = await load(RYUKI + 'KR_Ryuki_HandDragon.png'); GUNR = trim(toCanvas(g)); } catch (e) { miss.push('Kamen Rider Ryuki/KR_Ryuki_HandDragon.png'); }
+  try { const b = await load(RYUKI + 'KR_Ryuki_Bullet.png'); BULR = trim(toCanvas(b)); } catch (e) { miss.push('Kamen Rider Ryuki/KR_Ryuki_Bullet.png'); }
 
   for (const [key, o] of Object.entries(SHR)) {
     try {
       let im;
       if (key === 'fv') {
-        const tryNames = ['KR_Ryuki_FinalVent.jpg', 'ryuki_finalvent.jpg', 'Ryuki_FinalVent.jpg', 'KR_Ryuki_Finalvent.jpg'];
+        const tryNames = ['KR_Ryuki_FinalVent.png', 'ryuki_finalvent.png', 'Ryuki_FinalVent.png', 'KR_Ryuki_Finalvent.png'];
         for (const fn of tryNames) {
           try { im = await load(RYUKI + fn); if (im) break; } catch(err) {}
         }

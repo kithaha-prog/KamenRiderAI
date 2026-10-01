@@ -3,7 +3,7 @@ const DODGE_CD = 1.2, SHIFT_HOLD = .2;
 
 const P = {
   x: 300, y: GY, vx: 0, vy: 0, f: 1, hp: 100, mh: 100, mp: 100, mm: 100, atk: 14, cr: .05, def: 0,
-  st: 'trans', t: 0, inv: 0, land: 0, cd: { e: 0 }, h: 0, hit: {}, ryuki: false, k5: false, trk: null,
+  st: 'trans', t: 0, inv: 0, land: 0, cd: { e: 0 }, h: 0, hit: {}, ryuki: false, k5: false, bl: false, trk: null,
   sta: 100, stm: 100, dcd: 0, exh: false, spr: false, shDown: false, shT: 0, gt: 0, sreg: 0, slow: 0, psn: 0
 };
 
@@ -24,13 +24,13 @@ function calc() {
   }
 
   // 基础强化攻击+1%/级，生命+5%/级，受到伤害-0.1%/级，魔力+3%/级（无上限乘算）
-  let bAtk = (14 + S.lv * 3 + eqAtk) * (1 + .08 * t[0]) * (1 + 0.01 * S.sw);
-  let bCr = .05 + .03 * t[3] + eqCr;
+  let bAtk = (14 + S.lv * 2 + eqAtk) * (1 + .05 * t[0]) * (1 + 0.01 * S.sw);
+  let bCr = .05 + .02 * t[3] + eqCr;
   const fc = formCap();
   if (fc) { bAtk *= fc.atkMul || 1; bCr += fc.crAdd || 0; }
   P.atk = Math.round(bAtk);
-  P.mh = Math.round((100 + S.lv * 15 + eqHp) * (1 + .1 * t[1]) * (1 + 0.05 * S.ar));
-  P.mm = Math.round((100 + S.lv * 8 + eqMp) * (1 + .1 * t[2]) * (1 + 0.03 * S.bt));
+  P.mh = Math.round((100 + S.lv * 10 + eqHp) * (1 + .06 * t[1]) * (1 + 0.05 * S.ar));
+  P.mm = Math.round((100 + S.lv * 5 + eqMp) * (1 + .06 * t[2]) * (1 + 0.03 * S.bt));
   P.cr = Math.min(1, bCr);
   // 受到伤害 -0.1%/级 -> 免伤增加 S.ar * 0.001
   P.def = Math.min(0.95, (S.ar * 0.001) + (eqDef * 0.005));
@@ -39,9 +39,12 @@ function calc() {
 calc();
 
 // ===== 变身形态辅助（龙骑 P.ryuki / 555 P.k5）=====
-function formCap() { return P.ryuki ? CAPSULES.find(c => c.id === 'ryuki') : P.k5 ? CAPSULES.find(c => c.id === '555') : null }
-function inForm() { return P.ryuki || P.k5 }
-function formCol() { return P.ryuki ? '#ff4757' : P.k5 ? '#ffb400' : '#00e5ff' }
+function formCap() { return P.ryuki ? CAPSULES.find(c => c.id === 'ryuki') : P.k5 ? CAPSULES.find(c => c.id === '555') : P.bl ? CAPSULES.find(c => c.id === 'blade') : null }
+function inForm() { return P.ryuki || P.k5 || P.bl }
+function formCol() { return P.ryuki ? '#ff4757' : P.k5 ? '#ffb400' : P.bl ? '#3aa0ff' : '#00e5ff' }
+function clearForms() { P.ryuki = false; P.k5 = false; P.bl = false }
+function lSkillName() { return P.k5 ? '手枪' : P.bl ? '召雷' : '飞剑' }
+function formName() { return P.ryuki ? 'KAMEN RIDER RYUKI' : P.k5 ? 'KAMEN RIDER 555' : P.bl ? 'KAMEN RIDER BLADE' : 'KAMEN RIDER MALAYA' }
 function formSpd() { const c = formCap(); return c ? (c.spdMul || 1) : 1 }
 function capShort() { const c = CAPSULES.find(c => c.id === S.eqCap); return c ? c.short : '' }
 const okS = o => !!(o && Array.isArray(o.f) && o.f.length);
@@ -58,16 +61,16 @@ function walk(dt, R) {
 }
 
 function triggerRyukiTransform() {   // 通用变身入口（沿用旧函数名，龙骑 / 555 共用）
-  if (P.ryuki || P.k5) {
-    P.ryuki = false; P.k5 = false; P.inv = 0.5; P.st = 'idle'; calc(); shake = 8;
+  if (P.ryuki || P.k5 || P.bl) {
+    P.ryuki = false; P.k5 = false; P.bl = false; P.inv = 0.5; P.st = 'idle'; calc(); shake = 8;
     DT.push({ x: P.x, y: P.y - 180, s: '解除变身 · 恢复原生装甲', t: 1.4, c: '#00e5ff' });
-  } else if (S.eqCap === 'ryuki' || S.eqCap === '555') {
+  } else if (S.eqCap === 'ryuki' || S.eqCap === '555' || S.eqCap === 'blade') {
     if (P.st !== 'trans_ryuki') {
-      const is5 = S.eqCap === '555';
+      const is5 = S.eqCap === '555', isB = S.eqCap === 'blade';
       P.st = 'trans_ryuki'; P.trk = S.eqCap; P.t = 0; P.inv = 2.5; P.hit = {};
-      P.tdur = is5 ? faizTransDur() : ryukiTransDur();
-      if (is5) playFaizHenshin(); else playRyukiHenshin();
-      DT.push({ x: P.x, y: P.y - 180, s: is5 ? 'STANDING BY…' : 'KAMEN RIDE: RYUKI!', t: 1.5, c: is5 ? '#ffb400' : '#ff4757' });
+      P.tdur = isB ? bladeTransDur() : is5 ? faizTransDur() : ryukiTransDur();
+      if (isB) playBladeHenshin(); else if (is5) playFaizHenshin(); else playRyukiHenshin();
+      DT.push({ x: P.x, y: P.y - 180, s: isB ? '变身！' : is5 ? 'STANDING BY…' : 'KAMEN RIDE: RYUKI!', t: 1.5, c: isB ? '#3aa0ff' : is5 ? '#ffb400' : '#ff4757' });
     }
   } else {
     DT.push({ x: P.x, y: P.y - 180, s: '尚未装备变身胶囊！按 [N] 键查看契约终端', t: 1.4, c: '#ffd84a' });
@@ -91,6 +94,7 @@ function drawP0() {
   const x = sn(P.x - cam), y = sn(P.y), f = P.f;
   if (P.inv > 0 && (T * 20 | 0) % 2 && P.st !== 'fv' && P.st !== 'dash' && P.st !== 'dodge' && P.st !== 'trans_ryuki') return;
 
+  if (P.st === 'trans_ryuki' && P.trk === 'blade') { drawBladeTransform(x, y, f); return; }
   if (P.st === 'trans_ryuki' && P.trk === '555') { drawFaizTransform(x, y, f); return; }
   if (P.st === 'trans_ryuki' && SH.ryukiTrans) { drawRyukiTransform(x, y, f); return; }
 
@@ -115,6 +119,7 @@ function drawP0() {
     ctx.shadowColor = inForm() ? formCol() : '#00e5ff'; ctx.shadowBlur = 16;
     if (P.ryuki && SHR.run && SHR.run.f && SHR.run.f.length) dr(SHR.run, (T * 20 | 0) % SHR.run.f.length, x, y, f, 1.0);
     else if (P.k5 && okS(SH5.run)) dr(SH5.run, (T * 20 | 0) % SH5.run.f.length, x, y, f, 1.0);
+    else if (P.bl && okS(SH6.run)) drBR((T * 20 | 0) % SH6.run.f.length, x, y, f);
     else dr(SH.run, (T * 20 | 0) % 12, x, y, f, 1.0);
     ctx.restore();
     return;
@@ -128,6 +133,9 @@ function drawP0() {
 
   // 0. 555 形态（动作与绘制见 faiz.js）
   if (P.k5) { drawFaiz(x, y, f); return; }
+
+  // 0.5 Blade 形态（动作与绘制见 blade.js）
+  if (P.bl) { drawBlade(x, y, f); return; }
 
   // 1. 龙骑形态（动作与绘制见 ryuki.js）
   if (P.ryuki) { drawRyuki(x, y, f); return; }
