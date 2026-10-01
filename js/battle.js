@@ -38,6 +38,7 @@ function begin(k) {
   for (const key in P.cd) P.cd[key] = 0;
   P.dcd = 0;
 
+  psHen();
   // 5. 播放 Malaya 原生变身音效
   if (typeof playMalayaHenshin === 'function') playMalayaHenshin();
 
@@ -60,6 +61,7 @@ function begin(k) {
 function fin(w) {
   if (G !== 'play') return;
   G = w ? 'win' : 'over'; FD = 0;
+  psResult(w);
   const z = ST[cur];
   // ★ 联机：房主裁决胜负并广播给客机
   if (typeof COOP !== 'undefined' && COOP.active && COOP.inGame && COOP.isHost) coopSend('game_end', { win: w ? 1 : 0, kills, RG });
@@ -119,10 +121,10 @@ function fin(w) {
 
       if (isFirst) {
         FD = curDiamGoal;
-        S.d += FD;
+        S.d += FD; psDia(FD);
       } else if (stars > prevStars) {
         FD = curDiamGoal - (starDiamMap[prevStars] || 0);
-        if (FD > 0) S.d += FD;
+        if (FD > 0) { S.d += FD; psDia(FD); }
       } else {
         FD = 0;
       }
@@ -161,7 +163,7 @@ function fin(w) {
       };
     }
   }
-  S.g += FG;
+  S.g += FG; psGold(FG);
   save();
 }
 
@@ -401,6 +403,7 @@ function hurt(e, d, pre) {
   // ★ 客机：本地只做命中反馈，真实扣血由房主结算
   if (guest) {
     if (e.dead) return;
+    psHit(d, c);
     e.fl = .12; shake = Math.max(shake, 4);
     P.mp = Math.min(P.mm, P.mp + 3);
     DT.push({ x: e.x, y: e.y - e.h, s: d + (c ? '!' : ''), t: .8, c: c ? '#ff8a2a' : '#ffd84a' });
@@ -409,6 +412,7 @@ function hurt(e, d, pre) {
   }
 
   if (e.t === 'boss' && ST[cur].wb) WBD += Math.max(0, Math.min(d, e.hp));
+  if (!pre) psHit(d, c);
   e.hp -= d; e.fl = .12; e.x += f * (e.t === 'boss' ? 2 : 12);
   if (!pre) P.mp = Math.min(P.mm, P.mp + 3);
   DT.push({ x: e.x, y: e.y - e.h, s: d + (c ? '!' : ''), t: .8, c: c ? '#ff8a2a' : '#ffd84a' });
@@ -418,7 +422,7 @@ function hurt(e, d, pre) {
   if (mp2) coopSend('m_hurt_ack', { id: e.id, hp: e.hp, dmg: d, c: c ? 1 : 0, dead: e.hp <= 0, g: pre ? 1 : 0 });
 
   if (e.hp <= 0 && !e.dead) {
-    e.dead = 1; kills++; 
+    e.dead = 1; kills++; if (!pre) psKill(e.t === 'boss');
     gain(ET[e.t].xp * .6 * (1 + Math.min(cur, 29) * .3)); 
     RG += ET[e.t].g * (1 + Math.min(cur, 29) * .3) | 0;
     if (Math.random() < .35) OR.push({ x: e.x, k: Math.random() < .5 ? 'h' : 'm' });
@@ -469,6 +473,7 @@ function cancelEP(x0, x1) {
 function hurtP(d) {
   if (P.inv > 0 || P.down || P.st === 'trans' || P.st === 'trans_ryuki' || G !== 'play') return;
   d = Math.max(1, Math.round(d * (1 - (P.def || 0))));
+  psTaken(d);
   P.hp -= d; P.inv = 1; shake = 10;
   DT.push({ x: P.x, y: P.y - 180, s: '-' + d, t: .8, c: '#ff6a6a' });
   if (P.hp <= 0) {

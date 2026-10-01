@@ -185,7 +185,7 @@ function dismantleValue(it) {
 // 装备综合评分（用于判断“是否比身上这件更强”），可按喜好调整权重
 const itemScore = it => { const s = it.stats || {}; return (s.atk || 0) + (s.hp || 0) * .15 + (s.mp || 0) * .1 + (s.crit || 0) * 400 + (s.def || 0) * 8 };
 // 相对当前穿戴：槽位空 = 提升；否则综合评分更高 = 提升
-function isUpgrade(it) { const cur = S.eq[it.slot]; return !cur || itemScore(it) > itemScore(cur) + 1e-6 }
+function isUpgrade(it) { const cur = S.eq[it.slot]; return !cur || cpDelta(it) > 0 }   // 以战力变化为准（见 power.js）
 
 // 背包交互、批量操作与选择状态
 let bagPage = 0, bagFilter = 'all', selItem = null, bagNotice = '', bagNoticeT = 0;
@@ -263,7 +263,7 @@ function batchDismantle() {
 
   if (count === 0) { bagNotice = skipped ? '所选装备均已锁定，未分解' : '未选中任何背包中的闲置装备'; bagNoticeT = 1.5; return; }
 
-  S.g += totalG;
+  S.g += totalG; psGold(totalG);
   S.mat += totalMat;
   S.inv = S.inv.filter(it => !toDelete.has(it.id));
   batchSel.clear();
@@ -354,7 +354,7 @@ function dismantleItem(item) {
   const v = dismantleValue(item);
   const gGain = v.g;
   const matGain = v.mat;
-  S.g += gGain;
+  S.g += gGain; psGold(gGain);
   S.mat += matGain;
   S.inv = S.inv.filter(it => it.id !== item.id);
   batchSel.delete(item.id);

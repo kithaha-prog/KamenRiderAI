@@ -223,6 +223,7 @@ function drawPlayerHUD(x, y) {
   hudBar(bx, y + 51, bw, 12, P.mp, P.mm, '#1f4fc0', '#35b4e8');
   ut('MP', bx + 7, y + 57.2, 8, 'rgba(255,255,255,.78)', 'left', { w: 700, sp: 1 });
   ut(fmtC(P.mp) + ' / ' + fmtC(P.mm), bx + bw - 7, y + 57.2, 9.5, '#fff', 'right', { w: 700 });
+  drawCPHUD(x + w + 8, y);   // 战力胶囊（点击打开排行榜）
 }
 
 function drawStaminaHUD(x, y) {
@@ -759,7 +760,8 @@ function drawBagDetail(rx, ry, rw) {
   bx += badge(bx, by, tier.n, tier.c, tier.bg) + 6;
   bx += badge(bx, by, slotInfo.n, '#cfd8e3', 'rgba(255,255,255,.08)') + 6;
   if (isWorn) bx += badge(bx, by, '穿戴中', '#2ed573', 'rgba(46,213,115,.16)') + 6;
-  chipFit(bx, by, 22, '需求 Lv.' + reqLvl, canWear, 12);
+  bx += chipFit(bx, by, 22, '需求 Lv.' + reqLvl, canWear, 12) + 6;
+  if (!isWorn) { const dcp = cpDelta(it); chipFit(bx, by, 22, cpTag(dcp), dcp >= 0, 12); }   // 换上后的战力变化
 
   // —— 左卡：属性对比 ——
   const cy = ry + 122, lcw = 240, RX = X + lcw + 8, rcw = IW - lcw - 8, CH = 168;
@@ -1919,4 +1921,150 @@ function drawCapsuleModal() {
   drawCapsuleModal0();
   if (typeof TOUCH !== 'undefined' && TOUCH) return;
   ut('W/S 选择    A/D 切换分类    Enter 装配 / 卸下    N 或 Esc 关闭', 480, 523, 11, 'rgba(210,218,232,.8)', 'center', { w: 500, sp: .5 });
+}
+
+// ===== 战绩档案（点击左上角等级徽章 / 按 [I] 打开）=====
+// 数据存在 S.ps 里，跟着 save() 一起写入本地与云端；统计从加入本功能后开始累计。
+let showStat = false;
+const PS_BADGE = { x: 58, y: 52, r: 32 };   // 与 drawPlayerHUD(16,14) 的等级徽章对齐
+let psSaveT = 0;
+function ps() {
+  let p = S.ps;
+  if (!p || typeof p !== 'object') p = S.ps = {};
+  for (const k of ['pt', 'gE', 'dE', 'dmg', 'maxHit', 'hits', 'crits', 'kills', 'boss', 'win', 'lose', 'taken', 'hen'])
+    if (typeof p[k] !== 'number') p[k] = 0;
+  if (!p.formT || typeof p.formT !== 'object') p.formT = {};
+  if (!p.first) p.first = Date.now();
+  return p;
+}
+function psTick(dt) {
+  if (G === 'title' || G === 'load') return;
+  const p = ps(); p.pt += dt;
+  if (G === 'play') { const k = curRiderKey(); p.formT[k] = (p.formT[k] || 0) + dt }
+  psSaveT += dt;
+  if (psSaveT > 15) { psSaveT = 0; try { localStorage.malaya = JSON.stringify(S) } catch (e) { } }   // 仅本地，云端仍走 save() 的防抖
+}
+function psHit(d, c) { const p = ps(); p.dmg += d; p.hits++; if (c) p.crits++; if (d > p.maxHit) p.maxHit = d }
+function psKill(isBoss) { const p = ps(); p.kills++; if (isBoss) p.boss++ }
+function psGold(n) { if (n > 0) ps().gE += n }
+function psDia(n) { if (n > 0) ps().dE += n }
+function psTaken(d) { ps().taken += d }
+function psResult(w) { const p = ps(); if (w) p.win++; else p.lose++ }
+function psHen() { ps().hen++ }
+addEventListener('beforeunload', () => { try { localStorage.malaya = JSON.stringify(S) } catch (e) { } });
+document.addEventListener('visibilitychange', () => { if (document.hidden) try { localStorage.malaya = JSON.stringify(S) } catch (e) { } });
+
+function psCanOpen() {
+  return !showStat && !M && !showChar && !showCapModal && !gachaModal && (G === 'vil' || G === 'room' || G === 'play');
+}
+function psOpen() {
+  if (G === 'play' && typeof coopBattleOn === 'function' && coopBattleOn()) {
+    DT.push({ x: P.x, y: P.y - 180, s: '联机战斗中无法暂停查看战绩', t: 1.2, c: '#ffd84a' }); return;
+  }
+  showStat = true;
+}
+function psBadgeHit(x, y) { return Math.hypot(x - PS_BADGE.x, y - PS_BADGE.y) <= PS_BADGE.r }
+const PS_PANEL = { x: 110, y: 26, w: 740, h: 488 };
+function psClick(x, y) {
+  if (lbClick(x, y)) return;   // 排行榜按钮优先
+  const b = PS_PANEL;
+  if ((x >= b.x + b.w - 70 && x <= b.x + b.w - 10 && y >= b.y + 10 && y <= b.y + 36) || x < b.x || x > b.x + b.w || y < b.y || y > b.y + b.h) showStat = false;
+}
+cv.addEventListener('pointermove', e => {
+  const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 960, y = (e.clientY - r.top) / r.height * 540;
+  cv.style.cursor = (showStat || (psCanOpen() && psBadgeHit(x, y))) ? 'pointer' : '';
+});
+
+function psBig(n) {
+  n = Math.floor(n);
+  if (n < 100000) return n.toLocaleString();
+  if (n < 1e8) return (n / 1e4).toFixed(n < 1e6 ? 2 : 1) + ' 万';
+  return (n / 1e8).toFixed(2) + ' 亿';
+}
+function psDur(s) {
+  s = Math.floor(s); const h = s / 3600 | 0, m = (s % 3600) / 60 | 0;
+  return h > 0 ? h + ' 小时 ' + m + ' 分' : m > 0 ? m + ' 分 ' + (s % 60) + ' 秒' : s + ' 秒';
+}
+const PS_TITLES = [[0, '见习骑士'], [50, '正式骑士'], [300, '资深战士'], [1000, '王牌骑士'], [3000, '传说骑士'], [10000, '大红花守护者']];
+const PS_FORM = { malaya: 'Malaya', ryuki: '龙骑', '555': '555', blade: 'Blade' };
+
+function drawStatModal() {
+  const p = ps(), b = PS_PANEL, acc = inForm() ? formCol() : '#00e5ff';
+  LB.hit = [];
+  if (LB.tab === 1) { drawLeaderboard(); return; }   // 战力排行榜页（power.js）
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,.62)'; ctx.fillRect(0, 0, 960, 540);
+  hudPanel(b.x, b.y, b.w, b.h, acc, 18);
+
+  // 头部：等级徽章 + 称号
+  let title = PS_TITLES[0][1]; for (const t of PS_TITLES) if (p.kills >= t[0]) title = t[1];
+  const cx = b.x + 56, cy = b.y + 58;
+  ctx.beginPath(); ctx.arc(cx, cy, 28, 0, 7); ctx.fillStyle = 'rgba(3,5,12,.92)'; ctx.fill();
+  ctx.lineWidth = 2; ctx.strokeStyle = acc; ctx.stroke();
+  ut('LV', cx, cy - 9, 8, UIC.sub, 'center', { w: 700, sp: 1.5, sh: 0 });
+  ut(S.lv, cx, cy + 5, 19, UIC.hi, 'center', { w: 700 });
+  ut(S.nick || '无名骑士', b.x + 100, b.y + 44, 17, UIC.hi, 'left', { w: 700 });
+  ut('称号 · ' + title, b.x + 100, b.y + 68, 11.5, acc, 'left', { w: 700, sp: 1.5, sh: 0 });
+  rpath(b.x + b.w - 70, b.y + 10, 60, 26, 6); ctx.fillStyle = 'rgba(255,71,87,.25)'; ctx.fill(); ctx.strokeStyle = '#ff4757'; ctx.lineWidth = 1.2; ctx.stroke();
+  ut('✕ 关闭', b.x + b.w - 40, b.y + 23, 11.5, '#ff9aa4', 'center', { w: 700 });
+  lbTabBtn(b);   // 战绩 ⇄ 排行榜
+
+  // 六张核心数据卡（3×2）
+  const days = Math.max(0, (Date.now() - p.first) / 864e5);
+  const avg = p.hits ? p.dmg / p.hits : 0;
+  const cards = [
+    ['总游戏时长', psDur(p.pt), '开始记录 ' + (days < 1 ? '不到 1' : days | 0) + ' 天', '#7df9ff'],
+    ['累计获得金币', psBig(p.gE) + ' G', '当前持有 ' + psBig(S.g), '#ffd84a'],
+    ['累计获得钻石', psBig(p.dE), '当前持有 ' + psBig(S.d), '#4fe3ff'],
+    ['总造成伤害', psBig(p.dmg), '平均每击 ' + psBig(avg), '#ff7675'],
+    ['最高单击伤害', psBig(p.maxHit), p.maxHit && avg ? '约为平均伤害的 ' + (p.maxHit / avg).toFixed(1) + ' 倍' : '还没出过手', '#ff9f43'],
+    ['消灭怪物总数', psBig(p.kills), '其中 BOSS ' + p.boss + ' 只', '#7dff9a']
+  ];
+  const cw = 224, ch = 78, gx = 14, x0 = b.x + 20, y0 = b.y + 92;
+  cards.forEach((c, i) => {
+    const x = x0 + (i % 3) * (cw + gx), y = y0 + (i / 3 | 0) * (ch + 12);
+    rpath(x, y, cw, ch, 8); ctx.fillStyle = 'rgba(255,255,255,.045)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1; ctx.stroke();
+    rpath(x, y + 10, 3, ch - 20, 1.5); ctx.fillStyle = c[3]; ctx.fill();
+    ut(c[0], x + 14, y + 16, 10.5, UIC.sub, 'left', { w: 600, sp: .8, sh: 0 });
+    ut(c[1], x + 14, y + 41, 22, c[3], 'left', { w: 700 });
+    ut(c[2], x + 14, y + 63, 10, 'rgba(210,218,232,.65)', 'left', { w: 500, sh: 0 });
+  });
+
+  // 更多资讯
+  const iy = y0 + 2 * (ch + 12) + 4;
+  ut('// 更多资讯', b.x + 22, iy + 8, 11, acc, 'left', { w: 700, sp: 1.5, sh: 0 });
+  const total = p.win + p.lose, ft = Object.entries(p.formT).sort((a, b2) => b2[1] - a[1])[0];
+  const gear = [...S.inv, ...Object.values(S.eq || {}).filter(Boolean)];
+  const top = gear.reduce((m, it) => it && it.tier > m ? it.tier : m, -1);
+  const stars3 = Object.values(S.stars || {}).filter(v => v >= 3).length;
+  const info = [
+    ['战斗战绩', p.win + ' 胜 / ' + p.lose + ' 负' + (total ? '（胜率 ' + Math.round(p.win / total * 100) + '%）' : '')],
+    ['暴击', p.crits.toLocaleString() + ' 次' + (p.hits ? '（占 ' + (p.crits / p.hits * 100).toFixed(1) + '%）' : '')],
+    ['累计承受伤害', psBig(p.taken)],
+    ['变身次数', p.hen.toLocaleString() + ' 次'],
+    ['最常用形态', ft ? (PS_FORM[ft[0]] || ft[0]) + '（' + psDur(ft[1]) + '）' : '暂无'],
+    ['关卡进度', Math.min(S.cl, ST.length) + ' / ' + ST.length + ' 通关 · 三星 ' + stars3],
+    ['胶囊收集', S.caps.length + ' / ' + CAPSULES.length],
+    ['最高品质装备', top >= 0 ? TIERS[top].n : '暂无']
+  ];
+  info.forEach((r, i) => {
+    const x = b.x + 22 + (i % 2) * 358, y = iy + 32 + (i / 2 | 0) * 24;
+    ut(r[0], x, y, 11.5, UIC.sub, 'left', { w: 600, sh: 0 });
+    ut(r[1], x + 330, y, 12, UIC.txt, 'right', { w: 700 });
+  });
+
+  // 趣味小贴士（每小时换一条）
+  const mins = p.pt / 60, eps = mins / 25;
+  const fun = [
+    '累计游玩时间相当于看完 ' + eps.toFixed(1) + ' 集特摄剧（按每集 25 分钟算）。',
+    p.kills ? '平均每玩 1 分钟消灭 ' + (p.kills / Math.max(1, mins)).toFixed(1) + ' 只怪物。' : '还没有击杀记录，去传送门走一趟吧！',
+    p.taken ? '你挨的打 ' + psBig(p.taken) + ' 点，是出手总伤害的 ' + (p.taken / Math.max(1, p.dmg) * 100).toFixed(1) + '%，防守得不错。' : '至今零受伤记录，或者是刚开始记录？',
+    p.hen ? '每次变身平均能带来 ' + (p.kills / p.hen).toFixed(1) + ' 个击杀。' : '试试按 P 变身，看看数据怎么变。'
+  ];
+  const tip = fun[(Date.now() / 36e5 | 0) % fun.length];
+  const ty = b.y + b.h - 44;
+  rpath(b.x + 20, ty, b.w - 40, 26, 6); ctx.fillStyle = 'rgba(255,216,74,.08)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,216,74,.3)'; ctx.lineWidth = 1; ctx.stroke();
+  ut('💡 ' + tip, b.x + 34, ty + 13, 11.5, '#ffe9a6', 'left', { w: 600, sh: 0 });
+  ut('[I] / Esc / 点击空白处关闭 · 统计从本功能上线后开始累计', 480, b.y + b.h - 9, 9.5, 'rgba(210,218,232,.5)', 'center', { w: 500, sh: 0 });
+  ctx.restore();
 }

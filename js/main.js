@@ -228,6 +228,15 @@ function upd(dt) {
   for (const f of FX) f.t -= dt; FX = FX.filter(f => f.t > 0);
   for (const g of GH) g.t -= dt; GH = GH.filter(g => g.t > 0);
 
+  psTick(dt);   // 战绩：累计游戏时长 / 各形态使用时长
+
+  // [I] 键或点击等级徽章：战绩档案（弹窗期间整局暂停）
+  if (PR.KeyI) { if (showStat) showStat = false; else if (psCanOpen()) psOpen(); delete PR.KeyI; }
+  if (showStat) {
+    if (PR.Escape || PR.Enter || PR.Space || PR.KeyF) { showStat = false; delete PR.Escape; delete PR.Enter; delete PR.Space; delete PR.KeyF; }
+    return;
+  }
+
   // [N] 键呼出/关闭胶囊终端
   if (PR.KeyN) { showCapModal = !showCapModal; delete PR.KeyN; }
   if (showCapModal) {
@@ -283,8 +292,8 @@ function upd(dt) {
     if (PR.Enter || PR.Space) {
       delete PR.Enter;
       delete PR.Space;
-      if (typeof showLoginModal === 'function') {
-        showLoginModal();
+      if (typeof titleStart === 'function') {
+        titleStart();
       } else {
         toVil();
       }
@@ -427,7 +436,7 @@ function upd(dt) {
   if (PR.Escape) {
     if (ST[cur].wb) { WBR = 'retreat'; return fin(0) }
     if (typeof coopEscGuard === 'function' && !coopEscGuard()) return;   // 联机撤退需二次确认
-    S.g += RG; save(); return toVil('st');
+    S.g += RG; psGold(RG); save(); return toVil('st');
   }
   // ★ 联机：倒地 / 正在救人时，锁定出招、跳跃、闪避、药水
   if (P.down || COOP.channeling) {
@@ -744,6 +753,10 @@ function draw() {
       // 4. 按钮提示与副标
       const enterText = TOUCH ? '点击屏幕 开始游戏' : '按 Enter / 空格 进入基地';
       txt(enterText, 480, by + bh / 2, 16, '#00e5ff', 'center');
+      if (typeof authTitleHint === 'function' && authTitleHint()) {   // 已检测到登录会话
+        txt(authTitleHint(), 480, by - 14, 13, '#7dff9a', 'center');
+        txt('切换账号', 865, 512, 12, '#ff9aa4', 'center');
+      }
       txt('战役出征 · 收集神话装备 · 强化研磨 · 契约变身', 480, 512, 12, 'rgba(255,255,255,0.7)', 'center');
     } else {
       // 若封面素材缺失，自动回退到原有渲染方式
@@ -763,6 +776,7 @@ function draw() {
     if (gachaModal) drawGachaModalOverlay();
     if (showChar) drawCharPanel();
     if (showCapModal) drawCapsuleModal();
+    if (showStat) drawStatModal();
     // 绘制升级全屏横幅与光效
     if (LV_POP) drawLevelUpBanner();
     ctx.restore(); return;
@@ -851,6 +865,7 @@ function draw() {
   if (gachaModal) drawGachaModalOverlay();
   if (showChar) drawCharPanel();
   if (showCapModal) drawCapsuleModal();
+  if (showStat) drawStatModal();
   
   // ★ 升级弹窗必须放在最后，保证浮在所有战斗画面最上层
   if (LV_POP) drawLevelUpBanner();
@@ -975,7 +990,7 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
   const knob = jr.querySelector('b'), arL = jr.querySelector('.l'), arR = jr.querySelector('.r'), arU = jr.querySelector('.u');
   let jid = null, ox = 0, oy = 0, JR = 60, jl = false, jrt = false, ju = false;
   // 只在“可走动”的场景启用（弹窗 / 菜单 / 变身动画时把触摸让给画布）
-  const joyOk = () => !M && !showChar && !showCapModal && !gachaModal && (G === 'vil' || G === 'room' || (G === 'play' && P.st !== 'trans'));
+  const joyOk = () => !M && !showChar && !showCapModal && !showStat && !gachaModal && (G === 'vil' || G === 'room' || (G === 'play' && P.st !== 'trans'));
   const joyStop = () => {
     if (jid !== null) { try { jz.releasePointerCapture(jid) } catch (_) { } }
     jid = null; jr.classList.remove('show'); rel('KeyA'); rel('KeyD'); rel('Space');
@@ -1019,6 +1034,7 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
   cv.addEventListener('pointerdown', e => {
     const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 960, y = (e.clientY - r.top) / r.height * 540;
     if (gachaModal) return PR.Enter = 1;
+    if (showStat) { psClick(x, y); return; }
 
     // ===== 战败结算面板点击交互 =====
     if (G === 'over' && LOSE_RES) {
@@ -1183,8 +1199,11 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
       return;
     }
 
+    if (psCanOpen() && cpHudHit(x, y)) { LB.tab = 1; psOpen(); lbFetch(); return; }   // 点战力胶囊 → 排行榜
+    if (psCanOpen() && psBadgeHit(x, y)) { LB.tab = 0; psOpen(); return; }   // 点等级徽章 → 战绩档案
     if (G === 'title') {
-      showLoginModal();
+      if (typeof authSwitchHit === 'function' && authSwitchHit(x, y)) authSwitchAccount();
+      else titleStart();   // 已登录直接进游戏，否则弹登录框（见 auth.js）
       return;
     }
     if (G === 'over' || G === 'win' || (G === 'play' && P.st === 'trans')) return PR.Enter = 1;

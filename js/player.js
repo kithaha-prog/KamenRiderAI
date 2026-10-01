@@ -21,34 +21,15 @@ function calc() {
   const t = S.ta;
   const oldMh = P.mh, oldMm = P.mm; // 记录旧上限用于动态增减计算
 
-  let eqAtk = 0, eqHp = 0, eqMp = 0, eqCr = 0, eqDef = 0;
-  if (S.eq) {
-    for (const k in S.eq) {
-      const it = S.eq[k];
-      if (it && it.stats) {
-        if (it.stats.atk) eqAtk += it.stats.atk;
-        if (it.stats.hp) eqHp += it.stats.hp;
-        if (it.stats.mp) eqMp += it.stats.mp;
-        if (it.stats.crit) eqCr += it.stats.crit;
-        if (it.stats.def) eqDef += it.stats.def;
-      }
-    }
-  }
-
-  // 基础强化计算
-  let bAtk = (14 + S.lv * 2 + eqAtk) * (1 + .05 * t[0]) * (1 + 0.01 * S.sw);
-  let bCr = .05 + .02 * t[3] + eqCr;
-  const fc = formCap();
-  if (fc) { bAtk *= fc.atkMul || 1; bCr += fc.crAdd || 0; }
+  // 属性统一由 power.js 的 previewStats() 计算（装备对比 / 战力共用同一公式）
+  const st = previewStats(S.eq, true);
   // 保留未取整的原始数值，供铁匠铺/天赋预览计算真实增幅（避免 +1% 被取整吃掉）
-  P.atkRaw = bAtk;
-  P.mhRaw = (100 + S.lv * 10 + eqHp) * (1 + .06 * t[1]) * (1 + 0.05 * S.ar);
-  P.mmRaw = (100 + S.lv * 5 + eqMp) * (1 + .06 * t[2]) * (1 + 0.03 * S.bt);
-  P.atk = Math.round(P.atkRaw);
-  P.mh = Math.round(P.mhRaw);
-  P.mm = Math.round(P.mmRaw);
-  P.cr = Math.min(1, bCr);
-  P.def = Math.min(0.95, (S.ar * 0.001) + (eqDef * 0.005));
+  P.atkRaw = st.atk; P.mhRaw = st.hp; P.mmRaw = st.mp;
+  P.atk = Math.round(st.atk);
+  P.mh = Math.round(st.hp);
+  P.mm = Math.round(st.mp);
+  P.cr = st.cr;
+  P.def = st.def;
   P.stm = (100 + S.lv * 2) | 0;
 
   // ★ 状态动态同步：
@@ -64,6 +45,14 @@ function calc() {
     P.hp = Math.min(P.mh, P.hp || P.mh);
     P.mp = Math.min(P.mm, P.mp || P.mm);
     P.sta = Math.min(P.stm, P.sta);
+  }
+
+  // ★ 战力（不含变身加成，见 power.js）
+  const oldCP = P.cp;
+  P.cp = calcCP();
+  if (oldCP !== undefined && P.cp !== oldCP && typeof DT !== 'undefined') {
+    const d = P.cp - oldCP;
+    DT.push({ x: P.x, y: P.y - 230, s: '战力 ' + (d > 0 ? '+' : '') + d, t: 1.2, c: d > 0 ? '#7dff9a' : '#ff7675' });
   }
 }
 calc();
