@@ -841,46 +841,62 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
 
   const press = c => { if (!K[c]) PR[c] = 1; K[c] = 1 }, rel = c => { K[c] = 0 };
   let lastEsc = 0;
+  // ===== 手游式按键布局 =====
+  // 右下：大号「剑击/互动」+ 弧形排列的技能键；左上（HUD 下方）：变身 / 药水；右上：背包 / 胶囊 / 撤退 / 全屏；
+  // 左下：浮动圆盘摇杆（见下方逻辑 + index.html 里的 #joy 样式）；▲▼ 只在菜单打开时出现
+  const R0 = '3vmin', B0 = '3vmin';
+  const atkCodes = () => (G === 'play' && !showChar && !showCapModal) ? ['KeyJ'] : ['KeyF', 'Enter'];   // 战斗=剑击；基地/菜单=互动·确认
   const B = [
-    ['剑击', 'atk', 'right:calc(var(--s)*.2 + 1.5vmin);bottom:calc(var(--s)*.2 + 2vmin);width:calc(var(--s)*1.4);height:calc(var(--s)*1.4);font-size:calc(var(--s)*.34)', ['KeyJ']],
-    ['跳', 'jmp', 'right:calc(var(--s)*1.85 + 1.5vmin);bottom:calc(var(--s)*.15 + 2vmin)', ['Space']],
-    ['终结技', 'skl', 'right:calc(var(--s)*.25 + 1.5vmin);bottom:calc(var(--s)*1.75 + 2vmin)', ['KeyK']],
-    ['飞剑', 'skl', 'right:calc(var(--s)*1.75 + 1.5vmin);bottom:calc(var(--s)*1.3 + 2vmin)', ['KeyL']],
-    ['机车', 'skl', 'right:calc(var(--s)*3.3 + 1.5vmin);bottom:calc(var(--s)*.6 + 2vmin)', ['KeyE']],
-    ['闪避<br>疾跑', 'dg', 'right:calc(var(--s)*3.3 + 1.5vmin);bottom:calc(var(--s)*1.75 + 2vmin)', ['ShiftLeft']],
-    // 左侧 2×2：上排 变身 / 胶囊，下排 药① / 药②（间距 1.0s，按钮 0.8s，互不重叠；下方留给浮动摇杆）
-    ['变身', 'trf sm', 'left:2vmin;bottom:calc(var(--s)*3.5 + 3vmin)', ['KeyP']],
-    ['胶囊', 'sm', 'left:calc(2vmin + var(--s)*1);bottom:calc(var(--s)*3.5 + 3vmin)', ['KeyN']],
-    ['药①', 'sm', 'left:2vmin;bottom:calc(var(--s)*2.5 + 3vmin)', ['Digit1']],
-    ['药②', 'sm', 'left:calc(2vmin + var(--s)*1);bottom:calc(var(--s)*2.5 + 3vmin)', ['Digit2']],
-    ['▲', 'sm', 'left:calc(50% - var(--s)*1.7);bottom:2vmin', ['KeyW']],
-    ['✔<br>互动', 'sm', 'left:calc(50% - var(--s)*.5);bottom:2vmin;width:var(--s);height:var(--s);font-size:calc(var(--s)*.24)', ['KeyF', 'Enter']],
-    ['▼', 'sm', 'left:calc(50% + var(--s)*.9);bottom:2vmin', ['KeyS']],
-    ['背包<br>规格', 'sm', 'left:calc(50% - var(--s)*1.3);top:1vmin;opacity:.85', ['KeyC']],
-    ['关闭<br>撤退', 'sm', 'left:calc(50% + var(--s)*.5);top:1vmin;opacity:.75', ['Escape'], 1],
+    ['剑击', 'atk', `right:${R0};bottom:${B0}`, atkCodes],
+    ['跳', 'jmp', `right:calc(var(--s)*1.65 + ${R0});bottom:calc(var(--s)*.05 + ${B0})`, ['Space']],
+    ['飞剑', 'skl', `right:calc(var(--s)*1.5 + ${R0});bottom:calc(var(--s)*1.45 + ${B0})`, ['KeyL']],
+    ['终结技', 'skl ult', `right:calc(var(--s)*.25 + ${R0});bottom:calc(var(--s)*1.7 + ${B0})`, ['KeyK']],
+    ['闪避<br>疾跑', 'dg', `right:calc(var(--s)*2.85 + ${R0});bottom:calc(var(--s)*.7 + ${B0})`, ['ShiftLeft']],
+    ['机车', 'skl', `right:calc(var(--s)*2.9 + ${R0});bottom:calc(var(--s)*1.95 + ${B0})`, ['KeyE']],
+    // 左上：变身 + 两瓶药
+    ['变身', 'trf', 'left:2vmin;top:19vmin', ['KeyP']],
+    ['药①', 'sm pot', 'left:calc(2vmin + var(--s)*1.1);top:calc(19vmin + var(--s)*.1)', ['Digit1']],
+    ['药②', 'sm pot', 'left:calc(2vmin + var(--s)*2);top:calc(19vmin + var(--s)*.1)', ['Digit2']],
+    // 右上：系统键
+    ['背包<br>规格', 'sm sys', 'right:2vmin;top:14vmin', ['KeyC']],
+    ['胶囊', 'sm sys', 'right:calc(2vmin + var(--s)*.95);top:14vmin', ['KeyN']],
+    ['关闭<br>撤退', 'sm sys', 'right:calc(2vmin + var(--s)*1.9);top:14vmin', ['Escape'], 1],
+    // 菜单上下选择（仅菜单/胶囊终端打开时显示）
+    ['▲', 'sm nav', `left:3vmin;bottom:calc(var(--s)*1.1 + ${B0})`, ['KeyW']],
+    ['▼', 'sm nav', `left:3vmin;bottom:${B0}`, ['KeyS']],
   ];
 
   const ui = document.createElement('div'); ui.id = 'tc';
   // 浮动摇杆：左半屏任意位置按下即出现，手指移动时圆盘跟随；上推=跳跃
   const jz = document.createElement('div'); jz.id = 'joyz';
-  const jh = document.createElement('div'); jh.id = 'joyh'; jh.innerHTML = '◀ 拖动移动 ▶';
+  const jh = document.createElement('div'); jh.id = 'joyh'; jh.innerHTML = '<i>◀</i><i>▶</i>';
   const jr = document.createElement('div'); jr.id = 'joy'; jr.innerHTML = '<i class="a l">◀</i><i class="a r">▶</i><i class="a u">▲</i><b></b>';
   ui.appendChild(jz); ui.appendChild(jh); ui.appendChild(jr);   // 先于按钮加入 → 按钮在其上层
   for (const [t, c, pos, codes, esc] of B) {
     const b = document.createElement('div'); b.className = 'b ' + c; b.style.cssText = pos; b.innerHTML = t; ui.appendChild(b);
+    let held = [];
     b.addEventListener('pointerdown', e => {
       e.preventDefault(); b.setPointerCapture(e.pointerId); b.classList.add('on');
       if (esc && G === 'play' && !showChar && !showCapModal && Date.now() - lastEsc > 1500) { lastEsc = Date.now(); DT.push({ x: P.x, y: P.y - 180, s: '再点一次撤退', t: 1.2, c: '#ffd84a' }); return }
-      codes.forEach(press)
+      held = typeof codes === 'function' ? codes() : codes; held.forEach(press);
     });
-    const up = () => { b.classList.remove('on'); codes.forEach(rel) };
+    const up = () => { b.classList.remove('on'); held.forEach(rel); held = [] };
     b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up);
   }
 
   const dgBtn = ui.querySelector('.b.dg');
   const lBtn = [...ui.querySelectorAll('.b')].find(b => b.textContent === '飞剑');
+  const atkBtn = ui.querySelector('.b.atk'), navBtns = [...ui.querySelectorAll('.b.nav')];
   setInterval(() => {
     if (lBtn) { const t = lSkillName(); if (lBtn.textContent !== t) lBtn.textContent = t }
+    if (atkBtn) {   // 剑击 / 互动 / 确认 共用一个键
+      const inBattle = G === 'play' && !showChar && !showCapModal;
+      const t = inBattle ? '剑击' : (M || showCapModal || showChar || gachaModal) ? '确认' : (typeof NR !== 'undefined' && NR) ? '互动' : '剑击';
+      if (atkBtn.textContent !== t) atkBtn.textContent = t;
+      atkBtn.classList.toggle('hot', t !== '剑击');
+    }
+    const showNav = (!!M && !gachaModal) || showCapModal;
+    navBtns.forEach(n => n.classList.toggle('show', showNav));
     if (!dgBtn) return;
     const cd = G === 'play' ? Math.max(0, P.dcd / DODGE_CD) : 0;
     dgBtn.style.background = cd > 0 ? `conic-gradient(rgba(0,0,0,.6) ${cd * 360}deg, rgba(0,190,200,.5) 0)` : '';
@@ -888,7 +904,7 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
   }, 80);
 
   if (document.documentElement.requestFullscreen) {
-    const f = document.createElement('div'); f.className = 'b sm'; f.textContent = '⛶'; f.style.cssText = 'left:calc(50% + var(--s)*1.4);top:1vmin;opacity:.75';
+    const f = document.createElement('div'); f.className = 'b sm sys'; f.textContent = '⛶'; f.style.cssText = 'right:calc(2vmin + var(--s)*2.85);top:14vmin';
     f.addEventListener('pointerdown', e => { e.preventDefault(); document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => { })).catch(() => { }) });
     ui.appendChild(f);
   }
