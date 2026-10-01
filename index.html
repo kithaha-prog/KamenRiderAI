@@ -23,6 +23,47 @@
     #tc .b{position:absolute;pointer-events:auto;touch-action:none;width:var(--s);height:var(--s);border-radius:50%;
       display:flex;align-items:center;justify-content:center;text-align:center;font:700 calc(var(--s)*.26)/1.1 system-ui,sans-serif;color:#fff;
       background:rgba(20,26,44,.45);border:2px solid rgba(255,255,255,.5);box-shadow:0 0 8px rgba(0,0,0,.5);-webkit-tap-highlight-color:transparent}
+
+    /* ===== 手游式触控按键样式 ===== */
+    #tc .b{transition:transform .06s,background .06s;backdrop-filter:blur(2px);text-shadow:0 1px 3px #000;user-select:none}
+    #tc .b.on{transform:scale(.9);background:rgba(255,255,255,.35);border-color:#fff}
+    #tc .b.sm{width:calc(var(--s)*.8);height:calc(var(--s)*.8);font-size:calc(var(--s)*.22)}
+    #tc .b.sys{background:rgba(10,16,30,.5);border-color:rgba(160,200,255,.45);opacity:.9}
+    #tc .b.pot{background:rgba(160,30,50,.45);border-color:rgba(255,120,140,.7);font-size:calc(var(--s)*.26)}
+    #tc .b.trf{width:var(--s);height:var(--s);background:radial-gradient(circle,rgba(0,229,255,.35),rgba(10,40,70,.55));
+      border-color:#00e5ff;box-shadow:0 0 12px rgba(0,229,255,.55);font-size:calc(var(--s)*.3)}
+    /* 右下技能区 */
+    #tc .b.atk{width:calc(var(--s)*1.5);height:calc(var(--s)*1.5);font-size:calc(var(--s)*.36);
+      background:radial-gradient(circle at 35% 30%,rgba(255,120,120,.65),rgba(160,20,30,.6));
+      border:3px solid rgba(255,255,255,.85);box-shadow:0 0 14px rgba(255,70,70,.55)}
+    #tc .b.atk.hot{background:radial-gradient(circle at 35% 30%,rgba(255,230,120,.7),rgba(190,130,10,.65));
+      border-color:#ffd84a;box-shadow:0 0 16px rgba(255,216,74,.7)}
+    #tc .b.jmp{background:rgba(40,90,200,.5);border-color:rgba(150,200,255,.85);font-size:calc(var(--s)*.32)}
+    #tc .b.skl{background:rgba(20,110,140,.5);border-color:rgba(100,230,255,.8)}
+    #tc .b.skl.ult{background:rgba(150,60,200,.5);border-color:rgba(230,170,255,.9);box-shadow:0 0 10px rgba(200,120,255,.5)}
+    #tc .b.dg{background:rgba(0,150,160,.45);border-color:rgba(120,255,240,.8)}
+    #tc .b.nav{display:none}
+    #tc .b.nav.show{display:flex}
+    /* 浮动摇杆 */
+    #joyz{position:absolute;left:0;top:0;width:52%;height:100%;pointer-events:none;touch-action:none}
+    #joyz.on{pointer-events:auto}
+    #joyh{position:absolute;left:4vmin;bottom:4vmin;width:calc(var(--s)*2.2);height:calc(var(--s)*2.2);border-radius:50%;
+      display:none;align-items:center;justify-content:space-between;padding:0 calc(var(--s)*.25);box-sizing:border-box;
+      border:2px solid rgba(255,255,255,.28);background:radial-gradient(circle,rgba(255,255,255,.1) 0,rgba(255,255,255,.04) 60%);
+      color:rgba(255,255,255,.55);font-size:calc(var(--s)*.3);pointer-events:none}
+    #joyh i{font-style:normal}
+    #joyh::after{content:'';position:absolute;left:50%;top:50%;width:calc(var(--s)*.9);height:calc(var(--s)*.9);margin:calc(var(--s)*-.45) 0 0 calc(var(--s)*-.45);
+      border-radius:50%;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.4)}
+    #joy{position:fixed;display:none;width:calc(var(--s)*2.2);height:calc(var(--s)*2.2);margin:calc(var(--s)*-1.1) 0 0 calc(var(--s)*-1.1);
+      border-radius:50%;border:2.5px solid rgba(255,255,255,.55);background:radial-gradient(circle,rgba(20,30,60,.35),rgba(255,255,255,.1));pointer-events:none}
+    #joy.show{display:block}
+    #joy .a{position:absolute;font-style:normal;color:rgba(255,255,255,.5);font-size:calc(var(--s)*.28);line-height:1}
+    #joy .a.l{left:8%;top:50%;transform:translateY(-50%)}
+    #joy .a.r{right:8%;top:50%;transform:translateY(-50%)}
+    #joy .a.u{left:50%;top:6%;transform:translateX(-50%)}
+    #joy .a.on{color:#7df9ff;text-shadow:0 0 8px #00e5ff}
+    #joy b{position:absolute;left:50%;top:50%;width:calc(var(--s)*.95);height:calc(var(--s)*.95);margin:calc(var(--s)*-.475) 0 0 calc(var(--s)*-.475);
+      border-radius:50%;background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.85),rgba(120,200,255,.55));box-shadow:0 0 10px rgba(0,229,255,.6)}
     #rot{position:fixed;inset:0;z-index:20;background:#08060c;color:#fff;align-items:center;justify-content:center;font:700 20px system-ui;text-align:center;padding:20px}
     @media (orientation:portrait){body.touch #rot{display:flex}}
 
