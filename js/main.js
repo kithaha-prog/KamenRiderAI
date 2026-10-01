@@ -1,5 +1,18 @@
 // ===== 资源初始化 =====
 async function prep() {
+  // 封面最先加载：加载界面直接用封面做背景
+  msg = '加载封面…';
+  try {
+    let covIm = null;
+    const tryNames = ['Cover.jpg', 'cover.jpg', 'Cover.png', 'cover.png'];
+    for (const fn of tryNames) {
+      try { covIm = await load(COVER + fn); if (covIm) break; } catch (err) {}
+    }
+    if (!covIm) covIm = await load(A + 'Cover/Cover.jpg');
+    COVER_IMG = covIm;
+  } catch (e) {
+    miss.push('Cover/Cover.jpg');
+  }
   msg = '加载章节场景…';
   // 预加载 1~10 章地景：Chapter 1.jpg ~ Chapter 10.jpg
   for (let ch = 1; ch <= 10; ch++) {
@@ -26,19 +39,6 @@ async function prep() {
     msg = '加载骑士技能…'; const im = await load(KR + o.f);
     Object.assign(o, sliceSheet(im, o.c, o.r, o.ref, o.cut || 0));
     if (o.mid) o.fy = o.ch / 2; if (o.w) { const b = bb(o.f[o.ref]); o.s = o.w / (b.x1 - b.x0) }
-  }
-
-  // 加载标题封面图（支持 Cover.jpg / Cover.png 等常见命名格式）
-  try {
-    let covIm = null;
-    const tryNames = ['Cover.jpg', 'cover.jpg', 'Cover.png', 'cover.png'];
-    for (const fn of tryNames) {
-      try { covIm = await load(COVER + fn); if (covIm) break; } catch (err) {}
-    }
-    if (!covIm) covIm = await load(A + 'Cover/Cover.jpg');
-    COVER_IMG = covIm;
-  } catch (e) {
-    miss.push('Cover/Cover.jpg');
   }
 
   // ===== 加载技能栏 UI 图标 =====
@@ -166,6 +166,7 @@ async function prep() {
   if (PG.bi) PG.bi = shrinkH(PG.bi, Math.round(PG.h * 1.5));
   if (IM.v) IM.v = shrinkH(toCanvas(IM.v), 810);
   const bi = await load(KR + 'KR_Malaya_Vehicles.png'); BK = trim(toCanvas(bi)); G = 'title';
+  try { localStorage.mlLoadEst = String(LD.done + 2); } catch (e) {}   // 记下这次实际加载的图片数，下次用来估算进度
 
   // ===== 批量加载 NPC 角色形象（阿公、阿玲、老岩、无相） =====
   const loadNpcImg = async (fn) => {
@@ -209,6 +210,9 @@ function playSwordHit() { const a = HIT_SND[hitSndI++ % HIT_SND.length]; try { a
 
 // ===== 游戏主逻辑帧刷新 =====
 function upd(dt) {
+  // ★ 联机：每帧同步，放在所有早退分支之前（变身/升级/打开菜单期间也不断流）
+  if (G === 'play' && typeof coopUpdateBattle === 'function') coopUpdateBattle(dt);
+
   // 升级时全场定格暂停 1.2 秒
   if (LV_POP) {
     LV_POP.t += dt;
@@ -237,7 +241,26 @@ function upd(dt) {
   if (showChar) { if (PR.Escape) { showChar = false; delete PR.Escape } return }
 
   // [P] 键变身
+  // ★ 未装配任何胶囊时，在基地/房间按 P = 试听开局的 Malaya 原生变身（动画+音效，Enter/空格/Esc 可跳过）
+  if (PR.KeyP && (G === 'vil' || G === 'room') && !S.eqCap && !inForm() && P.st !== 'trans' && P.st !== 'trans_ryuki') {
+    delete PR.KeyP;
+    const mdur = malayaTransDur();
+    Object.assign(P, { vx: 0, st: 'trans', t: 0, tdur: mdur, inv: mdur + .5, hit: {} });
+    playMalayaHenshin();
+  }
   if (PR.KeyP) { triggerRyukiTransform(); delete PR.KeyP }
+
+  // ★ Malaya 变身试听的推进（基地/房间专用；战斗中的开局变身仍走下方 G==='play' 分支）
+  if (P.st === 'trans' && (G === 'vil' || G === 'room')) {
+    P.vx = 0; P.t += dt; P.inv = 1;
+    updMalayaTrans(dt);
+    if (P.t > (P.tdur || malayaTransDur()) || PR.Enter || PR.Space || PR.Escape) {
+      delete PR.Enter; delete PR.Space; delete PR.Escape;
+      stopMalayaHenshin();
+      P.st = 'idle'; P.t = 0; P.inv = .5; P.hit = {};
+    }
+    return;
+  }
 
   // 当离开对应状态时，停掉大招和变身音效
   if (P.st !== 'trans_ryuki') { stopFaizHenshin(); stopRyukiHenshin(); stopBladeHenshin(); }
@@ -252,12 +275,6 @@ function upd(dt) {
       P.st = 'idle'; P.k5 = is5; P.bl = isB; P.ryuki = !is5 && !isB; P.inv = .6; calc();
     }
     return;
-  }
-
-  // 在 main.js 的 upd(dt) 中：
-  if (G === 'play') {
-    stageT += dt;
-    if (typeof coopUpdateBattle === 'function') coopUpdateBattle(dt); // ★ 刷新联机
   }
 
   // 修改后（拦截 Enter / 空格，呼出登录窗口）：
@@ -341,7 +358,7 @@ function upd(dt) {
     // 1. [Enter / R] 再次挑战
     if (PR.Enter || PR.Space || PR.KeyR) {
       delete PR.Enter; delete PR.Space; delete PR.KeyR;
-      begin(cur); // 立即重刷本关
+      settleAct('retry'); // 联机时需双方同意
       return;
     }
     // 2. [C] 打开战备背包
@@ -373,17 +390,13 @@ function upd(dt) {
     // 1. [Enter] 推进下一关 / 完成
     if (PR.Enter || PR.Space) {
       delete PR.Enter; delete PR.Space;
-      if (cur + 1 < ST.length && !ST[cur + 1].wb) {
-        begin(cur + 1); // 无缝进下一关！
-      } else {
-        toVil('st');
-      }
+      settleAct('next'); // 联机时需双方同意
       return;
     }
     // 2. [R] 再次挑战
     if (PR.KeyR) {
       delete PR.KeyR;
-      begin(cur); // 重刷本关
+      settleAct('retry'); // 联机时需双方同意
       return;
     }
     // 3. [Esc] 返回传送门大厅
@@ -393,9 +406,6 @@ function upd(dt) {
       return;
     }
     return;
-  }
-  if (G === 'play') {
-    stageT += dt; // 累加本关战斗耗时
   }
   if (G !== 'play') return;
   if (P.st === 'trans') {
@@ -413,7 +423,18 @@ function upd(dt) {
     }
     return;
   }
-  if (PR.Escape) { if (ST[cur].wb) { WBR = 'retreat'; return fin(0) } S.g += RG; save(); return toVil('st') }
+  stageT += dt;   // ★ 本关耗时：只在开局变身结束、真正开打后才累加（且全帧只累加这一次）
+  if (PR.Escape) {
+    if (ST[cur].wb) { WBR = 'retreat'; return fin(0) }
+    if (typeof coopEscGuard === 'function' && !coopEscGuard()) return;   // 联机撤退需二次确认
+    S.g += RG; save(); return toVil('st');
+  }
+  // ★ 联机：倒地 / 正在救人时，锁定出招、跳跃、闪避、药水
+  if (P.down || COOP.channeling) {
+    for (const k of ['KeyJ', 'KeyK', 'KeyL', 'KeyE', 'KeyP', 'Space', 'KeyW', 'ArrowUp', 'ShiftLeft', 'ShiftRight', 'Digit1', 'Digit2']) delete PR[k];
+    P.shDown = false; P.shT = 0; P.vx = 0;
+    if (P.down) { P.inv = 0; P.st = (P.y < GY) ? 'air' : 'idle'; }
+  }
   if (PR.Digit1 && S.hp > 0 && P.hp < P.mh) { S.hp--; P.hp = Math.min(P.mh, P.hp + P.mh * .5); DT.push({ x: P.x, y: P.y - 180, s: '+HP', t: .8, c: '#7dff9a' }) }
   if (PR.Digit2 && S.mp > 0 && P.mp < P.mm) { S.mp--; P.mp = Math.min(P.mm, P.mp + P.mm * .6); DT.push({ x: P.x, y: P.y - 180, s: '+MP', t: .8, c: '#6ab0ff' }) }
   // 全技能 CD 递减
@@ -446,7 +467,8 @@ function upd(dt) {
   }
   P.spr = false;
 
-  const fr = P.st === 'idle' || P.st === 'run' || P.st === 'air', l = K.KeyA || K.ArrowLeft, r = K.KeyD || K.ArrowRight, gr = P.y >= GY;
+  const lk = P.down || COOP.channeling;
+  const fr = P.st === 'idle' || P.st === 'run' || P.st === 'air', l = !lk && (K.KeyA || K.ArrowLeft), r = !lk && (K.KeyD || K.ArrowRight), gr = P.y >= GY;
   if (fr) {
     const d = (r ? 1 : 0) - (l ? 1 : 0);
     let spd = (240 + S.lv * 4) * formSpd();
@@ -602,8 +624,9 @@ function upd(dt) {
 
   const z = ST[cur];
   if (z.wb) { WBT -= dt; if (WBT <= 0) { WBT = 0; WBR = 'time'; return fin(0) } }   // 世界BOSS 限时
+  const coopGuest = typeof coopIsGuest === 'function' && coopIsGuest();   // 客机：怪物与胜负全部听房主的
   sp -= dt;
-  if (sp <= 0 && !bs) {
+  if (!coopGuest && sp <= 0 && !bs) {
     const set = z.set;
     sp = Math.max(.8, 1.7 - set * .08) + Math.random() * .5;          // 刷怪间隔（随章节缩短）
     const cap = 4 + Math.ceil(set * .8) + Math.min(2, S.lv >> 5);     // 场上同时存在上限
@@ -613,19 +636,27 @@ function upd(dt) {
     n = Math.min(n, cap - E.length, need);                            // 一次可刷 1~3 只
     for (let i = 0; i < n; i++) spawn(kills >= 2 && Math.random() < z.wd ? 'wd' : 'imp');
   }
-  if (!z.b && kills >= z.k) return fin(1);
-  if (z.b && kills >= z.k && !bs) {
+  if (!coopGuest && !z.b && kills >= z.k) return fin(1);
+  if (!coopGuest && z.b && kills >= z.k && !bs) {
     bs = 1; spawn('boss');
     DT.push({ x: P.x, y: P.y - 240, s: 'BOSS 出现！', t: 2, c: '#ff8a4a' });
   }
 
-  for (const e of E) updEnemy(e, dt);
+  for (const e of E) {
+    if (coopGuest) {
+      // 客机：怪物 AI 只负责对本机玩家的攻击/前摇；位置以房主同步为准
+      const ox = e.x, oy = e.y, d0 = e.dsh > 0;
+      updEnemy(e, dt);
+      if (!d0 && !(e.dsh > 0)) { e.x = ox; e.y = oy; }
+    } else updEnemy(e, dt);
+  }
   E = E.filter(e => !e.dead);
   updBattleFx(dt);
   updBikes(dt); // 刷新脱手战车运动与判定
 
   for (const s of PJ) {
     s.x += s.vx * dt; if (s.vy) s.y += s.vy * dt; s.t -= dt;
+    if (s.vis) continue;   // 队友弹道仅展示，伤害由队友客户端判定
     for (const e of E) {
       if (s.h[e.id]) continue;
       const hit = (s.b5 || s.rb)
@@ -642,13 +673,41 @@ function upd(dt) {
   updBladeBolts(dt);
 
   for (const o of OR) {
-    if (Math.abs(o.x - P.x) < 45) {
+    if (!P.down && Math.abs(o.x - P.x) < 45) {
       o.g = 1;
       if (o.k === 'h') P.hp = Math.min(P.mh, P.hp + 25);
       else P.mp = Math.min(P.mm, P.mp + 30);
     }
   }
   OR = OR.filter(o => !o.g);
+}
+
+// ===== 加载界面：封面原画 + 进度条（进度条所在位置，加载完后变成“按 Enter 进入基地”）=====
+function drawLoadCover() {
+  const now = performance.now() / 1000, dt = Math.min(.1, Math.max(0, now - (LD.last || now))); LD.last = now;
+  const target = Math.min(.97, LD.done / LD.est);
+  LD.shown += (target - LD.shown) * Math.min(1, dt * 6);   // 平滑追赶，条不会跳
+  const p = cl(LD.shown, 0, 1);
+
+  ctx.drawImage(COVER_IMG, 0, 0, 960, 540);
+  const grad = ctx.createLinearGradient(0, 420, 0, 540);
+  grad.addColorStop(0, 'rgba(8, 6, 12, 0)'); grad.addColorStop(1, 'rgba(8, 6, 12, 0.88)');
+  ctx.fillStyle = grad; ctx.fillRect(0, 420, 960, 120);
+
+  // 与标题页“按 Enter”按钮同位置同尺寸：进度条 → 按钮
+  const bw = 320, bh = 42, bx = (960 - bw) / 2, by = 445;
+  rpath(bx, by, bw, bh, 8); ctx.fillStyle = 'rgba(10, 16, 28, 0.82)'; ctx.fill();
+  ctx.save();
+  rpath(bx, by, bw, bh, 8); ctx.clip();
+  const fw = bw * p;
+  const fg = ctx.createLinearGradient(bx, 0, bx + bw, 0); fg.addColorStop(0, 'rgba(0,150,200,.55)'); fg.addColorStop(1, 'rgba(0,229,255,.75)');
+  ctx.fillStyle = fg; ctx.fillRect(bx, by, fw, bh);
+  // 进度头部高光
+  if (fw > 2) { const hg = ctx.createLinearGradient(bx + fw - 24, 0, bx + fw, 0); hg.addColorStop(0, 'rgba(255,255,255,0)'); hg.addColorStop(1, 'rgba(255,255,255,.55)'); ctx.fillStyle = hg; ctx.fillRect(bx + fw - 24, by, 24, bh); }
+  ctx.restore();
+  rpath(bx, by, bw, bh, 8); ctx.strokeStyle = 'rgba(0, 229, 255, .85)'; ctx.lineWidth = 1.8; ctx.stroke();
+  txt('加载中 ' + Math.round(p * 100) + '%', 480, by + bh / 2, 16, '#ffffff', 'center');
+  txt(msg, 480, by + bh + 16, 11.5, 'rgba(255,255,255,0.6)', 'center');
 }
 
 // ===== 主渲染管线 =====
@@ -658,6 +717,7 @@ function draw() {
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
   ctx.fillStyle = '#08060c'; ctx.fillRect(0, 0, 960, 540);
 
+  if (G === 'load' && COVER_IMG) { drawLoadCover(); ctx.restore(); return }
   if (G === 'load' || G === 'err') { txt(msg, 480, 270, G === 'err' ? 16 : 20, G === 'err' ? '#ff7675' : '#fff', 'center'); ctx.restore(); return }
   if (G === 'title') {
     if (COVER_IMG) {
@@ -786,6 +846,7 @@ function draw() {
   } else if (G === 'win') {
     drawWinSettlement();
   }
+  if (typeof drawCoopOverlay === 'function') drawCoopOverlay();   // ★ 联机叠层：屏外指示/倒地/救援/结算投票
 
   if (gachaModal) drawGachaModalOverlay();
   if (showChar) drawCharPanel();
@@ -845,7 +906,7 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
   // 右下：大号「剑击/互动」+ 弧形排列的技能键；左上（HUD 下方）：变身 / 药水；右上：背包 / 胶囊 / 撤退 / 全屏；
   // 左下：浮动圆盘摇杆（见下方逻辑 + index.html 里的 #joy 样式）；▲▼ 只在菜单打开时出现
   const R0 = '3vmin', B0 = '3vmin';
-  const atkCodes = () => (G === 'play' && !showChar && !showCapModal) ? ['KeyJ'] : ['KeyF', 'Enter'];   // 战斗=剑击；基地/菜单=互动·确认
+  const atkCodes = () => (G === 'play' && !showChar && !showCapModal) ? ((typeof coopCanRescue === 'function' && coopCanRescue()) ? ['KeyF'] : ['KeyJ']) : ['KeyF', 'Enter'];   // 战斗=剑击；基地/菜单=互动·确认
   const B = [
     ['剑击', 'atk', `right:${R0};bottom:${B0}`, atkCodes],
     ['跳', 'jmp', `right:calc(var(--s)*1.65 + ${R0});bottom:calc(var(--s)*.05 + ${B0})`, ['Space']],
@@ -891,7 +952,7 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
     if (lBtn) { const t = lSkillName(); if (lBtn.textContent !== t) lBtn.textContent = t }
     if (atkBtn) {   // 剑击 / 互动 / 确认 共用一个键
       const inBattle = G === 'play' && !showChar && !showCapModal;
-      const t = inBattle ? '剑击' : (M || showCapModal || showChar || gachaModal) ? '确认' : (typeof NR !== 'undefined' && NR) ? '互动' : '剑击';
+      const t = inBattle ? ((typeof coopCanRescue === 'function' && coopCanRescue()) ? '救援' : '剑击') : (M || showCapModal || showChar || gachaModal) ? '确认' : (typeof NR !== 'undefined' && NR) ? '互动' : '剑击';
       if (atkBtn.textContent !== t) atkBtn.textContent = t;
       atkBtn.classList.toggle('hot', t !== '剑击');
     }
@@ -970,7 +1031,7 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
       for (const b of LOSE_HITS) {
         if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
           if (b.id === 'retry') {
-            begin(cur);
+            settleAct('retry');
           } else if (b.id === 'char') {
             showChar = true;
           } else if (b.id === 'base') {
@@ -1020,10 +1081,9 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
       for (const b of WIN_HITS) {
         if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
           if (b.id === 'next') {
-            if (cur + 1 < ST.length && !ST[cur + 1].wb) begin(cur + 1);
-            else toVil('st');
+            settleAct('next');
           } else if (b.id === 'retry') {
-            begin(cur);
+            settleAct('retry');
           } else if (b.id === 'base') {
             toVil('st');
           }

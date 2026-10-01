@@ -80,19 +80,19 @@ function mTechBtn(x, y, w, h, label, kind, acc, sel, sz = 13, corner = 7) {
 
 const mCost = o => o.max ? 'MAX' : [o.g ? o.g.toLocaleString() + ' G' : '', o.t ? o.t + ' 点' : ''].filter(Boolean).join(' + ');
 const mOk = o => !o.max && S.g >= (o.g || 0) && S.tp >= (o.t || 0);
-const mStat = (v, f) => f === 1 ? Math.round(v * 100) + '%' : f === 2 ? (v * 100).toFixed(1) + '%' : Math.round(v).toLocaleString();
+const mStat = (v, f) => f === 3 ? (Math.round(v * 10) / 10).toLocaleString(undefined, { maximumFractionDigits: 1 }) : f === 1 ? Math.round(v * 100) + '%' : f === 2 ? (v * 100).toFixed(1) + '%' : Math.round(v).toLocaleString();
 
 // 试算升级属性收益
 function mnPreview(o) {
   if (!o.st) return [];
-  const rd = () => ({ atk: P.atk, mh: P.mh, mm: P.mm, cr: P.cr, def: P.def });
+  const rd = () => ({ atk: P.atkRaw, mh: P.mhRaw, mm: P.mmRaw, cr: P.cr, def: P.def });
   const a = rd(), sv = { sw: S.sw, ar: S.ar, bt: S.bt, ta: S.ta.slice() };
   o.f(); calc(); const b = rd();
   S.sw = sv.sw; S.ar = sv.ar; S.bt = sv.bt; sv.ta.forEach((v, i) => { S.ta[i] = v; }); calc();
   return [
-    ['基础攻击', 'atk', '#ff7675'],
-    ['装甲生命', 'mh', '#55efc4'],
-    ['核心魔力', 'mm', '#74b9ff'],
+    ['基础攻击', 'atk', '#ff7675', 3],
+    ['装甲生命', 'mh', '#55efc4', 3],
+    ['核心魔力', 'mm', '#74b9ff', 3],
     ['会心暴击', 'cr', '#ffeaa7', 1],
     ['机甲免伤', 'def', '#7dff9a', 2]
   ].filter(r => Math.abs(b[r[1]] - a[r[1]]) > 1e-9).map(r => ({
@@ -470,6 +470,9 @@ function mnDetail(o, k, th, x, y, w, h) {
       const oldRight = arrowRight - 12;
       mt(oldStr, oldRight, yy, 12, '#8fa0b5', 'right');
     });
+  } else if (o.st) {
+    mt('// CALIBRATION GAIN · 效能增幅预估', x + 20, midBoxY + 16, 9.5, acc);
+    mt('下一级暂无可预估的属性变化', x + 26, midBoxY + 52, 12, '#8fa0b5');
   } else if (o.hold && o.hold[1] <= 10) {
     // 仅针对药水展示限量刻度电池
     mt('// INVENTORY CAPACITY · 战备背包容量', x + 24, midBoxY + 16, 9.5, acc);
@@ -520,25 +523,62 @@ function mnDetail(o, k, th, x, y, w, h) {
 
 // ---------- 扭蛋系统逻辑 ----------
 function mnGacha(it, th, backIdx) {
-  const acc = th.acc, X = MN_X + 24, y0 = MN_Y + 88, H = 356, lw = 290, n = CAPSULES.length;
-  const own = c => S.caps.includes(c.id), got = CAPSULES.filter(own).length;
+  const acc = th.acc, X = MN_X + 24, y0 = MN_Y + 88, H = 356, lw = 290, mx = X + lw / 2;
 
+  // ---------- 左侧：胶囊展示台 ----------
   techCutBox(X, y0, lw, H, 12);
   const g = ctx.createLinearGradient(X, y0, X, y0 + H); g.addColorStop(0, acc + '2e'); g.addColorStop(1, 'rgba(255,255,255,.03)');
   ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.1)'; ctx.stroke();
-  mCapsule(X + lw / 2, y0 + 76, acc);
-  mt('胶囊抽取终端', X + lw / 2, y0 + 152, 19, '#fff', 'center');
-  mt('抽取假面骑士变身契约胶囊', X + lw / 2, y0 + 175, 11.5, '#8fa2b8', 'center');
-  const dx0 = X + lw / 2 - (n - 1) * 9;
-  CAPSULES.forEach((c, i) => {
-    ctx.beginPath(); ctx.arc(dx0 + i * 18, y0 + 199, 5, 0, 7);
-    if (own(c)) { ctx.fillStyle = c.c; ctx.fill(); } else { ctx.lineWidth = 1.4; ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.stroke(); }
-  });
-  mt('已收集 ' + got + ' / ' + n, X + lw / 2, y0 + 218, 11, '#6f7f95', 'center');
+
+  ctx.save();
+  techCutBox(X, y0, lw, H, 12); ctx.clip();
+  const cy0 = y0 + 112;
+  // 背后聚光
+  const rg = ctx.createRadialGradient(mx, cy0, 6, mx, cy0, 150);
+  rg.addColorStop(0, acc + '44'); rg.addColorStop(.55, acc + '14'); rg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = rg; ctx.fillRect(X, y0, lw, H);
+  // 底部科技网格地台线
+  ctx.strokeStyle = acc + '16'; ctx.lineWidth = 1;
+  for (let k = 0; k < 6; k++) { const yy = y0 + H - 70 + k * 14; ctx.beginPath(); ctx.moveTo(X, yy); ctx.lineTo(X + lw, yy); ctx.stroke(); }
+  // 旋转虚线环 + 内环
+  ctx.lineWidth = 1.2;
+  ctx.strokeStyle = acc + '88'; ctx.setLineDash([3, 9]); ctx.lineDashOffset = -T * 14;
+  ctx.beginPath(); ctx.arc(mx, cy0, 96, 0, 7); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.strokeStyle = 'rgba(255,255,255,.10)';
+  ctx.beginPath(); ctx.arc(mx, cy0, 74, 0, 7); ctx.stroke();
+  // 环绕光点
+  for (let k = 0; k < 8; k++) {
+    const an = T * (k % 2 ? .45 : -.35) + k * .785, rr = 74 + (k % 3) * 11;
+    const px = mx + Math.cos(an) * rr, py = cy0 + Math.sin(an) * rr * .86, pu = .55 + .45 * Math.sin(T * 3 + k * 1.7), sz = 2 + pu * 2.2;
+    ctx.globalAlpha = .35 + pu * .55; ctx.fillStyle = k % 3 ? '#ffffff' : acc;
+    ctx.beginPath(); ctx.moveTo(px, py - sz * 1.6); ctx.lineTo(px + sz, py); ctx.lineTo(px, py + sz * 1.6); ctx.lineTo(px - sz, py); ctx.closePath(); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  // 左上角小标签
+  const lb = 'CAPSULE POOL', lbw = tw(lb, 9.5) + 18;
+  techCutBox(X + 16, y0 + 14, lbw, 20, 4); ctx.fillStyle = acc + '22'; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = acc + 'aa'; ctx.stroke();
+  mt(lb, X + 16 + lbw / 2, y0 + 24.5, 9.5, acc, 'center');
+
+  mCapsule(mx, cy0, acc, 1.2);
+
+  // 标题 + 装饰分隔线
+  mt('胶囊抽取终端', mx, y0 + 236, 20, '#fff', 'center');
+  const ly = y0 + 256, lg = ctx.createLinearGradient(mx - 70, 0, mx + 70, 0);
+  lg.addColorStop(0, 'rgba(255,255,255,0)'); lg.addColorStop(.5, acc); lg.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = lg; ctx.fillRect(mx - 70, ly, 140, 1.5);
+  mt('抽取假面骑士变身契约胶囊', mx, y0 + 276, 11.5, '#8fa2b8', 'center');
+
   if (MN.last) {
     const c = { new: 0, dup: 0, potion: 0, none: 0 }; MN.last.forEach(r => { c[r.k]++; });
     const s = [c.new && '新胶囊 ' + c.new, c.dup && '重复 ' + c.dup, c.potion && '药水 ' + c.potion, c.none && '未中 ' + c.none].filter(Boolean).join(' · ');
-    mt('上次：' + s, X + lw / 2, y0 + H - 20, 11, '#c9d6e4', 'center');
+    const sw_ = tw('上次：' + s, 11) + 24;
+    techCutBox(mx - sw_ / 2, y0 + H - 38, sw_, 24, 6); ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1; ctx.stroke();
+    mt('上次：' + s, mx, y0 + H - 25.5, 11, '#c9d6e4', 'center');
+  } else {
+    mt('点击右上角 ? 查看奖池概率', mx, y0 + H - 25, 10.5, '#5f7088', 'center');
   }
 
   const qx = X + lw - 26, qy = y0 + 26, qs = V.i === 2;
@@ -547,17 +587,39 @@ function mnGacha(it, th, backIdx) {
   mt('?', qx, qy + .5, 15, '#fff', 'center');
   mHit(qx - 18, qy - 18, 36, 36, 2, true);
 
+  // ---------- 右侧：单抽 / 十连 ----------
   const cx = X + lw + 14, cw = MN_W - 48 - lw - 14, gp = 12, ch = (H - gp) / 2;
-  [[1, '单抽契约', '单次抽取契约胶囊', 0], [10, '十连契约', '连续抽取 10 次，独立判定', 1]].forEach(([c, title, sub, idx]) => {
+  [[1, '单抽契约', 'SINGLE CONTRACT', '单次抽取契约胶囊', 0], [10, '十连契约', 'MULTI CONTRACT', '连续抽取 10 次，独立判定', 1]].forEach(([c, title, en, sub, idx]) => {
     const y = y0 + idx * (ch + gp), cost = GACHA_COST * c, ok = S.d >= cost, sel = V.i === idx;
-    techCutBox(cx, y, cw, ch, 10);
-    ctx.fillStyle = sel ? acc + '22' : 'rgba(12, 18, 34, 0.75)'; ctx.fill();
-    ctx.strokeStyle = sel ? acc : 'rgba(255,255,255,.12)'; ctx.lineWidth = sel ? 1.8 : 1; ctx.stroke();
 
-    mt(title, cx + 22, y + 32, 21, '#fff');
-    mt(sub, cx + 22, y + 58, 11.5, '#8fa2b8');
-    { const dx = cx + 30, dy = y + ch - 28; ctx.beginPath(); ctx.moveTo(dx, dy - 8); ctx.lineTo(dx + 7, dy - 1); ctx.lineTo(dx, dy + 8); ctx.lineTo(dx - 7, dy - 1); ctx.closePath(); ctx.fillStyle = '#5fe0ff'; ctx.fill(); }
-    mt(cost.toLocaleString() + ' 钻石', cx + 46, y + ch - 28, 17, ok ? '#7fe9ff' : '#ff8f9a');
+    // 卡面底色：左亮右暗渐变
+    techCutBox(cx, y, cw, ch, 10);
+    const cg = ctx.createLinearGradient(cx, y, cx + cw, y + ch);
+    cg.addColorStop(0, sel ? acc + '38' : 'rgba(20,28,50,.85)'); cg.addColorStop(1, sel ? 'rgba(10,14,28,.92)' : 'rgba(8,12,24,.85)');
+    ctx.fillStyle = cg; ctx.fill();
+
+    // 巨型数字水印 ×1 / ×10 与左侧亮条
+    ctx.save(); techCutBox(cx, y, cw, ch, 10); ctx.clip();
+    mt('×' + c, cx + cw - 12, y + ch - 34, 78, acc + (sel ? '1c' : '0e'), 'right');
+    if (sel) { ctx.fillStyle = acc; ctx.fillRect(cx, y + 14, 4, ch - 28); }
+    ctx.restore();
+
+    // 描边（选中带发光）
+    techCutBox(cx, y, cw, ch, 10);
+    if (sel) { ctx.save(); ctx.shadowColor = acc; ctx.shadowBlur = 12; ctx.lineWidth = 1.8; ctx.strokeStyle = acc; ctx.stroke(); ctx.restore(); }
+    else { ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1; ctx.stroke(); }
+
+    mt(en, cx + 24, y + 24, 9.5, acc);
+    mt(title, cx + 24, y + 48, 22, '#fff');
+    mt(sub, cx + 24, y + 74, 11.5, '#8fa2b8');
+
+    // 价格胶囊
+    const ctxt = cost.toLocaleString() + ' 钻石', cwid = tw(ctxt, 16) + 58, cyy = y + ch - 46;
+    techCutBox(cx + 22, cyy, cwid, 30, 6);
+    ctx.fillStyle = 'rgba(4,8,18,.8)'; ctx.fill(); ctx.strokeStyle = ok ? 'rgba(95,224,255,.45)' : 'rgba(255,143,154,.5)'; ctx.lineWidth = 1; ctx.stroke();
+    { const dx = cx + 40, dy = cyy + 15; if (!drawIco(ICO.d, dx, dy, 22)) { ctx.beginPath(); ctx.moveTo(dx, dy - 8); ctx.lineTo(dx + 7, dy - 1); ctx.lineTo(dx, dy + 8); ctx.lineTo(dx - 7, dy - 1); ctx.closePath(); ctx.fillStyle = '#5fe0ff'; ctx.fill(); } }   // Assets/Icon/Diamond.png，未加载时用矢量钻石兜底
+    mt(ctxt, cx + 58, cyy + 15.5, 16, ok ? '#7fe9ff' : '#ff8f9a');
+
     const bw = 126, bh = 42, bx = cx + cw - 18 - bw, by = y + (ch - bh) / 2;
     mTechBtn(bx, by, bw, bh, ok ? '抽取 ×' + c : '钻石不足', ok ? 'main' : 'lack', acc, false, 15, 6);
     mHit(cx, y, cw, ch, idx, false, () => { V.i = idx; });
@@ -565,11 +627,11 @@ function mnGacha(it, th, backIdx) {
   });
 }
 
-function mCapsule(cx, cy, acc) {
+function mCapsule(cx, cy, acc, k = 1) {
   const bob = Math.sin(T * 1.6) * 5, cw = 108, ch = 50;
   ctx.save(); ctx.fillStyle = 'rgba(0,0,0,.35)';
-  ctx.beginPath(); ctx.ellipse(sn(cx), cy + 58, 42 - bob * .8, 7, 0, 0, 7); ctx.fill(); ctx.restore();
-  ctx.save(); ctx.translate(sn(cx), sn(cy + bob)); ctx.rotate(-.5 + Math.sin(T * 1.6) * .08);
+  ctx.beginPath(); ctx.ellipse(sn(cx), cy + 58 * k, (42 - bob * .8) * k, 7 * k, 0, 0, 7); ctx.fill(); ctx.restore();
+  ctx.save(); ctx.translate(sn(cx), sn(cy + bob)); ctx.rotate(-.5 + Math.sin(T * 1.6) * .08); ctx.scale(k, k);
   ctx.save(); ctx.shadowColor = acc; ctx.shadowBlur = 28; rpath(-cw / 2, -ch / 2, cw, ch, ch / 2); ctx.fillStyle = '#eef2f8'; ctx.fill(); ctx.restore();
   rpath(-cw / 2, -ch / 2, cw, ch, ch / 2); ctx.clip();
   const g = ctx.createLinearGradient(0, -ch / 2, 0, ch / 2); g.addColorStop(0, acc); g.addColorStop(1, acc + '88');

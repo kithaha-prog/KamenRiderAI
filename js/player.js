@@ -5,7 +5,7 @@ const P = {
   x: 300, y: GY, vx: 0, vy: 0, f: 1, hp: 100, mh: 100, mp: 100, mm: 100, atk: 14, cr: .05, def: 0,
   st: 'trans', t: 0, inv: 0, land: 0, cd: { e: 0, k: 0, l: 0, p: 0 },
   maxCd: { e: 7, k: 16, l: 2, p: 5 }, h: 0, hit: {}, ryuki: false, k5: false, bl: false, trk: null,
-  sta: 100, stm: 100, dcd: 0, exh: false, spr: false, shDown: false, shT: 0, gt: 0, sreg: 0, slow: 0, psn: 0
+  sta: 100, stm: 100, dcd: 0, exh: false, spr: false, shDown: false, shT: 0, gt: 0, sreg: 0, slow: 0, psn: 0, down: false
 };
 
 function curRiderKey() {
@@ -40,9 +40,13 @@ function calc() {
   let bCr = .05 + .02 * t[3] + eqCr;
   const fc = formCap();
   if (fc) { bAtk *= fc.atkMul || 1; bCr += fc.crAdd || 0; }
-  P.atk = Math.round(bAtk);
-  P.mh = Math.round((100 + S.lv * 10 + eqHp) * (1 + .06 * t[1]) * (1 + 0.05 * S.ar));
-  P.mm = Math.round((100 + S.lv * 5 + eqMp) * (1 + .06 * t[2]) * (1 + 0.03 * S.bt));
+  // 保留未取整的原始数值，供铁匠铺/天赋预览计算真实增幅（避免 +1% 被取整吃掉）
+  P.atkRaw = bAtk;
+  P.mhRaw = (100 + S.lv * 10 + eqHp) * (1 + .06 * t[1]) * (1 + 0.05 * S.ar);
+  P.mmRaw = (100 + S.lv * 5 + eqMp) * (1 + .06 * t[2]) * (1 + 0.03 * S.bt);
+  P.atk = Math.round(P.atkRaw);
+  P.mh = Math.round(P.mhRaw);
+  P.mm = Math.round(P.mmRaw);
   P.cr = Math.min(1, bCr);
   P.def = Math.min(0.95, (S.ar * 0.001) + (eqDef * 0.005));
   P.stm = (100 + S.lv * 2) | 0;
@@ -155,6 +159,7 @@ function walk(dt, R) {
 }
 
 function triggerRyukiTransform() {
+  if (P.down || (typeof COOP !== 'undefined' && COOP.channeling)) return;   // 倒地/救援中不能变身
   if (P.cd.p > 0) {
     DT.push({ x: P.x, y: P.y - 180, s: '变身冷却中 ' + P.cd.p.toFixed(1) + 's', t: 0.8, c: '#ffa502' });
     return;
@@ -186,7 +191,11 @@ function drawP() {
     drawP0(); ctx.restore();
     Object.assign(P, sv);
   }
-  drawP0();
+  if (P.down) {   // 濒死：横躺在地
+    const dx = sn(P.x - cam), dy = sn(P.y);
+    ctx.save(); ctx.translate(dx, dy); ctx.rotate(-P.f * Math.PI / 2); ctx.translate(-dx, -dy);
+    ctx.globalAlpha = .8; drawP0(); ctx.restore();
+  } else drawP0();
   if (P.slow > 0) txt('❄', P.x - cam - 14, P.y - 215, 16, '#8ad0ff', 'center');
   if (P.psn > 0) txt('☠', P.x - cam + 14, P.y - 215, 16, '#7dff5a', 'center');
 }

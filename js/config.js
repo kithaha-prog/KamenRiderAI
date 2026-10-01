@@ -355,6 +355,7 @@ let curSelCapId = 'ryuki', capPage = 0, capFilter = 'all';
 let uid = 0;
 let G = 'load', msg = '加载中…', T = 0, cam = 0, shake = 0;
 let E = [], PJ = [], EP = [], FX = [], DT = [], OR = [], GH = [], HZ = [], TQ = [];
+const STAR_TIME = 120;   // 三星“耗时”条件：通关用时 ≤ 此秒数（结算 battle.js 与战斗 HUD ui.js 共用）
 let kills = 0, bs = 0, sp = 1, cur = 0, RG = 0, FG = 0, FD = 0;   // FD：本次通关获得的钻石（首通奖励）
 let EN = {}, ENS = {}, BK, SC, SC_MAP = {}, CAP_IMG = null, COVER_IMG = null, miss = [], ENL = [], EMAP = null, IM = {};
 let showChar = false, gachaModal = null, showCapModal = false; // showCapModal 独立胶囊界面状态
@@ -362,7 +363,8 @@ let M = 0, RM = null, NR = null;
 let WBT = 0, WBD = 0, WBM = 0, WBR = '';   // 世界BOSS：剩余时间 / 累计伤害 / 首领总血量 / 结束原因
 
 // 画布实例
-const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const cv = document.getElementById('c');
+let ctx = cv.getContext('2d');   // let：UI 缓存渲染时会临时切到离屏画布
 let DPR = 1;
 function resize() {
   DPR = Math.min(window.devicePixelRatio || 1, TOUCH ? 1.5 : 2.5);
@@ -415,7 +417,11 @@ const save = () => {
 const cl = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // 图像切片与去色去噪图形工具
-const load = s => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(s); i.src = encodeURI(s) });
+// 加载进度：每张图片加载完（成功或失败）计数；总数用上次启动记录的实际数量估算（首次用默认值）
+const LD = { done: 0, est: 0, shown: 0, last: 0 };
+try { LD.est = +localStorage.mlLoadEst || 0; } catch (e) {}
+if (!LD.est) LD.est = 170;
+const load = s => new Promise((ok, no) => { const i = new Image(); i.onload = () => { LD.done++; ok(i); }; i.onerror = () => { LD.done++; no(s); }; i.src = encodeURI(s) });
 
 // 透明 PNG：直接裁切，不再需要任何抠底处理
 function toCanvas(im) {

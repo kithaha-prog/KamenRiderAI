@@ -1,7 +1,7 @@
 // ===== 维度传送门：模式选择 / 单人副本 / 双人高难联机 / 世界BOSS =====
 const NST = CHAPTERS.reduce((a, c) => a + c.stages.length, 0);
 const POX = 40, POY = 22, POW = 880, POH = 496;
-const PO = { view: 'hub', hub: 0, wb: 0, ret: 'hub', cp: 0, toast: '', tt: 0, hit: [] };
+const PO = { view: 'hub', hub: 0, hp: 0, wb: 0, ret: 'hub', cp: 0, toast: '', tt: 0, hit: [] };
 let curChapIdx = 0, selStageIdx = 0, stagePage = 0;
 let coopStageSelectIdx = 0; // 选中的双人高难副本索引
 
@@ -81,7 +81,7 @@ function openPortal(ret) {
   COOP_PIN_MODAL.show = false;
   COOP_PIN_MODAL.code = '';
   PO.view = ret ? PO.ret : 'hub';
-  PO.hub = PO.view === 'wb' ? 2 : PO.view === 'coop' ? 1 : 0;
+  PO.hub = PO.view === 'wb' ? 2 : PO.view === 'coop' ? 1 : 0; PO.hp = PO.hub;
   curChapIdx = getHighestChapterIdx(); pickStage(); PO.cp = curChapIdx;
   wbData();
   let bi = 0; WB.forEach((w, i) => { if (wbOpen(w)) bi = i; });
@@ -119,6 +119,7 @@ function pStartWB() {
 function portalUpdate(dt) {
   PO.tt -= dt;
   PO.cp += (curChapIdx - PO.cp) * Math.min(1, dt * 12);
+  PO.hp += (PO.hub - PO.hp) * Math.min(1, dt * 12);   // 模式轮播滑动动画
   const L = PR.KeyA || PR.ArrowLeft, R = PR.KeyD || PR.ArrowRight, U = PR.KeyW || PR.ArrowUp, D = PR.KeyS || PR.ArrowDown;
   const OK = PR.Enter || PR.Space || PR.KeyF;
 
@@ -241,7 +242,31 @@ function pPill(x, y, w, h, fill, stroke) {
   if (stroke) { ctx.lineWidth = 1; ctx.strokeStyle = stroke; ctx.stroke(); }
 }
 
+// ---- 离屏缓存：把重的静态绘制（大面积阴影/描边文字/渐变）渲染一次，之后每帧只 drawImage ----
+function poOffscreen(key, w, h, draw) {
+  const R = DPR, k = 'p' + key.id;
+  let e = poOffscreen.m[k];
+  if (e && e.key === key.v + '|' + R) return e;
+  if (!e) { e = poOffscreen.m[k] = { c: document.createElement('canvas') }; }
+  e.key = key.v + '|' + R;
+  e.c.width = Math.ceil(w * R); e.c.height = Math.ceil(h * R);
+  const g = e.c.getContext('2d'), real = ctx, n0 = PO.hit.length;
+  g.setTransform(R, 0, 0, R, 0, 0);
+  ctx = g;
+  try { e.extra = draw(); } finally { ctx = real; PO.hit.splice(n0); }
+  return e;
+}
+poOffscreen.m = {};
+// ctx 若仍是 const（config.js 未更新），无法切到离屏画布 → 自动退回直接绘制，不报错
+poOffscreen.can = (() => { try { const t = ctx; ctx = t; return true; } catch (e) { return false; } })();
+
 function poFrame(acc, title) {
+  if (!poOffscreen.can) return poFrameRaw(acc, title);
+  const e = poOffscreen({ id: 'frame', v: [acc, title, S.d, S.g, S.lv].join('|') }, 960, 540, () => poFrameRaw(acc, title));
+  ctx.drawImage(e.c, 0, 0, 960, 540);
+}
+
+function poFrameRaw(acc, title) {
   ctx.fillStyle = 'rgba(2, 4, 10, 0.94)'; ctx.fillRect(0, 0, 960, 540);
   poBevel(POX, POY, POW, POH, 18);
   const g = ctx.createLinearGradient(0, POY, 0, POY + POH);
@@ -340,44 +365,102 @@ function poHubCard(x, y, w, h, idx, o) {
 }
 
 function drawPoHub() {
-  poFrame('#00e5ff', '🌌 维度传送门 · 选择出征模式');
-  const cw = 262, ch = 340, cy = POY + 68;
-  const gap = 18;
-  const x0 = POX + Math.round((POW - (3 * cw + 2 * gap)) / 2);
+  // 滑动式模式选择（与章节轮播同款）：选中的模式居中放大，两侧模式缩小淡出
+  const HUB_COL = ['#00e5ff', '#2ed573', WB_COL];
+  poFrame(HUB_COL[PO.hub], '🌌 维度传送门 · 选择出征模式');
+  const cw = 262, ch = 340, cy = POY + 68, midY = cy + ch / 2;
 
-  poHubCard(x0, cy, cw, ch, 0, {
-    c: '#00e5ff', icon: '⚔️', en: 'SOLO DUNGEON', title: '单人副本',
-    d1: '20 大章 · 200 关卡 · 领主战役', d2: '单兵出征，稳步解锁神话装备',
-    status(sx, sy, sw) {
-      const c = Math.min(S.cl, NST);
-      txt('通关进度', sx, sy, 11, '#9ab'); txt(c + ' / ' + NST, sx + sw, sy, 11, '#ffd84a', 'right');
-      bar(sx, sy + 14, sw, 7, c, NST, '#00e5ff', '#7df9ff', 4);
+  const modes = [
+    {
+      c: '#00e5ff', icon: '⚔️', en: 'SOLO DUNGEON', title: '单人副本',
+      d1: '20 大章 · 200 关卡 · 领主战役', d2: '单兵出征，稳步解锁神话装备',
+      status(sx, sy, sw) {
+        const c = Math.min(S.cl, NST);
+        txt('通关进度', sx, sy, 11, '#9ab'); txt(c + ' / ' + NST, sx + sw, sy, 11, '#ffd84a', 'right');
+        bar(sx, sy + 14, sw, 7, c, NST, '#00e5ff', '#7df9ff', 4);
+      }
+    },
+    {
+      c: '#2ed573', icon: '👥', en: 'CO-OP RAID', title: '双人高难',
+      d1: '500% 领主血量 · 500% 赏金经验', d2: '双向伤害强同步 · 专属神话保底',
+      status(sx, sy, sw) {
+        const hasRoom = typeof COOP !== 'undefined' && COOP.active && COOP.roomCode;
+        txt('战备状态', sx, sy, 11, '#9ab');
+        txt(hasRoom ? `已在房间 [${COOP.roomCode}]` : '战备大厅就绪', sx + sw, sy, 11, hasRoom ? '#7dff9a' : '#2ed573', 'right');
+        bar(sx, sy + 14, sw, 7, hasRoom ? 1 : 0, 1, '#2ed573', '#7dff9a', 4);
+      }
+    },
+    {
+      c: WB_COL, icon: '👹', en: 'WORLD BOSS', title: '世界BOSS',
+      d1: '限时挑战巨型首领 · 伤害结算', d2: '击杀必掉高阶装备与强化卷轴',
+      status(sx, sy, sw) {
+        const n = WB.filter(wbOpen).length, left = wbLeft();
+        txt('今日剩余讨伐', sx, sy, 11, '#9ab');
+        txt(left + ' / ' + WB_DAILY + ' (已开放 ' + n + ')', sx + sw, sy, 11, left ? '#ffd84a' : '#ff6b6b', 'right');
+        bar(sx, sy + 14, sw, 7, left, WB_DAILY, '#ff4757', '#ff9f43', 4);
+      }
     }
-  });
+  ];
 
-  poHubCard(x0 + cw + gap, cy, cw, ch, 1, {
-    c: '#2ed573', icon: '👥', en: 'CO-OP RAID', title: '双人高难',
-    d1: '500% 领主血量 · 500% 赏金经验', d2: '双向伤害强同步 · 专属神话保底',
-    status(sx, sy, sw) {
-      const hasRoom = typeof COOP !== 'undefined' && COOP.active && COOP.roomCode;
-      txt('战备状态', sx, sy, 11, '#9ab');
-      txt(hasRoom ? `已在房间 [${COOP.roomCode}]` : '战备大厅就绪', sx + sw, sy, 11, hasRoom ? '#7dff9a' : '#2ed573', 'right');
-      bar(sx, sy + 14, sw, 7, hasRoom ? 1 : 0, 1, '#2ed573', '#7dff9a', 4);
+  // 远的先画、近的后画（选中卡在最上层）
+  const order = [0, 1, 2].filter(i => Math.abs(i - PO.hp) < 2).sort((a, b) => Math.abs(b - PO.hp) - Math.abs(a - PO.hp));
+  for (const i of order) {
+    const d = i - PO.hp, ad = Math.abs(d), t = Math.min(1, ad);
+    const sc = 1 - .26 * t - Math.max(0, ad - 1) * .1;
+    const cx = 480 + Math.sign(d) * (ad <= 1 ? ad * 258 : 258 + (ad - 1) * 40);
+    const al = (1 - .3 * t) * cl(2 - ad, 0, 1);
+    if (al < .03) continue;
+
+    const sel = i === PO.hub, PAD = 26;
+    if (!poOffscreen.can) {   // 退回方案：直接缩放绘制（较慢）
+      const n0 = PO.hit.length;
+      ctx.save(); ctx.globalAlpha = al;
+      ctx.translate(cx, midY); ctx.scale(sc, sc); ctx.translate(-cx, -midY);
+      poHubCard(cx - cw / 2, cy, cw, ch, i, modes[i]);
+      ctx.restore();
+      const added = PO.hit.splice(n0);
+      if (sel) {
+        const enter = added[0] && added[0].f;
+        if (enter) pHit(cx - cw * sc / 2, midY - ch * sc / 2, cw * sc, ch * sc, enter);
+      } else if (al > .2) pHit(cx - cw * sc / 2, midY - ch * sc / 2, cw * sc, ch * sc, () => { PO.hub = i; });
+      continue;
     }
-  });
+    // 卡片先渲染到离屏画布（选中/未选中各一份），滑动时只做缩放贴图，帧率稳定
+    const key = { id: 'hub' + i + (sel ? 's' : 'n'), v: [S.cl, S.lv, wbLeft(), WB.filter(wbOpen).length, typeof COOP !== 'undefined' && COOP.active ? COOP.roomCode : ''].join('|') };
+    const e = poOffscreen(key, cw + PAD * 2, ch + PAD * 2, () => {
+      const sv = PO.hub; PO.hub = sel ? i : -1;
+      try {
+        const n0 = PO.hit.length;
+        poHubCard(PAD, PAD + 4, cw, ch, i, modes[i]);
+        return { enter: PO.hit[n0] && PO.hit[n0].f };   // 卡内“进入”按钮的回调
+      } finally { PO.hub = sv; }
+    });
+    ctx.save();
+    ctx.globalAlpha = al;
+    ctx.translate(cx, midY); ctx.scale(sc, sc);
+    ctx.drawImage(e.c, -cw / 2 - PAD, -ch / 2 - PAD, cw + PAD * 2, ch + PAD * 2);
+    ctx.restore();
 
-  poHubCard(x0 + (cw + gap) * 2, cy, cw, ch, 2, {
-    c: WB_COL, icon: '👹', en: 'WORLD BOSS', title: '世界BOSS',
-    d1: '限时挑战巨型首领 · 伤害结算', d2: '击杀必掉高阶装备与强化卷轴',
-    status(sx, sy, sw) {
-      const n = WB.filter(wbOpen).length, left = wbLeft();
-      txt('今日剩余讨伐', sx, sy, 11, '#9ab');
-      txt(left + ' / ' + WB_DAILY + ' (已开放 ' + n + ')', sx + sw, sy, 11, left ? '#ffd84a' : '#ff6b6b', 'right');
-      bar(sx, sy + 14, sw, 7, left, WB_DAILY, '#ff4757', '#ff9f43', 4);
+    if (sel) {
+      if (e.extra && e.extra.enter) pHit(cx - cw * sc / 2, midY - ch * sc / 2, cw * sc, ch * sc, e.extra.enter);   // 点中间卡片任意处即进入
+    } else if (al > .2) {
+      pHit(cx - cw * sc / 2, midY - ch * sc / 2, cw * sc, ch * sc, () => { PO.hub = i; });   // 点两侧卡片：滑到中间
     }
-  });
+  }
 
-  poFooter('#00e5ff', 'A/D 切换模式   Enter/点击 进入', null);
+  // 左右箭头 + 底部页点
+  const col = HUB_COL[PO.hub];
+  poArrow(POX + 12, midY - 32, -1, PO.hub > 0, col, () => { PO.hub = Math.max(0, PO.hub - 1); });
+  poArrow(POX + POW - 42, midY - 32, 1, PO.hub < 2, col, () => { PO.hub = Math.min(2, PO.hub + 1); });
+  for (let i = 0; i < 3; i++) {
+    const dx = 480 + (i - 1) * 22, dy = cy + ch + 16, on = i === PO.hub;
+    ctx.beginPath(); ctx.arc(dx, dy, on ? 5 : 4, 0, 7);
+    ctx.fillStyle = on ? HUB_COL[i] : 'rgba(255,255,255,.12)'; ctx.fill();
+    ctx.lineWidth = 1; ctx.strokeStyle = HUB_COL[i] + '99'; ctx.stroke();
+    pHit(dx - 10, dy - 10, 20, 20, () => { PO.hub = i; });
+  }
+
+  poFooter(col, 'A/D 切换模式   Enter/点击 进入', null);
 }
 
 // ---------- 2. ★ 联机大厅：重排间距（修复图二重叠）+ 接入数码输入弹窗（修复图三原生弹窗） ----------

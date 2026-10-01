@@ -30,7 +30,7 @@ function begin(k) {
     hp: P.mh, mp: P.mm, 
     st: 'trans', t: 0, tdur: transDur,
     inv: transDur + 0.5, land: 0, h: 0, hit: {}, 
-    sta: P.stm, dcd: 0, exh: false, spr: false, 
+    sta: P.stm, dcd: 0, exh: false, spr: false, down: false, 
     shDown: false, shT: 0, gt: 0, sreg: 0, slow: 0, psn: 0 
   });
 
@@ -44,6 +44,7 @@ function begin(k) {
   // 6. 清空战场实体并重置进度
   GH = []; E = []; PJ = []; EP = []; FX = []; DT = []; OR = []; HZ = []; TQ = [];
   kills = 0; bs = 0; sp = 1; RG = 0; cam = 0; cur = k; G = 'play';
+  if (typeof coopResetBattle === 'function') coopResetBattle();   // ★ 联机：重置投票/救援/队友镜像
 
   // 在 js/battle.js 的 begin(k) 末尾：
   if (ST[k].wb) { 
@@ -60,6 +61,8 @@ function fin(w) {
   if (G !== 'play') return;
   G = w ? 'win' : 'over'; FD = 0;
   const z = ST[cur];
+  // ★ 联机：房主裁决胜负并广播给客机
+  if (typeof COOP !== 'undefined' && COOP.active && COOP.inGame && COOP.isHost) coopSend('game_end', { win: w ? 1 : 0, kills, RG });
 
   if (z.wb) {
     // 世界BOSS伤害占比与金币结算（击杀额外 +50%）
@@ -98,13 +101,14 @@ function fin(w) {
     FG = w ? RG + z.g : RG >> 1; // 战败折半保留 50%
     if (w) {
       // 胜利结算（保持不变）
-      const isFirst = cur >= S.cl;
-      S.cl = Math.max(S.cl, cur + 1);
+      // ★ 双人副本独立于单人进度：不推进 S.cl（否则会误解锁单人关卡）
+      const isFirst = z.coop ? !(S.stars && S.stars[cur]) : cur >= S.cl;
+      if (!z.coop) S.cl = Math.max(S.cl, cur + 1);
 
       const hpRate = P.hp / P.mh;
       const s1 = true;
       const s2 = hpRate >= 0.5;
-      const s3 = stageT <= 75;
+      const s3 = stageT <= STAR_TIME;
       const stars = (s1 ? 1 : 0) + (s2 ? 1 : 0) + (s3 ? 1 : 0);
       const rank = stars === 3 ? 'S' : stars === 2 ? 'A' : 'B';
 
@@ -131,7 +135,7 @@ function fin(w) {
         conds: [
           { text: '通关战役', pass: s1 },
           { text: '剩余生命 ≥ 50%', pass: s2 },
-          { text: '通关耗时 ≤ 75秒 (' + stageT.toFixed(1) + 's)', pass: s3 }
+          { text: '通关耗时 ≤ ' + STAR_TIME + '秒 (' + stageT.toFixed(1) + 's)', pass: s3 }
         ],
         gold: FG, diam: FD, isFirst,
         expGain: expGain, time: stageT
@@ -386,19 +390,32 @@ function dropLoot(e) {
   DT.push({ x: e.x, y: e.y - e.h - 35, s: `💥掉落: [${TIERS[tr].n}] ${dropEq.name} (Lv.${dropEq.reqLvl})`, t: 2.4, c: TIERS[tr].c });
 }
 
-function hurt(e, d) {
-  const c = Math.random() < P.cr;
-  d = Math.round(d * (.9 + Math.random() * .2) * (c ? 2 : 1));
+// pre：房主处理客机上报时传入 {c 暴击, f 朝向}，此时 d 已是客机算好的最终伤害
+function hurt(e, d, pre) {
+  const mp2 = typeof COOP !== 'undefined' && COOP.active && COOP.inGame;
+  const guest = mp2 && !COOP.isHost;
+  let c, f = P.f;
+  if (pre) { c = !!pre.c; f = pre.f || 1; }
+  else { c = Math.random() < P.cr; d = Math.round(d * (.9 + Math.random() * .2) * (c ? 2 : 1)); }
+
+  // ★ 客机：本地只做命中反馈，真实扣血由房主结算
+  if (guest) {
+    if (e.dead) return;
+    e.fl = .12; shake = Math.max(shake, 4);
+    P.mp = Math.min(P.mm, P.mp + 3);
+    DT.push({ x: e.x, y: e.y - e.h, s: d + (c ? '!' : ''), t: .8, c: c ? '#ff8a2a' : '#ffd84a' });
+    coopSend('guest_hurt_m', { id: e.id, dmg: d, c: c ? 1 : 0, f });
+    return;
+  }
+
   if (e.t === 'boss' && ST[cur].wb) WBD += Math.max(0, Math.min(d, e.hp));
-  e.hp -= d; e.fl = .12; e.x += P.f * (e.t === 'boss' ? 2 : 12);
-  P.mp = Math.min(P.mm, P.mp + 3);
+  e.hp -= d; e.fl = .12; e.x += f * (e.t === 'boss' ? 2 : 12);
+  if (!pre) P.mp = Math.min(P.mm, P.mp + 3);
   DT.push({ x: e.x, y: e.y - e.h, s: d + (c ? '!' : ''), t: .8, c: c ? '#ff8a2a' : '#ffd84a' });
   shake = Math.max(shake, 4);
 
-  // ★ 核心同步：房主扣血后，实时向客机广播最新怪兽血量与伤害飘字
-  if (typeof COOP !== 'undefined' && COOP.active && COOP.isHost && typeof coopSend === 'function') {
-    coopSend('m_hurt_ack', { id: e.id, hp: e.hp, dmg: d, dead: e.hp <= 0 });
-  }
+  // ★ 房主：把血量变化广播给客机（g=1 表示这一击来自客机，客机已自行显示伤害数字）
+  if (mp2) coopSend('m_hurt_ack', { id: e.id, hp: e.hp, dmg: d, c: c ? 1 : 0, dead: e.hp <= 0, g: pre ? 1 : 0 });
 
   if (e.hp <= 0 && !e.dead) {
     e.dead = 1; kills++; 
@@ -414,18 +431,11 @@ function hurt(e, d) {
 // 打开 js/battle.js，替换原本的 area() 函数：
 function area(x0, x1, dmg, set) {
   for (const e of E) {
+    if (e.dead) continue;
     const w = e.w / 2;
     if (e.x + w > x0 && e.x - w < x1 && e.y > P.y - 160 && e.y - e.h < P.y && (!set || !set[e.id])) {
       if (set) set[e.id] = 1;
-      
-      // ★ 双人联机模式下的伤害分流：
-      if (COOP.active && !COOP.isHost) {
-        // 客机端：不自行扣除血量，而是向房主汇报命中伤害
-        coopSend('guest_hurt_m', { id: e.id, dmg: dmg });
-      } else {
-        // 单人模式或房主端：直接执行权威伤害结算
-        hurt(e, dmg);
-      }
+      hurt(e, dmg);   // 客机/房主/单人的分流统一在 hurt() 内处理
     }
   }
 }
@@ -457,17 +467,22 @@ function cancelEP(x0, x1) {
 }
 
 function hurtP(d) {
-  if (P.inv > 0 || P.st === 'trans' || P.st === 'trans_ryuki' || G !== 'play') return;
+  if (P.inv > 0 || P.down || P.st === 'trans' || P.st === 'trans_ryuki' || G !== 'play') return;
   d = Math.max(1, Math.round(d * (1 - (P.def || 0))));
   P.hp -= d; P.inv = 1; shake = 10;
   DT.push({ x: P.x, y: P.y - 180, s: '-' + d, t: .8, c: '#ff6a6a' });
-  if (P.hp <= 0) { P.hp = 0; fin(0) }
+  if (P.hp <= 0) {
+    P.hp = 0;
+    // ★ 联机：不立即失败，进入濒死等待救援；双方都倒下才失败（由房主裁决）
+    if (typeof coopBattleOn === 'function' && coopBattleOn()) coopOnDown(); else fin(0);
+  }
 }
 
-function spawn(t, ox) {
+function spawn(t, ox, vi) {
   const o = ET[t], z = ST[cur];
   const pool = (ENS[z.set] && ENS[z.set][t] && ENS[z.set][t].length) ? ENS[z.set][t] : EN[t];
-  const c = pool[Math.random() * pool.length | 0], s = o.H / c.height, side = Math.random() < .5 ? -1 : 1;
+  const vi2 = (vi !== undefined && vi >= 0) ? vi % pool.length : (Math.random() * pool.length | 0);
+  const c = pool[vi2], s = o.H / c.height, side = Math.random() < .5 ? -1 : 1;
 
   // ★ 双人副本专属：全员怪物 500% 血量，攻击力提升 2.2 倍
   const isCoop = !!z.coop;
@@ -481,7 +496,7 @@ function spawn(t, ox) {
   if (ox === undefined && (x < 60 || x > WW - 60)) x = P.x - side * 600;
 
   E.push({ 
-    id: ++uid, t, im: c, x: cl(x, 60, WW - 60), y: t === 'imp' ? 300 : GY, 
+    id: ++uid, t, im: c, vi: vi2, x: cl(x, 60, WW - 60), y: t === 'imp' ? 300 : GY, 
     hp, mhp: hp, dm, h: o.H, w: c.width * s, s, fl: 0,
     cd: t === 'boss' ? 2 : 1.5 + Math.random() * 2, hc: 0, fc: 1, wu: 0, dsh: 0, atk: '', last: '' 
   });
@@ -618,7 +633,7 @@ const ATKS = {
   swoop:  { n: '俯冲突袭', wu: .5, f(e) { const t = e.lk || { x: P.x, y: P.y - 70 }; e.dsh = .6; e.dvx = (t.x - e.x) / .4; e.dvy = (t.y - e.y) / .4; e.hc = 0 } },
   charge: { n: '狂暴冲锋', wu: .7, f(e) { e.dsh = .75; e.dvx = e.fc * (520 + ST[cur].set * 15); e.dvy = 0; e.hc = 0 } },
   summon: { n: '召唤魔物', wu: .8, f(e) {
-    for (let i = 0; i < 2; i++) if (E.length < 12) spawn('imp', e.x + (i ? 1 : -1) * 140);
+    for (let i = 0; i < 2; i++) if (E.length < 12 && !(typeof coopIsGuest === 'function' && coopIsGuest())) spawn('imp', e.x + (i ? 1 : -1) * 140);
     FX.push({ type: 'boom', x: e.x, y: e.y - e.h * .5, t: .5, d: .5, r: 130, c: ecol(e) });
   } },
   blink:  { n: '瞬影突袭', wu: .35, f(e) {
@@ -1067,8 +1082,10 @@ function updBikes(dt) {
     }
     
     // 战车碾压判定 & 碾碎沿途敌方投射物
-    cancelEP(b.x - 70, b.x + 70);
-    area(b.x - 80, b.x + 80, b.dmg, b.hit);
+    if (!b.vis) {   // 队友战车仅展示，判定由队友自己的客户端负责
+      cancelEP(b.x - 70, b.x + 70);
+      area(b.x - 80, b.x + 80, b.dmg, b.hit);
+    }
 
     // 尾部喷气与轮胎火花
     if (Math.random() < 0.45) {
@@ -1093,5 +1110,27 @@ function drawBikes() {
     ctx.scale(f * s, s);
     ctx.drawImage(BK, -BK.width / 2, -BK.height);
     ctx.restore();
+  }
+}
+
+// ===== 关卡流转辅助 =====
+// 下一关索引：双人副本只在双人副本池里前进；单人关卡不会误入双人副本；没有则返回 -1
+function nextStageIdx() {
+  const z = ST[cur];
+  if (z && z.coop) return (ST[cur + 1] && ST[cur + 1].coop) ? cur + 1 : -1;
+  return (cur + 1 < ST.length && !ST[cur + 1].wb && !ST[cur + 1].coop) ? cur + 1 : -1;
+}
+
+// 结算界面的「再次挑战 / 下一关」统一入口：联机时只发起投票，双方一致才会真正开始
+function settleAct(act) {
+  const multi = typeof coopSettleActive === 'function' && coopSettleActive();
+  if (act === 'retry') {
+    if (multi) coopVote('retry'); else begin(cur);
+    return;
+  }
+  if (act === 'next') {
+    const nx = nextStageIdx();
+    if (nx < 0) { toVil('st'); return; }
+    if (multi) coopVote('next'); else begin(nx);
   }
 }

@@ -1098,6 +1098,9 @@ function drawCapsuleModal0() {
 const V = { pg: 'main', i: 0, m: '', mt: 0 };
 const go = p => { V.pg = p; V.i = 0 }, say = s => { V.m = s; V.mt = 1.8 };
 function toVil(p) {
+  // ★ 联机中离开战斗 = 退出联机房间（同时通知队友）
+  if (typeof COOP !== 'undefined' && COOP.active && COOP.inGame) coopLeaveRoom();
+  P.down = false;
   G = 'vil'; M = 0; cam = 0;
   clearForms(); // ★ 核心修复：回到秘密基地一律解除变身
   calc();
@@ -1507,7 +1510,7 @@ function drawWinSettlement() {
 
   // 8. 按钮组
   const btnY = py + 342, btnH = 46;
-  const isLast = cur >= ST.length - 1 || ST[cur + 1].wb;
+  const isLast = nextStageIdx() < 0;
 
   const btnDefs = [
     { id: 'base', text: '返回大厅 [ESC]', w: 140, bg: 'rgba(255,255,255,0.08)', col: '#ccd6e0', border: 'rgba(255,255,255,0.2)' },
@@ -1811,32 +1814,56 @@ function drawEnemyBar(e) {
 
 // ===== 右侧任务信息面板（与其它 HUD 同一套玻璃 + 金色包边；标签/数值分层）=====
 function drawInfoHUD() {
-  const w = 160, h = 78, x = 960 - 18 - w, y = 74, z = ST[cur];
+  const z = ST[cur], w = 160, h = z.wb ? 78 : 100, x = 960 - 18 - w, y = 74;   // 非世界BOSS：多一行“时长”
   hudPanel(x, y, w, h, UIC.gold, 9);
-  const r1 = y + 19, r2 = y + 41, r3 = y + 63, R = x + w - 12;
-  ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.fillRect(x + 14, y + 30, w - 26, 1); ctx.fillRect(x + 14, y + 52, w - 26, 1);
+  const R = x + w - 12, rows = [y + 19, y + 41, y + 63, y + 85];
+  ctx.fillStyle = 'rgba(255,255,255,.07)';
+  for (let k = 0; k < (z.wb ? 2 : 3); k++) ctx.fillRect(x + 14, y + 30 + k * 22, w - 26, 1);
   const lab = (s, yy) => ut(s, x + 16, yy, 10.5, UIC.sub, 'left', { w: 600, sp: 1, sh: 0 });
+  let rp = rows[2];                                     // 药水所在行
   if (z.wb) {
     const tl = Math.ceil(WBT);
-    lab('剩余时间', r1); ut((tl / 60 | 0) + ':' + String(tl % 60).padStart(2, '0'), R, r1, 13, WBT < 20 ? '#ff7b7b' : UIC.txt, 'right', { w: 700 });
-    lab('累计伤害', r2); ut(poN(WBD), R, r2, 13, '#9be8b0', 'right', { w: 700 });
+    lab('剩余时间', rows[0]); ut((tl / 60 | 0) + ':' + String(tl % 60).padStart(2, '0'), R, rows[0], 13, WBT < 20 ? '#ff7b7b' : UIC.txt, 'right', { w: 700 });
+    lab('累计伤害', rows[1]); ut(poN(WBD), R, rows[1], 13, '#9be8b0', 'right', { w: 700 });
   } else {
     const cnt = Math.min(kills, z.k) + ' / ' + z.k;
-    lab('目标', r1); ut(cnt, R, r1, 13, UIC.txt, 'right', { w: 700 });
-    if (bs) ut('BOSS', R - uw(cnt, 13, 700) - 8, r1, 10, '#ff5a5a', 'right', { w: 700, sp: 1, sh: 0 });
-    lab('战利品', r2); ut('+' + RG + ' G', R, r2, 13, '#e8cf8e', 'right', { w: 700 });
+    lab('目标', rows[0]); ut(cnt, R, rows[0], 13, UIC.txt, 'right', { w: 700 });
+    if (bs) ut('BOSS', R - uw(cnt, 13, 700) - 8, rows[0], 10, '#ff5a5a', 'right', { w: 700, sp: 1, sh: 0 });
+    lab('战利品', rows[1]); ut('+' + RG + ' G', R, rows[1], 13, '#e8cf8e', 'right', { w: 700 });
+    const tm = Math.max(0, stageT), tmS = (tm / 60 | 0) + ':' + String(tm % 60 | 0).padStart(2, '0');
+    lab('时长', rows[2]); ut(tmS, R, rows[2], 13, tm <= STAR_TIME ? UIC.txt : '#ff9b7b', 'right', { w: 700 });   // 超过 STAR_TIME 秒（失去耗时星）变橙红
+    rp = rows[3];
   }
-  lab('药水', r3);
+  lab('药水', rp);
   let cx = R;                                           // 药水：色点 + ×数量，从右往左排
   for (const [col, n] of [['#3f8fe8', S.mp], ['#e0414f', S.hp]]) {
     const t = '×' + n, tw0 = uw(t, 12, 700);
-    ut(t, cx, r3, 12, n > 0 ? UIC.txt : '#6f7a8c', 'right', { w: 700 });
+    ut(t, cx, rp, 12, n > 0 ? UIC.txt : '#6f7a8c', 'right', { w: 700 });
     ctx.save(); const dx = cx - tw0 - 8;
-    const g = ctx.createRadialGradient(dx - 1, r3 - 1.5, .5, dx, r3, 4.5); g.addColorStop(0, '#fff'); g.addColorStop(.35, col); g.addColorStop(1, 'rgba(0,0,0,.6)');
-    ctx.fillStyle = g; ctx.globalAlpha = n > 0 ? 1 : .45; ctx.beginPath(); ctx.arc(dx, r3, 4.5, 0, 7); ctx.fill(); ctx.restore();
+    const g = ctx.createRadialGradient(dx - 1, rp - 1.5, .5, dx, rp, 4.5); g.addColorStop(0, '#fff'); g.addColorStop(.35, col); g.addColorStop(1, 'rgba(0,0,0,.6)');
+    ctx.fillStyle = g; ctx.globalAlpha = n > 0 ? 1 : .45; ctx.beginPath(); ctx.arc(dx, rp, 4.5, 0, 7); ctx.fill(); ctx.restore();
     cx = dx - 14;
   }
+  if (!z.wb) drawStarHUD(x, y + h + 6, w);
 }
+
+// ===== 实时三星面板：与结算条件（battle.js fin）一致 —— 通关 / 剩余生命 ≥ 50% / 耗时 ≤ 75 秒 =====
+function drawStarHUD(x, y, w) {
+  const h = 68, hr = P.mh > 0 ? cl(P.hp / P.mh, 0, 1) : 0, hOk = hr >= .5, tOk = stageT <= STAR_TIME;
+  hudPanel(x, y, w, h, UIC.gold, 9);
+  const R = x + w - 12, rows = [y + 17, y + 36, y + 55];
+  ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.fillRect(x + 14, y + 26, w - 26, 1); ctx.fillRect(x + 14, y + 45, w - 26, 1);
+  const GOOD = '#9be8b0', BAD = '#ff7b7b', ON = '#ffd84a', OFF = '#4a5468';
+  const row = (yy, on, label, val, vc) => {
+    ut('★', x + 20, yy, 13, on ? ON : OFF, 'center', { w: 700, sh: 0 });
+    ut(label, x + 32, yy, 10.5, on ? UIC.txt : UIC.sub, 'left', { w: 600, sh: 0 });
+    ut(val, R, yy, 12, vc, 'right', { w: 700 });
+  };
+  row(rows[0], true, '通关', '通关即得', '#e8cf8e');
+  row(rows[1], hOk, '生命 ≥ 50%', Math.round(hr * 100) + '%', hOk ? GOOD : BAD);
+  row(rows[2], tOk, '耗时 ≤ ' + STAR_TIME + 's', tOk ? '剩 ' + Math.ceil(STAR_TIME - stageT) + 's' : '已超时', tOk ? GOOD : BAD);
+}
+
 
 // ===== 底部按键提示：键帽 + 说明（触屏设备不显示，沿用原先行为）=====
 function hintLine(str, cy = 524) {
