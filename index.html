@@ -11,6 +11,22 @@
   <!-- 引入 Supabase JS SDK -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
+  <!-- 脚本加载诊断：某个 js 文件没加载到（404 / 大小写不一致 / 没推送）时，直接在页面上提示文件名 -->
+  <script>
+    window.__jsFail = [];
+    window.__jsErr = function (el) {
+      var f = (el.getAttribute('src') || '').split('?')[0];
+      window.__jsFail.push(f);
+      var b = document.getElementById('js-fail');
+      if (!b) {
+        b = document.createElement('div'); b.id = 'js-fail';
+        b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:100000;padding:10px 14px;background:#7a1020;color:#fff;font:600 13px/1.6 system-ui,sans-serif;text-align:center';
+        document.body.appendChild(b);
+      }
+      b.textContent = '⚠ 以下脚本没有加载成功：' + window.__jsFail.join('、') + '。请检查文件是否已上传到仓库，且文件名大小写与 index.html 完全一致，然后 Ctrl+F5 强制刷新。';
+    };
+  </script>
+
   <style>
     html,body{margin:0;height:100%;background:#08060c;overflow:hidden}
     body{display:flex;align-items:center;justify-content:center}
@@ -209,22 +225,23 @@
     </div>
   </div>
 
-  <!-- 按依赖层级引入脚本 -->
-  <script src="js/config.js"></script>
-  <script src="js/equipment.js"></script>
-  <script src="js/player.js"></script>
-  <script src="js/battle.js"></script>
-  <script src="js/scenes.js"></script>
-  <script src="js/portal.js"></script>
-  <script src="js/ui.js"></script>
-  <script src="js/menu.js"></script>
-  <script src="js/ryuki.js"></script>
-  <script src="js/faiz.js"></script>
-  <script src="js/blade.js"></script>
-  <script src="js/henshin.js"></script>
-  <script src="js/malaya_henshin.js"></script>
-  <script src="js/auth.js"></script> <!-- ★ 新增 Auth 模块 -->
-  <script src="js/coop.js"></script> <!-- ★ 新增 -->
-  <script src="js/main.js"></script>
+  <!-- 按依赖层级引入脚本（每次更新文件后，把 ?v= 后面的数字改一下，可强制浏览器拉取新版本）-->
+  <script src="js/config.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/equipment.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/power.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/player.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/battle.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/scenes.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/portal.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/ui.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/menu.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/ryuki.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/faiz.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/blade.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/henshin.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/malaya_henshin.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/auth.js?v=20261002" onerror="__jsErr(this)"></script> <!-- ★ 新增 Auth 模块 -->
+  <script src="js/coop.js?v=20261002" onerror="__jsErr(this)"></script> <!-- ★ 新增 -->
+  <script src="js/main.js?v=20261002" onerror="__jsErr(this)"></script>
 </body>
 </html>
