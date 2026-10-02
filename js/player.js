@@ -17,13 +17,20 @@ function getSkillCD(key) {
   return (SKILL_CDS[rk] && SKILL_CDS[rk][key]) || 5.0;
 }
 
+// 1. 把 okS 声明为全局顶层函数，并移到最上方（支持函数提升）
+function okS(o) {
+  return !!(o && Array.isArray(o.f) && o.f.length);
+}
+
 function calc() {
   const t = S.ta;
-  const oldMh = P.mh, oldMm = P.mm; // 记录旧上限用于动态增减计算
+  const oldMh = P.mh, oldMm = P.mm;
 
-  // 属性统一由 power.js 的 previewStats() 计算（装备对比 / 战力共用同一公式）
-  const st = previewStats(S.eq, true);
-  // 保留未取整的原始数值，供铁匠铺/天赋预览计算真实增幅（避免 +1% 被取整吃掉）
+  // 增加安全判断：即便 power.js 加载失败，也不会让整局游戏直接崩溃
+  const st = (typeof previewStats === 'function') 
+    ? previewStats(S.eq, true)
+    : { atk: 14 + S.lv * 2, hp: 100 + S.lv * 10, mp: 100 + S.lv * 5, cr: 0.05, def: 0 };
+
   P.atkRaw = st.atk; P.mhRaw = st.hp; P.mmRaw = st.mp;
   P.atk = Math.round(st.atk);
   P.mh = Math.round(st.hp);
@@ -32,11 +39,6 @@ function calc() {
   P.def = st.def;
   P.stm = (100 + S.lv * 2) | 0;
 
-  // ★ 状态动态同步：
-  // 如果在基地，直接全部拉满；如果在副本中升级/换装，随上限差值动态增加或等额减少并锁紧上限
-  // ★ 状态同步规则：
-  // 1. 处于基地（村庄/室内）时，始终保持 100% 满状态；
-  // 2. 处于关卡战斗时，严格保持当前的生命与魔力数值（仅受新上限截断），升级绝不加血
   if (typeof G !== 'undefined' && (G === 'vil' || G === 'room')) {
     P.hp = P.mh;
     P.mp = P.mm;
@@ -47,9 +49,8 @@ function calc() {
     P.sta = Math.min(P.stm, P.sta);
   }
 
-  // ★ 战力（不含变身加成，见 power.js）
   const oldCP = P.cp;
-  P.cp = calcCP();
+  P.cp = (typeof calcCP === 'function') ? calcCP() : 0;
   if (oldCP !== undefined && P.cp !== oldCP && typeof DT !== 'undefined') {
     const d = P.cp - oldCP;
     DT.push({ x: P.x, y: P.y - 230, s: '战力 ' + (d > 0 ? '+' : '') + d, t: 1.2, c: d > 0 ? '#7dff9a' : '#ff7675' });
