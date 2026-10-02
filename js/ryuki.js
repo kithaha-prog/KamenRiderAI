@@ -1,6 +1,7 @@
 // ===== 假面骑士 龙骑 (Ryuki) 专属逻辑：素材加载 / 变身动画 / 形态绘制 / L 飞剑 / 大招烈焰飞踢 =====
 // 素材与参数见 config.js 中的 SHR / RYUKI ；形态标记：P.ryuki ；变身入口：player.js 的 triggerRyukiTransform()
-
+// 放在 ryuki.js 顶部第 4 行左右
+let GUNR = null, BULR = null;
 // ---------- 素材加载（由 main.js 的 prep() 调用）----------
 async function loadRyukiAssets() {
   try { CAP_IMG = await load(DRAW + 'KR_Ryuki.jpg'); CAP_IMGS.ryuki = CAP_IMG } catch (e) { miss.push('Draw/KR_Ryuki.jpg') }

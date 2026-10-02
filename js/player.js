@@ -67,7 +67,6 @@ function lSkillName() { return P.k5 ? '手枪' : P.bl ? '召雷' : '飞剑' }
 function formName() { return P.ryuki ? 'KAMEN RIDER RYUKI' : P.k5 ? 'KAMEN RIDER 555' : P.bl ? 'KAMEN RIDER BLADE' : 'KAMEN RIDER MALAYA' }
 function formSpd() { const c = formCap(); return c ? (c.spdMul || 1) : 1 }
 function capShort() { const c = CAPSULES.find(c => c.id === S.eqCap); return c ? c.short : '' }
-const okS = o => !!(o && Array.isArray(o.f) && o.f.length);
 
 function walk(dt, R) {
   P.dcd = Math.max(0, (P.dcd || 0) - dt);
