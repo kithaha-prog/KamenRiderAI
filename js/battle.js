@@ -717,6 +717,53 @@ function updEnemy(e, dt) {
   }
 }
 
+// ===== battle.js 补充内容：怪物浮空与连招判定 =====
+
+// 在 updEnemy(e, dt) 的逻辑开始或合适处，加入怪物受击垂直位移及重力模拟：
+function updEnemyPhysics(e, dt) {
+  if (e.vy !== undefined && e.vy !== 0) {
+    e.y += e.vy * dt;
+    e.vy += 1800 * dt; // 重力加速度
+    if (e.t !== 'imp' && e.y >= GY) {
+      e.y = GY;
+      e.vy = 0;
+    }
+  }
+}
+
+// 1. 升龙击挑飞判定：将范围内的敌人向上挑起
+function knockupEnemies(x0, x1, dmg, upForce = -650) {
+  for (const e of E) {
+    if (e.dead) continue;
+    const w = e.w / 2;
+    if (e.x + w > x0 && e.x - w < x1 && e.y >= P.y - 140 && e.y <= P.y + 20) {
+      hurt(e, dmg);
+      // BOSS 具有霸体，小怪和精英怪可被挑飞
+      if (e.t !== 'boss') {
+        if (e.vy === undefined) e.vy = 0;
+        e.vy = upForce;
+        e.y -= 10;
+        e.fl = 0.2;
+      }
+    }
+  }
+}
+
+// 2. 空中下砸判定：将怪物沿途向下砸落
+function slamDownEnemies(x0, x1, dmg) {
+  for (const e of E) {
+    if (e.dead) continue;
+    const w = e.w / 2;
+    if (e.x + w > x0 && e.x - w < x1 && Math.abs((e.y - e.h * 0.5) - P.y) < 90) {
+      hurt(e, dmg);
+      if (e.t !== 'boss') {
+        if (e.vy === undefined) e.vy = 0;
+        e.vy = 900; // 快速砸向地面
+      }
+    }
+  }
+}
+
 // 区域命中判定
 function hzHit(h) {
   if (h.k === 'col') return Math.abs(P.x - h.x) < h.w + 20;

@@ -1,7 +1,7 @@
 // ===== 维度传送门：模式选择 / 单人副本 / 双人高难联机 / 世界BOSS =====
 const NST = CHAPTERS.reduce((a, c) => a + c.stages.length, 0);
 const POX = 40, POY = 22, POW = 880, POH = 496;
-const PO = { view: 'hub', hub: 0, hp: 0, wb: 0, tw: 1, ret: 'hub', cp: 0, toast: '', tt: 0, hit: [] };
+const PO = { view: 'hub', hub: 0, hp: 0, wb: 0, tw: 1, ret: 'hub', cp: 0, toast: '', tt: 0, hit: [], _lastView: '' };
 const HUB_N = 4;   // 模式数：单人副本 / 双人高难 / 世界BOSS / 无尽塔
 const hubView = i => ['dun', 'coop', 'wb', 'tower'][i] || 'dun';
 let curChapIdx = 0, selStageIdx = 0, stagePage = 0;
@@ -84,7 +84,9 @@ function openPortal(ret) {
   COOP_PIN_MODAL.code = '';
   PO.view = ret ? PO.ret : 'hub';
   PO.hub = PO.view === 'tower' ? 3 : PO.view === 'wb' ? 2 : PO.view === 'coop' ? 1 : 0; PO.hp = PO.hub;
-  PO.tw = Math.max(1, Math.min(PO.tw | 0 || 1, twFrontier()));
+  // ★ 打开传送门时自动跳转至最新前沿待挑战层数
+  PO.tw = (typeof twFrontier === 'function') ? twFrontier() : 1;
+  PO._lastView = '';
   curChapIdx = getHighestChapterIdx(); pickStage(); PO.cp = curChapIdx;
   wbData();
   let bi = 0; WB.forEach((w, i) => { if (wbOpen(w)) bi = i; });
@@ -122,7 +124,14 @@ function pStartWB() {
 function portalUpdate(dt) {
   PO.tt -= dt;
   PO.cp += (curChapIdx - PO.cp) * Math.min(1, dt * 12);
-  PO.hp += (PO.hub - PO.hp) * Math.min(1, dt * 12);   // 模式轮播滑动动画
+  PO.hp += (PO.hub - PO.hp) * Math.min(1, dt * 12);
+
+  // ★ 状态机监测：只要切换进入无尽塔视图，立即自动定位到当前最高待挑战层数
+  if (PO.view === 'tower' && PO._lastView !== 'tower') {
+    PO.tw = (typeof twFrontier === 'function') ? twFrontier() : 1;
+  }
+  PO._lastView = PO.view;
+
   const L = PR.KeyA || PR.ArrowLeft, R = PR.KeyD || PR.ArrowRight, U = PR.KeyW || PR.ArrowUp, D = PR.KeyS || PR.ArrowDown;
   const OK = PR.Enter || PR.Space || PR.KeyF;
 
@@ -130,7 +139,6 @@ function portalUpdate(dt) {
 
   // 0. 专属数码键盘输入拦截
   if (COOP_PIN_MODAL.show) {
-    // 监听数字键 0-9
     for (let num = 0; num <= 9; num++) {
       if (PR['Digit' + num] || PR['Numpad' + num]) {
         delete PR['Digit' + num]; delete PR['Numpad' + num];
@@ -140,13 +148,11 @@ function portalUpdate(dt) {
         return;
       }
     }
-    // 退格删除
     if (PR.Backspace) {
       delete PR.Backspace;
       COOP_PIN_MODAL.code = COOP_PIN_MODAL.code.slice(0, -1);
       return;
     }
-    // 回车直接提交
     if (OK) {
       delete PR.Enter; delete PR.Space; delete PR.KeyF;
       if (COOP_PIN_MODAL.code.length === COOP_PIN_MODAL.maxLen) {
@@ -165,7 +171,10 @@ function portalUpdate(dt) {
   if (PO.view === 'hub') {
     if (L) PO.hub = Math.max(0, PO.hub - 1);
     if (R) PO.hub = Math.min(HUB_N - 1, PO.hub + 1);
-    if (OK) PO.view = hubView(PO.hub);
+    if (OK) {
+      PO.view = hubView(PO.hub);
+      if (PO.view === 'tower' && typeof twFrontier === 'function') PO.tw = twFrontier();
+    }
     return;
   }
 
@@ -214,7 +223,7 @@ function portalClick(x, y) {
   if (x < POX || x > POX + POW || y < POY || y > POY + POH) M = 0;
 }
 
-// 基础科技按钮组件（★ 修复图一：主按钮文字采用纯白 #ffffff + 柔和暗色阴影）
+// 基础科技按钮组件
 function pBtn(x, y, w, h, label, o, f) {
   o = o || {}; const c = o.c || '#00e5ff', sz = o.sz || 13, cr = o.cr || 8;
   poBevel(x, y, w, h, cr);
@@ -233,7 +242,6 @@ function pBtn(x, y, w, h, label, o, f) {
     ctx.save(); ctx.shadowColor = c; ctx.shadowBlur = 10;
     ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.2; ctx.stroke();
     ctx.restore();
-    // ★ 统一采用纯白文字显示，彻底解决深黑看不清的问题
     txt(label, x + w / 2, y + h / 2, sz, '#ffffff', 'center');
   }
   if (f) pHit(x, y, w, h, f);
@@ -244,7 +252,6 @@ function pPill(x, y, w, h, fill, stroke) {
   if (stroke) { ctx.lineWidth = 1; ctx.strokeStyle = stroke; ctx.stroke(); }
 }
 
-// ---- 离屏缓存：把重的静态绘制（大面积阴影/描边文字/渐变）渲染一次，之后每帧只 drawImage ----
 function poOffscreen(key, w, h, draw) {
   const R = DPR, k = 'p' + key.id;
   let e = poOffscreen.m[k];
@@ -259,7 +266,6 @@ function poOffscreen(key, w, h, draw) {
   return e;
 }
 poOffscreen.m = {};
-// ctx 若仍是 const（config.js 未更新），无法切到离屏画布 → 自动退回直接绘制，不报错
 poOffscreen.can = (() => { try { const t = ctx; ctx = t; return true; } catch (e) { return false; } })();
 
 function poFrame(acc, title) {
@@ -280,7 +286,6 @@ function poFrameRaw(acc, title) {
   ctx.shadowColor = acc; ctx.shadowBlur = 18; ctx.lineWidth = 1.8; ctx.strokeStyle = acc + '88'; ctx.stroke();
   ctx.restore();
 
-  // 四角机械卡榫
   ctx.save();
   ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.lineCap = 'square';
   const L = 14, C = 18;
@@ -292,7 +297,6 @@ function poFrameRaw(acc, title) {
 
   txt(title, POX + 26, POY + 25, 17, '#ffffff');
 
-  // 右上角资产监控胶囊
   const pills = [
     { s: S.d.toLocaleString(), ic: ICO.d, c: '#4fe3ff' },
     { s: S.g.toLocaleString() + ' G', ic: ICO.g, c: '#ffd84a' },
@@ -360,12 +364,12 @@ function poHubCard(x, y, w, h, idx, o) {
   pBtn(x + 16, by, w - 32, 34, '▶ 进入' + o.title, { c: o.c, ghost: !sel, sz: 13, cr: 6 }, () => {
     PO.hub = idx;
     PO.view = hubView(idx);
+    if (PO.view === 'tower' && typeof twFrontier === 'function') PO.tw = twFrontier();
   });
   ctx.restore();
 }
 
 function drawPoHub() {
-  // 滑动式模式选择（与章节轮播同款）：选中的模式居中放大，两侧模式缩小淡出
   const HUB_COL = ['#00e5ff', '#2ed573', WB_COL, TOWER.col];
   poFrame(HUB_COL[PO.hub], '🌌 维度传送门 · 选择出征模式');
   const cw = 262, ch = 340, cy = POY + 68, midY = cy + ch / 2;
@@ -411,7 +415,6 @@ function drawPoHub() {
     }
   ];
 
-  // 远的先画、近的后画（选中卡在最上层）
   const order = [0, 1, 2, 3].filter(i => Math.abs(i - PO.hp) < 2).sort((a, b) => Math.abs(b - PO.hp) - Math.abs(a - PO.hp));
   for (const i of order) {
     const d = i - PO.hp, ad = Math.abs(d), t = Math.min(1, ad);
@@ -421,7 +424,7 @@ function drawPoHub() {
     if (al < .03) continue;
 
     const sel = i === PO.hub, PAD = 26;
-    if (!poOffscreen.can) {   // 退回方案：直接缩放绘制（较慢）
+    if (!poOffscreen.can) {
       const n0 = PO.hit.length;
       ctx.save(); ctx.globalAlpha = al;
       ctx.translate(cx, midY); ctx.scale(sc, sc); ctx.translate(-cx, -midY);
@@ -430,18 +433,20 @@ function drawPoHub() {
       const added = PO.hit.splice(n0);
       if (sel) {
         const enter = added[0] && added[0].f;
-        if (enter) pHit(cx - cw * sc / 2, midY - ch * sc / 2, cw * sc, ch * sc, enter);
+        if (enter) pHit(cx - cw * sc / 2, midY - ch * sc / 2, cw * sc, ch * sc, () => {
+          enter();
+          if (PO.view === 'tower' && typeof twFrontier === 'function') PO.tw = twFrontier();
+        });
       } else if (al > .2) pHit(cx - cw * sc / 2, midY - ch * sc / 2, cw * sc, ch * sc, () => { PO.hub = i; });
       continue;
     }
-    // 卡片先渲染到离屏画布（选中/未选中各一份），滑动时只做缩放贴图，帧率稳定
     const key = { id: 'hub' + i + (sel ? 's' : 'n'), v: [S.cl, S.lv, wbLeft(), WB.filter(wbOpen).length, twBest(), typeof COOP !== 'undefined' && COOP.active ? COOP.roomCode : ''].join('|') };
     const e = poOffscreen(key, cw + PAD * 2, ch + PAD * 2, () => {
       const sv = PO.hub; PO.hub = sel ? i : -1;
       try {
         const n0 = PO.hit.length;
         poHubCard(PAD, PAD + 4, cw, ch, i, modes[i]);
-        return { enter: PO.hit[n0] && PO.hit[n0].f };   // 卡内“进入”按钮的回调
+        return { enter: PO.hit[n0] && PO.hit[n0].f };
       } finally { PO.hub = sv; }
     });
     ctx.save();
@@ -451,13 +456,15 @@ function drawPoHub() {
     ctx.restore();
 
     if (sel) {
-      if (e.extra && e.extra.enter) pHit(cx - cw * sc / 2, midY - ch * sc / 2, cw * sc, ch * sc, e.extra.enter);   // 点中间卡片任意处即进入
+      if (e.extra && e.extra.enter) pHit(cx - cw * sc / 2, midY - ch * sc / 2, cw * sc, ch * sc, () => {
+        e.extra.enter();
+        if (PO.view === 'tower' && typeof twFrontier === 'function') PO.tw = twFrontier();
+      });
     } else if (al > .2) {
-      pHit(cx - cw * sc / 2, midY - ch * sc / 2, cw * sc, ch * sc, () => { PO.hub = i; });   // 点两侧卡片：滑到中间
+      pHit(cx - cw * sc / 2, midY - ch * sc / 2, cw * sc, ch * sc, () => { PO.hub = i; });
     }
   }
 
-  // 左右箭头 + 底部页点
   const col = HUB_COL[PO.hub];
   poArrow(POX + 12, midY - 32, -1, PO.hub > 0, col, () => { PO.hub = Math.max(0, PO.hub - 1); });
   poArrow(POX + POW - 42, midY - 32, 1, PO.hub < HUB_N - 1, col, () => { PO.hub = Math.min(HUB_N - 1, PO.hub + 1); });
@@ -472,7 +479,7 @@ function drawPoHub() {
   poFooter(col, 'A/D 切换模式   Enter/点击 进入', null);
 }
 
-// ---------- 2. ★ 联机大厅：重排间距（修复图二重叠）+ 接入数码输入弹窗（修复图三原生弹窗） ----------
+// ---------- 2. 联机大厅 ----------
 function drawPoCoop() {
   poFrame('#2ed573', '👥 维度传送门 · 假面骑士双人协同高难副本');
   const inRoom = typeof COOP !== 'undefined' && COOP.active && COOP.roomCode;
@@ -480,10 +487,8 @@ function drawPoCoop() {
   const curCoopObj = coopList[coopStageSelectIdx] || coopList[0] || { n: '双人深渊·翡翠巨兽 [试炼]', r: 15, g: 15000, desc: '全怪物 500% 血量' };
 
   if (!inRoom) {
-    // 【未加入房间状态：左右分栏 1P 创建 vs 2P 直连】
     const w = 402, h = 348, cy = POY + 66, lx = POX + 24, rx = POX + POW - 24 - w;
 
-    // 左侧：1P 房主创建专属副本
     poBevel(lx, cy, w, h, 14);
     const lg = ctx.createLinearGradient(lx, cy, lx + w, cy + h);
     lg.addColorStop(0, 'rgba(12, 32, 48, 0.95)'); lg.addColorStop(1, 'rgba(6, 14, 26, 0.98)');
@@ -528,7 +533,6 @@ function drawPoCoop() {
 
     txt('系统将生成 4 位纯数字房间码，告知好友即可实时同步', lx + w / 2, cy + 280, 11, '#687a8e', 'center');
 
-    // 右侧：2P 客机直连
     poBevel(rx, cy, w, h, 14);
     const rg = ctx.createLinearGradient(rx, cy, rx + w, cy + h);
     rg.addColorStop(0, 'rgba(18, 24, 46, 0.95)'); rg.addColorStop(1, 'rgba(8, 12, 24, 0.98)');
@@ -557,7 +561,6 @@ function drawPoCoop() {
 
     txt('输入房主屏幕上方展示的 4 位房间号即可连接', rx + w / 2, pinBoxY + 118, 11, '#8fa0b8', 'center');
 
-    // ★ 修复图三：点击呼出专属全息数码输入键盘，彻底废除系统原生 prompt
     pBtn(rx + 24, cy + 214, w - 48, 46, '🔑 输入房间号并加入 // CONNECT', { c: '#00e5ff', sz: 14.5, cr: 8 }, () => {
       COOP_PIN_MODAL.show = true;
       COOP_PIN_MODAL.code = '';
@@ -568,7 +571,6 @@ function drawPoCoop() {
     poFooter('#2ed573', '点击选择专属高难副本 · 支持键盘 ◀ ▶ 快速切关', null);
 
   } else {
-    // 【已在房间内：★ 彻底修复图二的文字按钮重叠问题，精准重排垂直间距】
     const w = 620, h = 356, cy = POY + 62, cx = POX + (POW - w) / 2;
     poBevel(cx, cy, w, h, 16);
     const bg = ctx.createLinearGradient(cx, cy, cx + w, cy + h);
@@ -581,7 +583,6 @@ function drawPoCoop() {
     txt('// RAID TELEMETRY · 双人协同战备室', cx + 30, cy + 24, 11.5, '#2ed573');
     txt(COOP.isHost ? '【 1P 房主指挥端 】' : '【 2P 协同队员端 】', cx + w - 30, cy + 24, 11.5, '#00e5ff', 'right');
 
-    // 4位大号数码房间号卡片
     const code = String(COOP.roomCode || '0000');
     const cw = 54, ch = 48, cgap = 10;
     const cStartX = cx + (w - (4 * cw + 3 * cgap)) / 2, cY = cy + 40;
@@ -593,9 +594,7 @@ function drawPoCoop() {
       txt(code[c] || '0', bx + cw / 2, cY + ch / 2, 26, '#ffd84a', 'center');
     }
 
-    // 双席位玩家连接状态面板 (1P vs 2P)
     const slotY = cy + 104, sw = (w - 72) / 2, sh = 72;
-    // 1P 席位
     poBevel(cx + 28, slotY, sw, sh, 8);
     ctx.fillStyle = 'rgba(12, 24, 40, 0.85)'; ctx.fill();
     ctx.strokeStyle = '#2ed573'; ctx.lineWidth = 1.2; ctx.stroke();
@@ -603,7 +602,6 @@ function drawPoCoop() {
     txt(COOP.isHost ? '你 (HOST)' : '房主 (HOST)', cx + 40, slotY + 38, 14, '#ffffff');
     txt('✔ 作战状态正常', cx + 40, slotY + 58, 10, '#7dff9a');
 
-    // 2P 席位
     poBevel(cx + 36 + sw, slotY, sw, sh, 8);
     const conn = COOP.peerConnected;
     ctx.fillStyle = conn ? 'rgba(12, 28, 44, 0.85)' : 'rgba(28, 18, 20, 0.85)'; ctx.fill();
@@ -612,7 +610,6 @@ function drawPoCoop() {
     txt(conn ? (COOP.isHost ? '协同队员已加入' : '你 (CLIENT)') : '等待信号接入…', cx + 48 + sw, slotY + 38, 14, conn ? '#ffffff' : '#a2b4cb');
     txt(conn ? '✔ 双向同步就绪' : '⏳ 等待队友输入房间码', cx + 48 + sw, slotY + 58, 10, conn ? '#7dff9a' : '#ffa502');
 
-    // 关卡任务简报条
     const stObj = ST[COOP.stageIdx] || ST[0];
     const briefY = slotY + sh + 10;
     poBevel(cx + 28, briefY, w - 56, 28, 6);
@@ -620,7 +617,6 @@ function drawPoCoop() {
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.stroke();
     txt(`战役目标: ${stObj.n} (500% 血量 · 500% 赏金)`, cx + 38, briefY + 14, 11, '#ffd84a');
 
-    // ★ 关键重构点：全员出征按钮与退出按钮各占专属高度，绝对不重合
     const btnY = briefY + 38;
     if (COOP.isHost) {
       pBtn(cx + 40, btnY, w - 80, 44, conn ? '⚡ 全员出征！ // ENGAGE MISSION [Enter]' : '等待队友接入中…', { c: '#2ed573', dis: !conn, sz: 14.5, cr: 8 }, () => {
@@ -638,7 +634,6 @@ function drawPoCoop() {
       txt('正在等待 1P 房主下达全员出征指令…', cx + w / 2, btnY + 22, 13.5, '#7df9ff', 'center');
     }
 
-    // 退出按钮垂直向下留出完整间隔
     pBtn(cx + (w - 150) / 2, btnY + 54, 150, 28, '🚪 解散 / 退出频段', { c: '#ff4757', ghost: true, sz: 11, cr: 5 }, () => {
       coopLeaveRoom();
     });
@@ -646,15 +641,13 @@ function drawPoCoop() {
     poFooter('#2ed573', COOP.isHost ? '队友就绪后点击或按 Enter 即可全员出征' : '保持连接，房主出征后将自动载入', null);
   }
 
-  // ★ 修复图三：若打开了专属输入弹窗，在最顶层绘制全息数码输入面板
   if (COOP_PIN_MODAL.show) {
     drawCoopPinModal();
   }
 }
 
-// ---------- ★ 修复图三新增：专属高科技数码键盘全息弹窗 (取代系统 prompt) ----------
+// ---------- 双人联机专属数码输入全息弹窗 ----------
 function drawCoopPinModal() {
-  // 全屏暗化阻隔层
   ctx.save();
   ctx.fillStyle = 'rgba(2, 4, 10, 0.85)';
   ctx.fillRect(0, 0, 960, 540);
@@ -668,11 +661,9 @@ function drawCoopPinModal() {
   ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 24; ctx.lineWidth = 2; ctx.strokeStyle = '#00e5ff'; ctx.stroke();
   ctx.restore();
 
-  // 弹窗标题
   txt('TERMINAL // 作战频段直连', mx + mw / 2, my + 26, 15, '#7df9ff', 'center');
   txt('请输入房主 4 位房间码', mx + mw / 2, my + 46, 11, '#8fa0b8', 'center');
 
-  // 四联装密码槽展示
   const curCode = COOP_PIN_MODAL.code;
   const cw = 48, ch = 48, cgap = 10;
   const startX = mx + (mw - (4 * cw + 3 * cgap)) / 2, startY = my + 66;
@@ -685,7 +676,6 @@ function drawCoopPinModal() {
     txt(hasChar ? curCode[i] : '•', bx + cw / 2, startY + ch / 2, 22, hasChar ? '#ffd84a' : '#556578', 'center');
   }
 
-  // 虚拟数字小键盘 (3 列 × 4 行)
   const numGrid = [
     ['1', '2', '3'],
     ['4', '5', '6'],
@@ -725,7 +715,6 @@ function drawCoopPinModal() {
     });
   });
 
-  // 底部关闭取消按钮
   pBtn(mx + (mw - 120) / 2, my + mh - 38, 120, 26, '✕ 取消并关闭', { c: '#8fa0b8', ghost: true, sz: 11, cr: 5 }, () => {
     COOP_PIN_MODAL.show = false;
   });
@@ -935,6 +924,14 @@ function drawPoWB() {
 // ---------- 入口统一渲染分发 ----------
 function drawPortalModal() {
   PO.hit = [];
+  // ★ 统一拦截：只要渲染无尽塔，若为首次或切入立即定位到前沿挑战层数
+  if (PO.view === 'tower' && PO._lastView !== 'tower') {
+    PO.tw = (typeof twFrontier === 'function') ? twFrontier() : 1;
+    PO._lastView = 'tower';
+  } else if (PO.view !== 'tower') {
+    PO._lastView = PO.view;
+  }
+
   if (PO.view === 'hub') drawPoHub();
   else if (PO.view === 'dun') drawPoDun();
   else if (PO.view === 'coop') drawPoCoop();

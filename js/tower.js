@@ -3,8 +3,7 @@
 // 每次开打前 twCfg(层数) 把这一条关卡的名字 / 击杀目标 / 怪物强度 / 主题改成对应层，再 begin(TOWER.si)。
 // 数据：S.tw = { best: 历史最高通关层数 }（随 save() 写入本地与云端）
 // 难度：第 f 层 ≈ 单人副本第 2f 关（推荐等级 3 + 5f），所以第 100 层 ≈ 第 200 关，之后继续往上无上限。
-//
-// 想调平衡：只改下面 tw* 开头的几个函数。
+
 const TOWER = { col: '#a55eea', si: ST.length };
 ST.push({ n: '无尽塔', k: 20, b: 0, bn: '', wd: .2, g: 150, r: 8, ov: '', set: 1, tw: 1, floor: 1, hpx: 1, hm: 1, dm: 1 });
 
@@ -51,14 +50,12 @@ function towerNext() {
   twStart(f);
 }
 
-// ---------- 结算（battle.js 的 fin 调用）----------
+// ---------- 结算（battle.js 的 fin 调用）：无三星之分，只有通关或失败 ----------
 function towerFin(w, z) {
   const f = z.floor, D = twData();
   if (w) {
     const isFirst = f > D.best;
     FG = RG + z.g;
-    const s2 = P.hp / P.mh >= 0.5, s3 = stageT <= STAR_TIME;
-    const stars = 1 + (s2 ? 1 : 0) + (s3 ? 1 : 0), rank = stars === 3 ? 'S' : stars === 2 ? 'A' : 'B';
     let diam = 0, sh = 0;
     if (isFirst) {
       D.best = f;
@@ -69,13 +66,14 @@ function towerFin(w, z) {
     FD = diam;
     const expGain = Math.round((z.r * 30 + 50) * (1 + affixTotal('xp')));
     WIN_RES = {
-      t: 0, dur: 1.5, stageName: z.n, stars, rank,
+      t: 0, dur: 1.5, stageName: z.n,
+      stars: 0, // ★ 无星级之分
+      rank: 'CLEAR',
       conds: [
-        { text: '通关第 ' + f + ' 层', pass: true },
-        { text: '剩余生命 ≥ 50%', pass: s2 },
-        { text: '通关耗时 ≤ ' + STAR_TIME + '秒 (' + stageT.toFixed(1) + 's)', pass: s3 }
+        { text: '成功突破第 ' + f + ' 层挑战', pass: true },
+        { text: isFirst ? '★ 刷新历史最高纪录（第 ' + f + ' 层）' : '已通关层数（历史最高：第 ' + D.best + ' 层）', pass: true }
       ],
-      gold: FG, diam, isFirst, expGain, time: stageT, tower: f, shards: sh
+      gold: FG, diam, isFirst, expGain, time: stageT, tower: f, best: D.best, shards: sh
     };
     gain(expGain, true);
   } else {
@@ -92,7 +90,7 @@ function towerFin(w, z) {
   }
 }
 
-// ---------- 扫荡：自动清空「推荐等级 ≤ 当前等级 × 0.6」的层（拿金币 / 钻石 / 碎片，没有经验和掉落）----------
+// ---------- 扫荡 ----------
 const twSweepTo = () => Math.max(0, Math.floor((S.lv * .6 - 3) / 5));
 function twSweep() {
   const to = twSweepTo(), from = twBest() + 1;
@@ -107,7 +105,7 @@ function twSweep() {
   pToast('扫荡第 ' + from + '–' + to + ' 层：+' + g.toLocaleString() + ' 金币 · +' + d + ' 钻石' + (s ? ' · +' + s + ' 碎片' : ''));
 }
 
-// ---------- 传送门里的「无尽塔」页（portal.js 调用）----------
+// ---------- 传送门里的「无尽塔」页 ----------
 function towerPortalUpdate(L, R, U, D, OK) {
   const mx = twFrontier();
   PO.tw = cl(PO.tw | 0, 1, mx);
@@ -175,7 +173,6 @@ function drawPoTower() {
     txt(st[0], sx, sy, 11, '#8a97aa'); txt(st[1], sx, sy + 21, 15, st[2]);
   });
 
-  // 接下来几层
   txt('接下来的层', rx, dy + 196, 11, '#8a97aa');
   for (let i = 0; i < 5; i++) {
     const ff = f + i, bx = rx + i * 96, by = dy + 210, bb = twIsBoss(ff), done = ff <= best;
@@ -186,13 +183,11 @@ function drawPoTower() {
     txt('Lv.' + twRec(ff), bx + 44, by + 33, 10.5, '#8a97aa', 'center');
   }
 
-  // 说明 + 下一个称号
   txt('💠 钻石 / 碎片只在每层首次通关时获得，首领层奖励翻倍 + 契约碎片', rx, dy + 280, 11.5, '#c9d4e6');
   txt('🎖 每突破一个里程碑层数，还会解锁对应称号', rx, dy + 300, 11.5, '#c9d4e6');
   const nt = (typeof TITLES !== 'undefined') ? TITLES.find(t => t.tw && t.tw > best) : null;
   if (nt) txt('下一个称号：「' + nt.n + '」· 通关第 ' + nt.tw + ' 层', rx, dy + 322, 11.5, nt.col);
 
-  // 扫荡按钮（右下）
   const to = twSweepTo(), canSweep = to > best;
   pBtn(dx + dw - 24 - 200, dy + dh - 46, 200, 34, canSweep ? '⚡ 扫荡至第 ' + to + ' 层' : '⚡ 暂无可扫荡层', { c: '#2ed573', dis: !canSweep, sz: 12.5 }, twSweep);
 

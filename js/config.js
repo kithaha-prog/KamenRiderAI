@@ -34,7 +34,8 @@ const SKILL_CDS = {
   malaya: { l: 2.5, e: 7.0, k: 15.0, p: 4.0 },  // 原生：均衡型
   ryuki:  { l: 2.0, e: 7.0, k: 20.0, p: 5.0 },  // 龙骑：火球射速快，终结技毁灭级伤害 (CD较长)
   '555':  { l: 1.5, e: 6.0, k: 16.0, p: 6.0 },  // 555：光子手枪极速连射，战车机动加速
-  blade:  { l: 3.0, e: 7.5, k: 18.0, p: 5.0 }   // Blade：召雷全屏贯穿 (CD稍长)，雷电音速踢
+  blade:  { l: 3.0, e: 7.5, k: 18.0, p: 5.0 },   // Blade：召雷全屏贯穿 (CD稍长)，雷电音速踢
+  zeztz:  { l: 2.0, e: 6.5, k: 17.0, p: 5.0 } // ★ Zeztz: 拳压冲击波快速施法，终结技毁灭打击
 };
 
 // Malaya 原生动作
@@ -132,6 +133,17 @@ const BLADE_SWORD = { vf: -1, len: 125, gripR: .38, gx: .6152, gy: .4261, axisR:
 // 闪电束：L=射程；t=持续秒数；ticks=结算时刻；mul=各次伤害倍率（乘攻击力）；w=束半宽（判定）
 // phi=闪电贴图主干方向角(弧度,≈22°)；sy=垂直于束方向的压缩系数（<1 更细长）
 const BLADE_BOLT = { L: 760, t: .46, ticks: [0, .15, .3], mul: [1.3, .8, .8], w: 140, phi: .3869, sy: .8 };
+
+// 在 FAIZ, BLADE 附近加入：
+const ZEZTZ = A + 'Kamen Rider Zeztz/';
+const ZEZTZ_SCALE = PH / 484;
+const SHZ = {
+  run:  { f: 'KR_Zeztz_Run.jpg',          c: 3, r: 2, ref: 0 },
+  jump: { f: 'KR_Zeztz_Jump.jpg',         c: 4, r: 3, ref: 1 },
+  atk:  { f: 'KR_Zeztz_NormalAttack.jpg', c: 4, r: 4, ref: 0 },
+  fv:   { f: 'KR_Zeztz_FinalVent.jpg',    c: 6, r: 4, ref: 0 },
+  trans:{ f: 'KR_Malaya_TransformTo_KR_Zeztz.png', c: 5, r: 4, ref: 19 }   // 变身表 5列×4行=20帧
+};
 
 // 敌人基础属性
 const ET = {
@@ -355,6 +367,22 @@ const CAPSULES = [
     finisher: 'LIGHTNING SONIC · 雷电音速踢 (跃起→锥体定身→砸落→黑桃爆发)',
     trait: '雷电缠身 · 持剑召雷 · 黑桃必杀',
     atkMul: 1.26, crAdd: .12, spdMul: 1.08
+  },
+  {
+    id: 'zeztz',
+    name: '假面骑士 Zeztz',
+    short: 'Zeztz',
+    slotName: 'Zeztz 冲击胶囊',
+    rider: 'ZEZTZ',
+    tier: 4, // 传说
+    c: '#00f2fe',
+    tag: '机械冲击',
+    desc: '搭载 Mecha-Impact 驱动核心的未来机甲战士，具备狂暴能量波与多重重拳连击。',
+    buff: '攻击力 +28%，移速 +12%，暴击率 +12%',
+    skill: 'L · 拳压（前冲直拳挥出高能能量波）',
+    finisher: 'FINAL IMPACT · 旋涡重炮 (旋涡蓄力后连续突进冲拳与大爆炸)',
+    trait: '机械聚能 · 拳压冲击波 · 连续重拳必杀',
+    atkMul: 1.28, crAdd: .12, spdMul: 1.12
   }
 ];
 
@@ -421,7 +449,6 @@ try {
 
 // 本地持久化 + 自动触发云端防抖备份
 const save = () => {
-  if (window.__noSave) return;   // 注销账号过程中：不再写本地 / 云端
   // 1. 本地实时写入
   try {
     localStorage.malaya = JSON.stringify(S);

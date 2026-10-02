@@ -2,16 +2,17 @@
 //   龙骑 Ryuki ：契约兽「无限龙」—— 每 9 秒自动助战喷火；每击杀 4 个敌人得 1 张 Advent 卡，按 R 召唤无限龙贯穿全场
 //   555 Faiz   ：Accel Form —— 按 R 进入 10 秒加速：敌人与敌方弹幕变慢、自身移速 / 技能回复 / 出手速度提升
 //   Blade      ：卡牌合成 —— 命中敌人获得 ♠ 牌（斩 / 雷 / 踢 / 速），手里凑够 2 张按 R 融合成联合技（共 10 种）
+//   Zeztz      ：Overdrive —— 按 R 释放超载冲击波并进入 8 秒高能超载强化状态
 //
 // 本文件完全自包含：不需要改 main.js / battle.js / player.js / ui.js。
-// 做法是在加载时“包一层”这些全局函数（begin / hurt / updEnemy / updBattleFx / updBikes / formSpd / drawP / drawSkillBarHUD）。
-// 加载顺序：放在 coop.js 之后、main.js 之前。素材：Assets/Kamen Rider Ryuki/KR_Ryuki_Dragon.png（缺了会用程序化的龙代替）。
+// 加载顺序：放在 coop.js 之后、main.js 之前。
 
 // ---------- 平衡参数（想调数值只改这里）----------
 const MECH_CFG = {
   ryuki: { cardEvery: 4, maxCards: 3, autoEvery: 9, assistMul: 2.4, adventMul: 1.3, adventEnd: 4.0, cd: 2 },
   k555:  { dur: 10, cd: 32, ts: .3, spd: 1.5, cdRegen: .6, atkSpd: .55 },
-  blade: { hitsPerCard: 3, maxHand: 2, cd: 4 }
+  blade: { hitsPerCard: 3, maxHand: 2, cd: 4 },
+  zeztz: { dur: 8, cd: 24, atkMul: 1.35 }
 };
 
 const MECH = {
@@ -21,7 +22,9 @@ const MECH = {
   // 555
   accel: 0,
   // Blade
-  hand: [], hits: 0, noDrawT: 0
+  hand: [], hits: 0, noDrawT: 0,
+  // Zeztz
+  overdrive: 0
 };
 
 // 无限龙贴图（由 KR_Ryuki_FinalVent.png 第 8 帧裁出；朝左）
@@ -68,10 +71,18 @@ const mAt = (t, fn) => { if (t <= 0) fn(); else MECH.tl.push({ t, fn }); };
 function mechReset(rk, keepKills) {
   rk = rk || (typeof curRiderKey === 'function' ? curRiderKey() : 'malaya');
   Object.assign(MECH, {
-    rk, cd: 0, mcd: 1, vis: [], tl: [], dash: null, buff: null, dragon: null, shots: [], accel: 0,
+    rk, cd: 0, mcd: 1, vis: [], tl: [], dash: null, buff: null, dragon: null, shots: [], accel: 0, overdrive: 0,
     lastKills: keepKills ? kills : 0, auto: 6, hits: 0, noDrawT: 0, cards: rk === 'ryuki' ? 1 : 0, hand: []
   });
   if (rk === 'blade') { MECH.hand.push(bDraw(), bDraw()); }
+}
+
+// 判断当前形态对应的变身胶囊是否已达到满星（5星）
+function mIsCapMaxStar() {
+  const rk = curRiderKey();
+  if (rk === 'malaya') return false;
+  if (typeof capStar !== 'function' || typeof CAP_STAR_MAX === 'undefined') return true;
+  return capStar(rk) >= CAP_STAR_MAX;
 }
 
 // =====================================================================
@@ -91,19 +102,25 @@ function spawnDragon(mode) {
 
 function updRyuki(dt, can) {
   const C = MECH_CFG.ryuki;
-  if (kills < MECH.lastKills) MECH.lastKills = kills;
-  const n = Math.floor(kills / C.cardEvery) - Math.floor(MECH.lastKills / C.cardEvery);
-  MECH.lastKills = kills;
-  if (n > 0 && MECH.cards < C.maxCards) {
-    MECH.cards = Math.min(C.maxCards, MECH.cards + n);
-    mToast('+1 Advent 卡', '#ff7a7a', 230);
+  const isMaxStar = mIsCapMaxStar();
+
+  // 未满星时完全不积攒卡片也不触发自动助战
+  if (isMaxStar) {
+    if (kills < MECH.lastKills) MECH.lastKills = kills;
+    const n = Math.floor(kills / C.cardEvery) - Math.floor(MECH.lastKills / C.cardEvery);
+    MECH.lastKills = kills;
+    if (n > 0 && MECH.cards < C.maxCards) {
+      MECH.cards = Math.min(C.maxCards, MECH.cards + n);
+      mToast('+1 Advent 卡', '#ff7a7a', 230);
+    }
+
+    if (!MECH.dragon && E.length && can) {
+      MECH.auto -= dt;
+      if (MECH.auto <= 0) { spawnDragon('assist'); MECH.auto = C.autoEvery; }
+    }
   }
 
-  if (!MECH.dragon && E.length && can) {
-    MECH.auto -= dt;
-    if (MECH.auto <= 0) { spawnDragon('assist'); MECH.auto = C.autoEvery; }
-  }
-
+  // 现有 dragon、shots 飞弹逻辑保持...
   const g = MECH.dragon;
   if (g) {
     g.t += dt;
@@ -118,7 +135,7 @@ function updRyuki(dt, can) {
           mFx(g.x + g.dir * 80, g.y - 10, 60, '#ff8a30', .25);
         }
       }
-    } else {   // advent：从身后俯冲贯穿
+    } else {
       const e = mEase(cl(g.t / g.dur, 0, 1));
       g.x = g.x0 + g.dir * 1000 * e; g.y = GY - 170 + Math.sin(g.t * 8) * 10; g.rot = g.dir * .06;
       g.al = Math.min(1, g.t / .15, (g.dur - g.t) / .25);
@@ -154,8 +171,11 @@ function updRyuki(dt, can) {
   }
   MECH.shots = MECH.shots.filter(s => s.t > 0);
 
+  // 按 R 判定
   if (PR.KeyR && can) {
-    if (MECH.dragon && MECH.dragon.mode === 'advent') { /* 正在 Advent，忽略 */ }
+    if (!isMaxStar) {
+      mToast('契约未觉醒：需将龙骑胶囊升至 5★ 解锁！', '#ff7675');
+    } else if (MECH.dragon && MECH.dragon.mode === 'advent') {}
     else if (MECH.cd > 0) mToast('冷却中 ' + MECH.cd.toFixed(1) + 's', '#ffa502');
     else if (MECH.cards <= 0) mToast('Advent 卡不足（每击杀 ' + C.cardEvery + ' 个敌人得 1 张）', '#ffd84a');
     else { MECH.cards--; MECH.cd = C.cd; MECH.mcd = C.cd; spawnDragon('advent'); }
@@ -169,7 +189,7 @@ function drawDragon(g) {
   ctx.translate(sn(g.x - cam), sn(g.y)); ctx.rotate(g.rot || 0); ctx.scale(g.dir > 0 ? -1 : 1, 1);
   ctx.shadowColor = '#ff6a20'; ctx.shadowBlur = 26;
   if (img) ctx.drawImage(img, -w / 2, -h / 2, w, h);
-  else {   // 素材缺失：程序化的龙
+  else {
     ctx.lineCap = 'round'; ctx.strokeStyle = '#d83a1a'; ctx.lineWidth = 22;
     ctx.beginPath(); ctx.moveTo(-w * .45, -10);
     for (let i = 1; i <= 8; i++) ctx.lineTo(-w * .45 + i * w * .11, Math.sin(i * .9 + T * 5) * 22);
@@ -207,7 +227,7 @@ function updAccel(dt, can) {
     MECH.accel -= dt;
     for (const k in P.cd) if (P.cd[k] > 0) P.cd[k] = Math.max(0, P.cd[k] - dt * C.cdRegen);
     if (P.dcd > 0) P.dcd = Math.max(0, P.dcd - dt * .8);
-    if (P.st === 'atk' || P.st === 'thr') P.t += dt * C.atkSpd;   // 出手更快
+    if (P.st === 'atk' || P.st === 'thr') P.t += dt * C.atkSpd;
     MECH.gt = (MECH.gt || 0) - dt;
     if (MECH.gt <= 0 && (P.vx || P.st === 'atk' || P.st === 'dodge')) {
       MECH.gt = .045; GH.push({ x: P.x, y: P.y, f: P.f, st: P.st, t: .3, d: .3 });
@@ -215,7 +235,9 @@ function updAccel(dt, can) {
     if (MECH.accel <= 0) accelEnd();
   }
   if (PR.KeyR && can) {
-    if (MECH.accel > 0) { /* 已在加速 */ }
+    if (!mIsCapMaxStar()) {
+      mToast('智脑未授权：需将 555 胶囊升至 5★ 解锁 Accel！', '#ff7675');
+    } else if (MECH.accel > 0) {}
     else if (MECH.cd > 0) mToast('Accel 冷却中 ' + MECH.cd.toFixed(0) + 's', '#ffa502');
     else if (mCoop()) mToast('联机副本中无法使用 Accel（会让队友的时间错位）', '#ffa502');
     else accelStart();
@@ -258,7 +280,7 @@ function bFire(pair) {
   const C = BL_COMBO[pair], f = P.f;
   const fr = d => P.x + f * d, hy = () => P.y - 100;
   MECH.cd = MECH_CFG.blade.cd; MECH.mcd = MECH.cd;
-  MECH.noDrawT = T + 3.5;   // 联合技自己打出的命中不再给牌
+  MECH.noDrawT = T + 3.5;
   DT.push({ x: P.x, y: P.y - 215, s: C.n, t: 1.4, c: C.c });
   DT.push({ x: P.x, y: P.y - 240, s: C.cn, t: 1.4, c: '#fff' });
   shake = Math.max(shake, 8);
@@ -269,7 +291,7 @@ function bFire(pair) {
   };
 
   switch (pair) {
-    case 'ST':   // 雷电斩：三连斩 + 落雷
+    case 'ST':
       mAt(0, () => { mSlash(fr(70), hy(), f, 150, '#7fd0ff'); mBlast(fr(150), 190, 1.5); shake = 12; });
       mAt(.13, () => { mSlash(fr(70), hy(), f, 175, '#ffd84a', .3); mBlast(fr(170), 210, 1.3); });
       mAt(.26, () => {
@@ -277,42 +299,42 @@ function bFire(pair) {
         mNearestN(P.x, 3, 650).forEach(e => mStrike(e.x, 1.0, 90));
       });
       break;
-    case 'KT':   // 雷电冲击：两道闪电贯穿
+    case 'KT':
       mAt(0, bolt); mAt(.24, bolt);
       break;
-    case 'KM':   // 音速踢：高速贯穿
+    case 'KM':
       mDash(f, 2600, .3, 3.2);
       mAt(.32, () => { mBlast(fr(90), 230, 2.2); mFx(fr(90), GY - 60, 260, '#ffb15a', .5); shake = 20; });
       break;
-    case 'MS':   // 疾风连斩：边冲边砍
+    case 'MS':
       mDash(f, 1200, .45, .9, .09);
       mAt(.46, () => { mCross(fr(100), hy(), 180, '#9dffb8'); mBlast(fr(120), 230, 1.6); shake = 14; });
       break;
-    case 'MT':   // 雷速领域
+    case 'MT':
       MECH.buff = { k: 'MT', t: 6, spd: 1.45, tk: 0 };
       P.inv = Math.max(P.inv, .3);
       MECH.vis.push({ k: 'ring', x: P.x, y: GY, r: 220, t: .5, d: .5, col: '110,200,255' });
       break;
-    case 'KS':   // 岩斩：地刺依次破土
+    case 'KS':
       for (let i = 0; i < 4; i++) mAt(i * .12, () => { const x = fr(130 + i * 140); mRock(x); mBlast(x, 100, 1.9, { ground: true }); shake = 8 + i * 2; });
       break;
-    case 'TT':   // 落雷风暴
+    case 'TT':
       for (let i = 0; i < 5; i++) mAt(i * .26, () => {
         const ts = mNearestN(P.x, 4, 900), tg = ts.length ? ts[Math.random() * ts.length | 0] : null;
         mStrike(tg ? tg.x : fr(200 + Math.random() * 400), 1.3, 120);
       });
       break;
-    case 'SS':   // 十字斩
+    case 'SS':
       mAt(0, () => { mCross(fr(120), hy(), 220, '#ffd84a'); });
       mAt(.1, () => { mBlast(fr(150), 270, 2.2); shake = 14; });
       mAt(.28, () => { mBlast(fr(160), 300, 2.4); mFx(fr(160), GY - 90, 300, '#ffd84a', .5); shake = 22; });
       break;
-    case 'KK':   // 双重音速踢
+    case 'KK':
       mDash(f, 1500, .26, 2.6);
       mAt(.34, () => { mDash(f, 1500, .26, 2.6); });
       mAt(.62, () => { mBlast(fr(100), 240, 1.8); mFx(fr(100), GY - 60, 240, '#ff9a4a', .4); shake = 18; });
       break;
-    case 'MM':   // 疾风无敌
+    case 'MM':
       MECH.buff = { k: 'MM', t: 3, spd: 1.8, tk: 0 };
       MECH.vis.push({ k: 'ring', x: P.x, y: GY, r: 200, t: .5, d: .5, col: '125,255,154' });
       break;
@@ -322,9 +344,45 @@ function bFire(pair) {
 function updBlade(dt, can) {
   const B = MECH_CFG.blade;
   if (PR.KeyR && can) {
-    if (MECH.cd > 0) mToast('冷却中 ' + MECH.cd.toFixed(1) + 's', '#ffa502');
+    if (!mIsCapMaxStar()) {
+      mToast('觉醒封印中：需将 Blade 胶囊升至 5★ 解锁融合卡牌！', '#ff7675');
+    } else if (MECH.cd > 0) mToast('冷却中 ' + MECH.cd.toFixed(1) + 's', '#ffa502');
     else if (MECH.hand.length < B.maxHand) mToast('需要 ' + B.maxHand + ' 张卡牌（命中敌人获得）', '#ffd84a');
     else { const pr = bPair(); MECH.hand = []; bFire(pr); }
+  }
+}
+
+// =====================================================================
+//  Zeztz：超载冲击 (Overdrive)
+// =====================================================================
+function updZeztz(dt, can) {
+  const C = MECH_CFG.zeztz;
+  if (MECH.overdrive > 0) {
+    MECH.overdrive -= dt;
+    if (Math.random() < 0.35) {
+      FX.push({ type: 'boom', x: P.x + (Math.random() - 0.5) * 60, y: P.y - 70, t: 0.2, d: 0.2, r: 26, c: '#00f2fe' });
+    }
+    if (MECH.overdrive <= 0) {
+      MECH.overdrive = 0;
+      DT.push({ x: P.x, y: P.y - 200, s: 'OVERDRIVE END', t: 1.0, c: '#a4b0be' });
+    }
+  }
+  if (PR.KeyR && can) {
+    if (!mIsCapMaxStar()) {
+      mToast('核心未破限：需将 Zeztz 胶囊升至 5★ 解锁超载！', '#ff7675');
+    } else if (MECH.overdrive > 0) {}
+    else if (MECH.cd > 0) mToast('超载充能中 ' + MECH.cd.toFixed(0) + 's', '#ffa502');
+    else {
+      MECH.overdrive = C.dur;
+      MECH.cd = C.cd;
+      MECH.mcd = C.cd;
+      shake = 16;
+      DT.push({ x: P.x, y: P.y - 210, s: 'OVERDRIVE IMPACT!', t: 1.4, c: '#00f2fe' });
+      mBlast(P.x, 260, 2.0);
+      cancelEP(P.x - 200, P.x + 200);
+      FX.push({ type: 'boom', x: P.x, y: GY - 40, t: 0.6, d: 0.6, r: 260, c: '#00f2fe' });
+      FX.push({ type: 'boom', x: P.x, y: GY - 40, t: 0.4, d: 0.4, r: 180, c: '#ff4757' });
+    }
   }
 }
 
@@ -374,6 +432,7 @@ function mechUpdate(dt) {
   if (rk === 'ryuki') updRyuki(dt, can);
   else if (rk === '555') updAccel(dt, can);
   else if (rk === 'blade') updBlade(dt, can);
+  else if (rk === 'zeztz') updZeztz(dt, can);
   if (MECH.dash) updDash(dt);
   if (MECH.buff) updBuff(dt);
 }
@@ -381,7 +440,7 @@ function mechUpdate(dt) {
 // =====================================================================
 //  绘制
 // =====================================================================
-function bCard(x, y, w, h, t, al, rot, back) {
+function bCard(x, y, w, h, t, al, rot) {
   const C = BL_CARD[t];
   ctx.save(); ctx.globalAlpha *= (al === undefined ? 1 : al); ctx.translate(x, y); ctx.rotate(rot || 0);
   rpath(-w / 2, -h / 2, w, h, Math.max(2, w * .12));
@@ -390,7 +449,7 @@ function bCard(x, y, w, h, t, al, rot, back) {
   ut(C.g, 0, h * .06, w * .55, C.c, 'center', { w: 800 });
   ctx.restore();
 }
-function rCard(x, y, w, h, on) {   // 龙骑 Advent 卡
+function rCard(x, y, w, h, on) {
   ctx.save(); ctx.translate(x, y);
   rpath(-w / 2, -h / 2, w, h, 3);
   ctx.fillStyle = on ? '#8a1420' : 'rgba(255,255,255,.06)'; ctx.fill();
@@ -411,7 +470,6 @@ function mechDrawBack() {
 function mechDrawFront() {
   if (G !== 'play' || !MECH.rk) return;
 
-  // 特效列表
   for (const v of MECH.vis) {
     const p = 1 - v.t / v.d, a = 1 - p;
     ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
@@ -476,67 +534,101 @@ function mechDrawFront() {
     ut(String(Math.ceil(MECH.accel)), 480, 104, 56, 'rgba(255,209,102,.5)', 'center', { w: 800, sh: 0 });
     ctx.restore();
   }
+
+  // Zeztz Overdrive：青蓝色聚能辉光暗角 + 倒计时
+  if (MECH.rk === 'zeztz' && MECH.overdrive > 0) {
+    ctx.save(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    const gr = ctx.createRadialGradient(480, 270, 180, 480, 270, 620);
+    gr.addColorStop(0, 'rgba(0,242,254,0)'); gr.addColorStop(1, 'rgba(0,242,254,.25)');
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, 960, 540);
+    ut(String(Math.ceil(MECH.overdrive)), 480, 104, 56, 'rgba(0,242,254,.55)', 'center', { w: 800, sh: 0 });
+    ctx.restore();
+  }
 }
 
 // ---------- HUD：技能栏右侧第 6 格（R）----------
 function mechHUD() {
   if (G !== 'play' || !MECH.rk || MECH.rk === 'malaya') return;
   const rk = MECH.rk, sz = 44, gap = 10, total = 5 * sz + 4 * gap, sx = (960 - total) / 2, x = sx + total + gap, y = 468;
-  const col = rk === 'ryuki' ? '#ff4757' : rk === '555' ? '#ffb400' : '#3aa0ff';
-  const act = rk === '555' && MECH.accel > 0;
+  const col = rk === 'ryuki' ? '#ff4757' : rk === '555' ? '#ffb400' : rk === 'blade' ? '#3aa0ff' : '#00f2fe';
+  const isMaxStar = mIsCapMaxStar();
+  const act = isMaxStar && ((rk === '555' && MECH.accel > 0) || (rk === 'zeztz' && MECH.overdrive > 0));
+  
   let ready, name, icon;
-  if (rk === 'ryuki') { ready = MECH.cards > 0 && MECH.cd <= 0; name = 'ADVENT'; icon = '龙'; }
-  else if (rk === '555') { ready = MECH.cd <= 0 || act; name = 'ACCEL'; icon = 'Φ'; }
-  else { ready = MECH.hand.length >= 2 && MECH.cd <= 0; name = 'FUSION'; icon = '♠'; }
+  if (!isMaxStar) {
+    ready = false;
+    name = 'LOCKED';
+    icon = '🔒';
+  } else {
+    if (rk === 'ryuki') { ready = MECH.cards > 0 && MECH.cd <= 0; name = 'ADVENT'; icon = '龙'; }
+    else if (rk === '555') { ready = MECH.cd <= 0 || act; name = 'ACCEL'; icon = 'Φ'; }
+    else if (rk === 'blade') { ready = MECH.hand.length >= 2 && MECH.cd <= 0; name = 'FUSION'; icon = '♠'; }
+    else if (rk === 'zeztz') { ready = MECH.cd <= 0 || act; name = 'OVERDRIVE'; icon = '⚡'; }
+  }
 
   ctx.save();
-  cutPath(x, y, sz, sz, 9); ctx.fillStyle = 'rgba(12,16,28,.9)'; ctx.fill();
+  cutPath(x, y, sz, sz, 9); ctx.fillStyle = isMaxStar ? 'rgba(12,16,28,.9)' : 'rgba(8,10,16,.95)'; ctx.fill();
   ctx.save(); cutPath(x + 2, y + 2, sz - 4, sz - 4, 7); ctx.clip();
   const g = ctx.createLinearGradient(x, y, x, y + sz);
-  g.addColorStop(0, col + (ready || act ? '99' : '33')); g.addColorStop(1, col + (ready || act ? '33' : '11'));
+  g.addColorStop(0, (isMaxStar ? col : '#555555') + (ready || act ? '99' : '33'));
+  g.addColorStop(1, (isMaxStar ? col : '#555555') + (ready || act ? '33' : '11'));
   ctx.fillStyle = g; ctx.fillRect(x, y, sz, sz); ctx.restore();
-  ut(icon, x + sz / 2, y + sz / 2 + 1, 22, ready || act ? '#fff' : '#678', 'center', { w: 800 });
-  cutPath(x, y, sz, sz, 9); ctx.lineWidth = 1.3; ctx.strokeStyle = act ? '#ffd166' : ready ? col : 'rgba(255,255,255,.14)';
+
+  ut(icon, x + sz / 2, y + sz / 2 + 1, isMaxStar ? 22 : 18, ready || act ? '#fff' : '#678', 'center', { w: 800 });
+  cutPath(x, y, sz, sz, 9); ctx.lineWidth = 1.3;
+  ctx.strokeStyle = act ? '#ffd166' : ready ? col : 'rgba(255,255,255,.14)';
   ctx.shadowColor = ready || act ? col : 'transparent'; ctx.shadowBlur = 8; ctx.stroke();
   ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
 
-  // 冷却遮罩（555 加速中不遮，改显示剩余秒数）
-  if (MECH.cd > 0 && !act) {
+  // 冷却遮罩（未解锁时不走冷却动画）
+  if (isMaxStar && MECH.cd > 0 && !act) {
     const frac = cl(MECH.cd / (MECH.mcd || 1), 0, 1);
     ctx.save(); cutPath(x, y, sz, sz, 9); ctx.clip(); ctx.fillStyle = 'rgba(0,0,0,.68)';
     ctx.beginPath(); ctx.moveTo(x + sz / 2, y + sz / 2); ctx.arc(x + sz / 2, y + sz / 2, sz, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac); ctx.closePath(); ctx.fill(); ctx.restore();
     ut(MECH.cd >= 10 ? MECH.cd.toFixed(0) : MECH.cd.toFixed(1), x + sz / 2, y + sz / 2, 13, '#f3e3b0', 'center', { w: 700 });
   }
-  if (act) ut(MECH.accel.toFixed(1), x + sz / 2, y + sz / 2, 14, '#fff', 'center', { w: 800 });
+  if (act) ut((rk === '555' ? MECH.accel : MECH.overdrive).toFixed(1), x + sz / 2, y + sz / 2, 14, '#fff', 'center', { w: 800 });
 
   // 按键角标 R
   rpath(x - 3, y - 4, 16, 14, 4); ctx.fillStyle = '#080c16'; ctx.fill(); ctx.strokeStyle = 'rgba(217,189,125,.8)'; ctx.lineWidth = 1; ctx.stroke();
   ut('R', x + 5, y + 3, 9, '#f3e3b0', 'center', { w: 700, sh: 0 });
 
-  // 右侧状态
+  // 右侧状态与满星未解锁提示
   const wx = x + sz + 10;
-  ut(name, wx, y + 5, 10, col, 'left', { w: 800, sp: 1.2, sh: 0 });
-  if (rk === 'ryuki') {
-    for (let i = 0; i < MECH_CFG.ryuki.maxCards; i++) rCard(wx + 10 + i * 24, y + 28, 20, 28, i < MECH.cards);
-    const pr = cl(1 - MECH.auto / MECH_CFG.ryuki.autoEvery, 0, 1);
-    ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(wx, y + 46, 72, 3);
-    ctx.fillStyle = MECH.dragon ? '#ffd166' : '#ff7a4a'; ctx.fillRect(wx, y + 46, 72 * (MECH.dragon ? 1 : pr), 3);
-  } else if (rk === '555') {
-    const frac = act ? MECH.accel / MECH_CFG.k555.dur : 1 - cl(MECH.cd / (MECH.mcd || 1), 0, 1);
-    ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(wx, y + 30, 72, 6);
-    ctx.fillStyle = act ? '#ff5a3a' : frac >= 1 ? '#ffd166' : '#9a8a5a'; ctx.fillRect(wx, y + 30, 72 * frac, 6);
-    ut(act ? '加速中' : frac >= 1 ? 'READY' : '充能中', wx, y + 44, 10, act ? '#ffd166' : UIC.sub, 'left', { w: 700, sh: 0 });
+  if (!isMaxStar) {
+    ut('专属特技', wx, y + 5, 10, '#8fa0b3', 'left', { w: 800, sp: 1.2, sh: 0 });
+    ut('需 5★ 解锁', wx, y + 25, 11, '#ff6b7a', 'left', { w: 700, sh: 0 });
+    const curStar = typeof capStar === 'function' ? capStar(rk) : 0;
+    ut(`(当前 ${curStar}/5 星)`, wx, y + 42, 10, '#ffd84a', 'left', { w: 700, sh: 0 });
   } else {
-    for (let i = 0; i < MECH_CFG.blade.maxHand; i++) {
-      const t = MECH.hand[i];
-      if (t) bCard(wx + 14 + i * 32, y + 28, 26, 36, t, 1, 0);
-      else { rpath(wx + 1 + i * 32, y + 10, 26, 36, 3); ctx.fillStyle = 'rgba(255,255,255,.05)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.2)'; ctx.setLineDash([3, 3]); ctx.stroke(); ctx.setLineDash([]); }
-    }
-    if (MECH.hand.length >= 2) ut('→ ' + BL_COMBO[bPair()].cn, wx, y + 55, 11, BL_COMBO[bPair()].c, 'left', { w: 800 });
-    else {
-      const pr = MECH.hits / MECH_CFG.blade.hitsPerCard;
-      ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(wx, y + 52, 64, 3);
-      ctx.fillStyle = '#5ec8ff'; ctx.fillRect(wx, y + 52, 64 * pr, 3);
+    ut(name, wx, y + 5, 10, col, 'left', { w: 800, sp: 1.2, sh: 0 });
+    if (rk === 'ryuki') {
+      for (let i = 0; i < MECH_CFG.ryuki.maxCards; i++) rCard(wx + 10 + i * 24, y + 28, 20, 28, i < MECH.cards);
+      const pr = cl(1 - MECH.auto / MECH_CFG.ryuki.autoEvery, 0, 1);
+      ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(wx, y + 46, 72, 3);
+      ctx.fillStyle = MECH.dragon ? '#ffd166' : '#ff7a4a'; ctx.fillRect(wx, y + 46, 72 * (MECH.dragon ? 1 : pr), 3);
+    } else if (rk === '555') {
+      const frac = act ? MECH.accel / MECH_CFG.k555.dur : 1 - cl(MECH.cd / (MECH.mcd || 1), 0, 1);
+      ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(wx, y + 30, 72, 6);
+      ctx.fillStyle = act ? '#ff5a3a' : frac >= 1 ? '#ffd166' : '#9a8a5a'; ctx.fillRect(wx, y + 30, 72 * frac, 6);
+      ut(act ? '加速中' : frac >= 1 ? 'READY' : '充能中', wx, y + 44, 10, act ? '#ffd166' : UIC.sub, 'left', { w: 700, sh: 0 });
+    } else if (rk === 'blade') {
+      for (let i = 0; i < MECH_CFG.blade.maxHand; i++) {
+        const t = MECH.hand[i];
+        if (t) bCard(wx + 14 + i * 32, y + 28, 26, 36, t, 1, 0);
+        else { rpath(wx + 1 + i * 32, y + 10, 26, 36, 3); ctx.fillStyle = 'rgba(255,255,255,.05)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.2)'; ctx.setLineDash([3, 3]); ctx.stroke(); ctx.setLineDash([]); }
+      }
+      if (MECH.hand.length >= 2) ut('→ ' + BL_COMBO[bPair()].cn, wx, y + 55, 11, BL_COMBO[bPair()].c, 'left', { w: 800 });
+      else {
+        const pr = MECH.hits / MECH_CFG.blade.hitsPerCard;
+        ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(wx, y + 52, 64, 3);
+        ctx.fillStyle = '#5ec8ff'; ctx.fillRect(wx, y + 52, 64 * pr, 3);
+      }
+    } else if (rk === 'zeztz') {
+      const frac = act ? MECH.overdrive / MECH_CFG.zeztz.dur : 1 - cl(MECH.cd / (MECH.mcd || 1), 0, 1);
+      ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(wx, y + 30, 72, 6);
+      ctx.fillStyle = act ? '#00f2fe' : frac >= 1 ? '#ffd84a' : '#5a8a9a'; ctx.fillRect(wx, y + 30, 72 * frac, 6);
+      ut(act ? '超载中' : frac >= 1 ? 'READY' : '充能中', wx, y + 44, 10, act ? '#00f2fe' : UIC.sub, 'left', { w: 700, sh: 0 });
     }
   }
   ctx.restore();
@@ -553,22 +645,22 @@ function mechHUD() {
   wrap('drawP', orig => function () { mechDrawBack(); const r = orig.apply(this, arguments); mechDrawFront(); return r; });
   wrap('drawSkillBarHUD', orig => function () { const r = orig.apply(this, arguments); mechHUD(); return r; });
 
-  // 555 Accel：敌人与敌方弹幕 / 区域攻击变慢（联机时不生效，避免与队友时间错位）
   const ts = () => (G === 'play' && MECH.rk === '555' && MECH.accel > 0 && !mCoop()) ? MECH_CFG.k555.ts : 1;
   wrap('updEnemy', orig => function (e, dt) { return orig.call(this, e, dt * ts()); });
   wrap('updBattleFx', orig => function (dt) { return orig.call(this, dt * ts()); });
 
-  // 移速：Accel / 雷速领域 / 疾风无敌
   wrap('formSpd', orig => function () {
     let m = 1;
     if (G === 'play') { if (MECH.rk === '555' && MECH.accel > 0) m *= MECH_CFG.k555.spd; if (MECH.buff) m *= MECH.buff.spd; }
     return orig.apply(this, arguments) * m;
   });
 
-  // Blade：命中敌人攒牌
   wrap('hurt', orig => function (e, d, pre) {
-    const r = orig.apply(this, arguments);
-    if (!pre && G === 'play' && MECH.rk === 'blade' && T >= MECH.noDrawT && MECH.hand.length < MECH_CFG.blade.maxHand) {
+    if (G === 'play' && MECH.rk === 'zeztz' && MECH.overdrive > 0 && !pre) {
+      d *= MECH_CFG.zeztz.atkMul;
+    }
+    const r = orig.call(this, e, d, pre);
+    if (!pre && G === 'play' && MECH.rk === 'blade' && mIsCapMaxStar() && T >= MECH.noDrawT && MECH.hand.length < MECH_CFG.blade.maxHand) {
       if (++MECH.hits >= MECH_CFG.blade.hitsPerCard) {
         MECH.hits = 0; const c = bDraw(); MECH.hand.push(c);
         DT.push({ x: P.x, y: P.y - 230, s: '+♠' + BL_CARD[c].g, t: .8, c: BL_CARD[c].c });
@@ -596,19 +688,28 @@ function mechHUD() {
       const on = G === 'play' && typeof inForm === 'function' && inForm() && !(window.tcHidden && tcHidden());
       b.style.display = on ? 'flex' : 'none';
       if (!on) return;
-      const t = P.ryuki ? '契约<br>Advent' : P.k5 ? 'Accel' : '卡牌<br>合成';
+      const isMax = mIsCapMaxStar();
+      let t = '';
+      if (!isMax) {
+        t = '🔒<br>需5★';
+      } else {
+        t = P.ryuki ? '契约<br>Advent' : P.k5 ? 'Accel' : P.bl ? '卡牌<br>合成' : '超载<br>Overdrive';
+      }
       if (t !== lastT) { lastT = t; tEl.innerHTML = t; }
-      // 冷却：和其它技能键一样用扇形遮罩；Accel 持续期间改为「剩余时间」，按键发光
-      const act = P.k5 && MECH.accel > 0;
+
+      const act = isMax && ((P.k5 && MECH.accel > 0) || (P.zeztz && MECH.overdrive > 0));
       let frac = 0;
-      if (act) frac = 1 - MECH.accel / MECH_CFG.k555.dur;          // 已消耗的部分变暗
-      else if (MECH.cd > 0) frac = cl(MECH.cd / (MECH.mcd || 1), 0, 1);
+      if (isMax) {
+        if (P.k5 && MECH.accel > 0) frac = 1 - MECH.accel / MECH_CFG.k555.dur;
+        else if (P.zeztz && MECH.overdrive > 0) frac = 1 - MECH.overdrive / MECH_CFG.zeztz.dur;
+        else if (MECH.cd > 0) frac = cl(MECH.cd / (MECH.mcd || 1), 0, 1);
+      }
       const v = frac > 0 ? 'conic-gradient(rgba(0,0,0,.62) ' + (frac * 360).toFixed(1) + 'deg, transparent 0)' : '';
       if (v !== lastCd) { lastCd = v; cdEl.style.background = v; }
-      // 条件不满足（Advent 卡 / 卡牌不够）时变灰
-      const low = !act && ((P.ryuki && MECH.cards <= 0) || (P.bl && MECH.hand.length < 2));
+
+      const low = !isMax || (!act && ((P.ryuki && MECH.cards <= 0) || (P.bl && MECH.hand.length < 2)));
       b.classList.toggle('low', low);
-      b.style.boxShadow = act ? '0 0 16px #7dd3ff' : '';
+      b.style.boxShadow = act ? '0 0 16px #00e5ff' : '';
     }, 50);
   }, 200);
 })();

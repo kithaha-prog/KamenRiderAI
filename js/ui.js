@@ -1537,37 +1537,56 @@ function drawWinSettlement() {
   txt(W.tower ? 'VICTORY · 第 ' + W.tower + ' 层通关' : 'VICTORY · 关卡完成', px + pw / 2, py + 30, 25, '#ffd84a', 'center');
   txt(W.stageName, px + pw / 2, py + 66, 14, '#a2b4cb', 'center'); // ★ 下移至 py+66
 
-  // 4. 星级与 Rank 徽章（绝对同一水平线 py + 108 对齐）
-  const starY = py + 108; // ★ 统一水平基准线
-  for (let i = 0; i < 3; i++) {
-    const sx = px + pw / 2 + (i - 1) * 64;
-    const isLit = i < W.stars;
-    const starDelay = 0.2 + i * 0.15;
-    const starProgress = cl((t - starDelay) / 0.2, 0, 1);
+  // 4. 星级与 Rank 徽章（无尽塔专属清爽结算，无星星与 S/A/B 评级）
+  const starY = py + 108;
+  if (W.tower) {
+    // ★ 无尽塔：展示大号层数突破横幅与 CLEAR 通关勋章
+    const isRec = W.isFirst;
+    const tagTxt = isRec ? '★ 突破新纪录 · 第 ' + W.tower + ' 层 ★' : '🗼 第 ' + W.tower + ' 层 挑战通关';
+    txt(tagTxt, px + pw / 2, starY - 6, 21, isRec ? '#ffd84a' : '#7df9ff', 'center');
+    const subTxt = isRec ? '历史最高层数已成功刷新至第 ' + W.tower + ' 层！' : '历史最高纪录：第 ' + (W.best || W.tower) + ' 层';
+    txt(subTxt, px + pw / 2, starY + 18, 12, '#a2b4cb', 'center');
 
+    // 右侧勋章：显示 CLEAR
+    const rankX = px + pw - 78, rankY = starY;
     ctx.save();
-    ctx.translate(sx, starY);
-    if (isLit && starProgress > 0) {
-      const pop = 1 + 0.35 * Math.sin(starProgress * Math.PI);
-      ctx.scale(pop, pop);
-      ctx.shadowColor = '#ffd84a'; ctx.shadowBlur = 14;
-      txt('⭐', 0, 0, 36, '#ffd84a', 'center', false);
-    } else {
-      ctx.globalAlpha = 0.25;
-      txt('☆', 0, 0, 34, '#8fa0b3', 'center', false);
+    ctx.beginPath(); ctx.arc(rankX, rankY, 26, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(165, 94, 234, 0.15)'; ctx.fill();
+    ctx.strokeStyle = '#a55eea'; ctx.lineWidth = 2; ctx.stroke();
+    txt('CLEAR', rankX, rankY - 1, 13.5, '#c79bff', 'center');
+    txt('TOWER', rankX, rankY + 36, 10, '#8fa0b3', 'center');
+    ctx.restore();
+  } else {
+    // 常规关卡：原有的三颗星与 Rank 勋章
+    for (let i = 0; i < 3; i++) {
+      const sx = px + pw / 2 + (i - 1) * 64;
+      const isLit = i < W.stars;
+      const starDelay = 0.2 + i * 0.15;
+      const starProgress = cl((t - starDelay) / 0.2, 0, 1);
+
+      ctx.save();
+      ctx.translate(sx, starY);
+      if (isLit && starProgress > 0) {
+        const pop = 1 + 0.35 * Math.sin(starProgress * Math.PI);
+        ctx.scale(pop, pop);
+        ctx.shadowColor = '#ffd84a'; ctx.shadowBlur = 14;
+        txt('⭐', 0, 0, 36, '#ffd84a', 'center', false);
+      } else {
+        ctx.globalAlpha = 0.25;
+        txt('☆', 0, 0, 34, '#8fa0b3', 'center', false);
+      }
+      ctx.restore();
     }
+
+    const rankX = px + pw - 78, rankY = starY;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(rankX, rankY, 26, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 216, 74, 0.12)'; ctx.fill();
+    ctx.strokeStyle = W.rank === 'S' ? '#ffd84a' : '#7df9ff'; ctx.lineWidth = 2; ctx.stroke();
+    txt(W.rank, rankX, rankY - 1, 26, W.rank === 'S' ? '#ffd84a' : '#7df9ff', 'center');
+    txt('RANK', rankX, rankY + 36, 10, '#8fa0b3', 'center');
     ctx.restore();
   }
-
-  // ★ Rank 勋章：垂直中心严格与星星 starY 对齐
-  const rankX = px + pw - 78, rankY = starY;
-  ctx.save();
-  ctx.beginPath(); ctx.arc(rankX, rankY, 26, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(255, 216, 74, 0.12)'; ctx.fill();
-  ctx.strokeStyle = W.rank === 'S' ? '#ffd84a' : '#7df9ff'; ctx.lineWidth = 2; ctx.stroke();
-  txt(W.rank, rankX, rankY - 1, 26, W.rank === 'S' ? '#ffd84a' : '#7df9ff', 'center');
-  txt('RANK', rankX, rankY + 36, 10, '#8fa0b3', 'center');
-  ctx.restore();
 
   // 5. 达成条件列表（适度紧凑）
   const condY0 = py + 142;
@@ -1969,7 +1988,26 @@ function drawInfoHUD() {
     ctx.fillStyle = g; ctx.globalAlpha = n > 0 ? 1 : .45; ctx.beginPath(); ctx.arc(dx, rp, 4.5, 0, 7); ctx.fill(); ctx.restore();
     cx = dx - 14;
   }
-  if (!z.wb) drawStarHUD(x, y + h + 6, w);
+  // 在 drawInfoHUD 函数的末尾，替换原本的 if (!z.wb) drawStarHUD(...):
+  if (!z.wb && !z.tw) {
+    drawStarHUD(x, y + h + 6, w); // 常规战役：显示三星达成条件
+  } else if (z.tw) {
+    drawTowerHUD(x, y + h + 6, w); // ★ 无尽塔：只显示层数与突破进度，无三星之分
+  }
+}
+
+// ===== 无尽塔战斗 HUD：不展示任何三星条件，只展示层数与纪录 =====
+function drawTowerHUD(x, y, w) {
+  const h = 54, z = ST[cur], f = z.floor || 1, best = typeof twBest === 'function' ? twBest() : 0;
+  const isFirst = f > best;
+  const col = (typeof TOWER !== 'undefined' && TOWER.col) ? TOWER.col : '#a55eea';
+  hudPanel(x, y, w, h, col, 8);
+  const R = x + w - 12;
+  ut('🗼 无尽塔', x + 14, y + 16, 11, col, 'left', { w: 700, sp: 1, sh: 0 });
+  ut('第 ' + f + ' 层', R, y + 16, 13, '#ffd84a', 'right', { w: 700 });
+  ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.fillRect(x + 14, y + 27, w - 26, 1);
+  ut(isFirst ? '挑战前沿' : '已通关层', x + 14, y + 39, 10, isFirst ? '#ffd84a' : UIC.sub, 'left', { w: 600, sh: 0 });
+  ut(best ? '最高第 ' + best + ' 层' : '首战突破', R, y + 39, 11, '#7df9ff', 'right', { w: 600 });
 }
 
 // ===== 实时三星面板：与结算条件（battle.js fin）一致 —— 通关 / 剩余生命 ≥ 50% / 耗时 ≤ 75 秒 =====
