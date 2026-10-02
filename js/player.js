@@ -14,7 +14,10 @@ function curRiderKey() {
 
 function getSkillCD(key) {
   const rk = curRiderKey();
-  return (SKILL_CDS[rk] && SKILL_CDS[rk][key]) || 5.0;
+  let v = (SKILL_CDS[rk] && SKILL_CDS[rk][key]) || 5.0;
+  // 胶囊升星：3★ 起，L / E 技能冷却缩减（capstar.js）
+  if ((key === 'l' || key === 'e') && typeof capCdMul === 'function') v *= capCdMul();
+  return v;
 }
 
 // 1. 把 okS 声明为全局顶层函数，并移到最上方（支持函数提升）
@@ -107,7 +110,7 @@ function walk(dt, R) {
   } else {
     // 2. 正常移动与疾跑奔跑（长按 Shift 提速 1.75 倍）
     const d = ((K.KeyD || K.ArrowRight) ? 1 : 0) - ((K.KeyA || K.ArrowLeft) ? 1 : 0);
-    let spd = (260 + S.lv * 4) * formSpd();
+    let spd = (260 + S.lv * 4) * formSpd() * (1 + (typeof affixTotal === 'function' ? affixTotal('spd') : 0));   // 移速词条
     if ((holdS || sh) && d) {
       spd *= 1.75;
       P.spr = true; // 激活疾跑状态（自动绘制风痕特效）

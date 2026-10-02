@@ -26,6 +26,8 @@ const MN_THEME = {
 };
 
 const mt = (s, x, y, sz, c, al = 'left') => txt(s, x, y, sz, c, al, false);
+// 商店条目图标：📜 → 强化卷轴贴图（Assets/Icon/Scroll.png），没有贴图就画 emoji
+const mic = (ic, cx, cy, box, fs) => { if (ic === '📜' && ICO.scr && drawIco(ICO.scr, cx, cy, box)) return; mt(ic || '◆', cx, cy, fs, '#ffffff', 'center'); };
 const mHit = (x, y, w, h, i, act, fn) => MN.hit.push({ x, y, w, h, i, act, fn });
 const mHitClip = (x, y, w, h, c0, c1, i, act, fn) => { const a = Math.max(y, c0), b = Math.min(y + h, c1); if (b > a) MN.hit.push({ x, y: a, w, h: b - a, i, act, fn }); };
 
@@ -335,7 +337,7 @@ function mnList(it, th, backIdx) {
     techCutBox(icBoxX, icBoxY, icSize, icSize, 6);
     ctx.fillStyle = sel ? acc + '28' : 'rgba(255, 255, 255, 0.05)'; ctx.fill();
     ctx.strokeStyle = sel ? acc : 'rgba(255, 255, 255, 0.14)'; ctx.lineWidth = 1; ctx.stroke();
-    mt(o.ic || '◆', icBoxX + icSize / 2, icBoxY + icSize / 2, 22, '#ffffff', 'center');
+    mic(o.ic, icBoxX + icSize / 2, icBoxY + icSize / 2, 32, 22);
 
     // 严格测量名称宽度并留出安全间距，防止名称与 tag 互相压字
     const nx = X0 + 66;
@@ -413,7 +415,7 @@ function mnDetail(o, k, th, x, y, w, h) {
   techCutBox(iconBoxX, iconBoxY, iconBoxS, iconBoxS, 8);
   ctx.fillStyle = acc + '22'; ctx.fill();
   ctx.strokeStyle = acc; ctx.lineWidth = 1.5; ctx.stroke();
-  mt(o.ic || '◆', iconBoxX + iconBoxS / 2, iconBoxY + iconBoxS / 2, 28, '#ffffff', 'center');
+  mic(o.ic, iconBoxX + iconBoxS / 2, iconBoxY + iconBoxS / 2, 40, 28);
 
   // 条目名称与级别
   const parts = o.n.split(/\s{2,}/), name = parts[0], tag = parts[1] || '';
@@ -741,7 +743,7 @@ function drawGachaSummary() {
     } else if (r.k === 'dup') {
       ctx.beginPath(); ctx.arc(x + TW / 2, y + 48, 26, 0, 7); ctx.fillStyle = col + '22'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = col + '88'; ctx.stroke();
       mt(r.c.rider[0], x + TW / 2, y + 48, 20, '#ffffff88', 'center');
-      nm = r.c.short; sub = '重复 · 无补偿'; sc = '#8fa2b8';
+      nm = r.c.short; sub = '重复 · +' + (typeof CAP_DUP_SHARD === 'number' ? CAP_DUP_SHARD : 3) + ' 碎片'; sc = '#8fa2b8';
     } else if (r.k === 'potion') {
       mt('🧪', x + TW / 2, y + 48, 36, '#fff', 'center'); nm = '体力药水 ×1'; sub = r.full ? '背包已满 · 无效' : '已放入背包'; sc = r.full ? '#8fa2b8' : '#7dff9a';
     } else { mt('✕', x + TW / 2, y + 48, 32, '#5d6b7c', 'center'); nm = '未中'; sub = '谢谢惠顾'; sc = '#6f7f95'; }

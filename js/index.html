@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>假面骑士 Malaya RPG</title>
+  
+  <!-- 引入 Supabase JS SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- 脚本加载诊断：某个 js 文件没加载到（404 / 大小写不一致 / 没推送）时，直接在页面上提示文件名 -->
+  <script>
+    window.__jsFail = [];
+    window.__jsErr = function (el) {
+      var f = (el.getAttribute('src') || '').split('?')[0];
+      window.__jsFail.push(f);
+      var b = document.getElementById('js-fail');
+      if (!b) {
+        b = document.createElement('div'); b.id = 'js-fail';
+        b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:100000;padding:10px 14px;background:#7a1020;color:#fff;font:600 13px/1.6 system-ui,sans-serif;text-align:center';
+        document.body.appendChild(b);
+      }
+      b.textContent = '⚠ 以下脚本没有加载成功：' + window.__jsFail.join('、') + '。请检查文件是否已上传到仓库，且文件名大小写与 index.html 完全一致，然后 Ctrl+F5 强制刷新。';
+    };
+  </script>
+
+  <style>
+    html,body{margin:0;height:100%;background:#08060c;overflow:hidden}
+    body{display:flex;align-items:center;justify-content:center}
+    canvas{width:min(100vw,177.78vh);aspect-ratio:16/9;background:#000;display:block}
+    canvas{width:min(100vw,177.78dvh)}
+    html,body{overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none}
+    #tc,#rot{display:none}
+    body.touch #tc{display:block}
+    #tc{position:fixed;inset:0;pointer-events:none;z-index:9;--s:clamp(46px,10.5vmin,80px)}
+    #tc .b{position:absolute;pointer-events:auto;touch-action:none;width:var(--s);height:var(--s);border-radius:50%;
+      display:flex;align-items:center;justify-content:center;text-align:center;font:700 calc(var(--s)*.26)/1.1 system-ui,sans-serif;color:#fff;
+      background:rgba(20,26,44,.45);border:2px solid rgba(255,255,255,.5);box-shadow:0 0 8px rgba(0,0,0,.5);-webkit-tap-highlight-color:transparent}
+
+    /* ===== 手游式触控按键样式 ===== */
+    #tc .b{transition:transform .06s,background .06s;backdrop-filter:blur(2px);text-shadow:0 1px 3px #000;user-select:none}
+    #tc .b.on{transform:scale(.9);background:rgba(255,255,255,.35);border-color:#fff}
+    #tc .b.sm{width:calc(var(--s)*.8);height:calc(var(--s)*.8);font-size:calc(var(--s)*.22)}
+    #tc .b.sys{background:rgba(10,16,30,.5);border-color:rgba(160,200,255,.45);opacity:.9}
+    #tc .b.pot{background:rgba(160,30,50,.45);border-color:rgba(255,120,140,.7);font-size:calc(var(--s)*.26)}
+    #tc .b.trf{width:var(--s);height:var(--s);background:radial-gradient(circle,rgba(0,229,255,.35),rgba(10,40,70,.55));
+      border-color:#00e5ff;box-shadow:0 0 12px rgba(0,229,255,.55);font-size:calc(var(--s)*.3)}
+    /* 右下技能区 */
+    #tc .b.atk{width:calc(var(--s)*1.5);height:calc(var(--s)*1.5);font-size:calc(var(--s)*.36);
+      background:radial-gradient(circle at 35% 30%,rgba(255,120,120,.65),rgba(160,20,30,.6));
+      border:3px solid rgba(255,255,255,.85);box-shadow:0 0 14px rgba(255,70,70,.55)}
+    #tc .b.atk.hot{background:radial-gradient(circle at 35% 30%,rgba(255,230,120,.7),rgba(190,130,10,.65));
+      border-color:#ffd84a;box-shadow:0 0 16px rgba(255,216,74,.7)}
+    #tc .b.jmp{background:rgba(40,90,200,.5);border-color:rgba(150,200,255,.85);font-size:calc(var(--s)*.32)}
+    #tc .b.skl{background:rgba(20,110,140,.5);border-color:rgba(100,230,255,.8)}
+    #tc .b.skl.ult{background:rgba(150,60,200,.5);border-color:rgba(230,170,255,.9);box-shadow:0 0 10px rgba(200,120,255,.5)}
+    #tc .b.dg{background:rgba(0,150,160,.45);border-color:rgba(120,255,240,.8)}
+    #tc .b{overflow:hidden}
+    #tc .b .t{position:relative;z-index:1;pointer-events:none;display:flex;flex-direction:column;align-items:center}
+    #tc .b .cd{position:absolute;inset:0;border-radius:50%;pointer-events:none;z-index:2}
+    #tc .b .n{position:absolute;left:0;right:0;bottom:7%;z-index:3;font-style:normal;font-size:calc(var(--s)*.2);font-weight:700;color:#8fd0ff;pointer-events:none;text-shadow:0 1px 2px #000}
+    #tc .b.pot .n{position:static;font-size:calc(var(--s)*.2);color:#fff}
+    #tc .b.low{opacity:.5}
+    #tc .b.low .n{color:#ff6b7a}
+    #tc .b.cap{background:rgba(110,60,190,.5);border-color:rgba(200,160,255,.85)}
+    #tc .b.cls{display:none;opacity:.85}
+    #tc .b.sys .t{font-size:calc(var(--s)*.24)}
+    #tcm{display:none;position:absolute;inset:0;pointer-events:auto;touch-action:none;align-items:center;justify-content:center;background:rgba(3,6,14,.55);backdrop-filter:blur(4px)}
+    #tcm .mbox{padding:calc(var(--s)*.35) calc(var(--s)*.45);border:1.5px solid #00e5ff;border-radius:14px;background:linear-gradient(180deg,#0e172a,#060a14);box-shadow:0 0 22px rgba(0,229,255,.3)}
+    #tcm .mt{text-align:center;font:700 calc(var(--s)*.26)/1 system-ui,sans-serif;color:#7df9ff;letter-spacing:1px;margin-bottom:calc(var(--s)*.3)}
+    #tcm .mg{display:grid;grid-template-columns:repeat(3,calc(var(--s)*1.4));gap:calc(var(--s)*.25)}
+    #tcm .tile{height:calc(var(--s)*1.2);border-radius:12px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.07);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(var(--s)*.08);color:#e2e8f0;font:700 calc(var(--s)*.22)/1 system-ui,sans-serif}
+    #tcm .tile i{font-style:normal;font-size:calc(var(--s)*.46)}
+    #tcm .tile:active{transform:scale(.94);background:rgba(0,229,255,.2)}
+    #tcm .tile.warn{border-color:#ff4757;color:#ff8a95;background:rgba(255,71,87,.15)}
+    #tc .b.nav{display:none}
+    #tc .b.nav.show{display:flex}
+    /* 浮动摇杆 */
+    #joyz{position:absolute;left:0;top:0;width:52%;height:100%;pointer-events:none;touch-action:none}
+    #joyz.on{pointer-events:auto}
+    #joyh{position:absolute;left:4vmin;bottom:4vmin;width:calc(var(--s)*2.2);height:calc(var(--s)*2.2);border-radius:50%;
+      display:none;align-items:center;justify-content:space-between;padding:0 calc(var(--s)*.25);box-sizing:border-box;
+      border:2px solid rgba(255,255,255,.28);background:radial-gradient(circle,rgba(255,255,255,.1) 0,rgba(255,255,255,.04) 60%);
+      color:rgba(255,255,255,.55);font-size:calc(var(--s)*.3);pointer-events:none}
+    #joyh i{font-style:normal}
+    #joyh::after{content:'';position:absolute;left:50%;top:50%;width:calc(var(--s)*.9);height:calc(var(--s)*.9);margin:calc(var(--s)*-.45) 0 0 calc(var(--s)*-.45);
+      border-radius:50%;background:rgba(255,255,255,.18);border:2px solid rgba(255,255,255,.4)}
+    #joy{position:fixed;display:none;width:calc(var(--s)*2.2);height:calc(var(--s)*2.2);margin:calc(var(--s)*-1.1) 0 0 calc(var(--s)*-1.1);
+      border-radius:50%;border:2.5px solid rgba(255,255,255,.55);background:radial-gradient(circle,rgba(20,30,60,.35),rgba(255,255,255,.1));pointer-events:none}
+    #joy.show{display:block}
+    #joy .a{position:absolute;font-style:normal;color:rgba(255,255,255,.5);font-size:calc(var(--s)*.28);line-height:1}
+    #joy .a.l{left:8%;top:50%;transform:translateY(-50%)}
+    #joy .a.r{right:8%;top:50%;transform:translateY(-50%)}
+    #joy .a.u{left:50%;top:6%;transform:translateX(-50%)}
+    #joy .a.on{color:#7df9ff;text-shadow:0 0 8px #00e5ff}
+    #joy b{position:absolute;left:50%;top:50%;width:calc(var(--s)*.95);height:calc(var(--s)*.95);margin:calc(var(--s)*-.475) 0 0 calc(var(--s)*-.475);
+      border-radius:50%;background:radial-gradient(circle at 35% 30%,rgba(255,255,255,.85),rgba(120,200,255,.55));box-shadow:0 0 10px rgba(0,229,255,.6)}
+    #rot{position:fixed;inset:0;z-index:20;background:#08060c;color:#fff;align-items:center;justify-content:center;font:700 20px system-ui;text-align:center;padding:20px}
+    @media (orientation:portrait){body.touch #rot{display:flex}}
+
+    /* ===== 科技风登录弹窗样式 ===== */
+    #auth-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 99;
+      background: rgba(3, 6, 14, 0.88);
+      backdrop-filter: blur(8px);
+      align-items: center;
+      justify-content: center;
+    }
+    #auth-overlay.show { display: flex; }
+    .auth-box {
+      width: min(90vw, 380px);
+      background: linear-gradient(180deg, #0e172a 0%, #060a14 100%);
+      border: 1.5px solid #00e5ff;
+      border-radius: 12px;
+      box-shadow: 0 0 25px rgba(0, 229, 255, 0.35);
+      padding: 24px;
+      box-sizing: border-box;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .auth-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #7df9ff;
+      text-align: center;
+      margin-bottom: 4px;
+      letter-spacing: 1px;
+    }
+    .auth-subtitle {
+      font-size: 11px;
+      color: #7a8fa6;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .auth-field {
+      margin-bottom: 12px;
+    }
+    .auth-field label {
+      display: block;
+      font-size: 11px;
+      color: #94a3b8;
+      margin-bottom: 5px;
+    }
+    .auth-field input {
+      width: 100%;
+      height: 38px;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid rgba(0, 229, 255, 0.3);
+      border-radius: 6px;
+      color: #fff;
+      padding: 0 10px;
+      box-sizing: border-box;
+      outline: none;
+      font-size: 13px;
+    }
+    .auth-field input:focus {
+      border-color: #00e5ff;
+      box-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+    }
+    .auth-btn-main {
+      width: 100%;
+      height: 40px;
+      background: linear-gradient(180deg, #00e5ff 0%, #0099b8 100%);
+      border: none;
+      border-radius: 6px;
+      color: #050b14;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: 0.15s;
+    }
+    .auth-btn-main:active { transform: scale(0.98); }
+    .auth-btn-guest {
+      width: 100%;
+      height: 36px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 6px;
+      color: #cbd5e1;
+      font-size: 12.5px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    .auth-footer {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 14px;
+      font-size: 11.5px;
+    }
+    .auth-link {
+      color: #ffd84a;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+    .auth-close {
+      color: #94a3b8;
+      cursor: pointer;
+    }
+    .auth-msg {
+      font-size: 11px;
+      color: #ff7675;
+      text-align: center;
+      min-height: 16px;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="rot">📱 请将设备横屏游玩<br>（并可「添加到主屏幕」全屏运行）</div>
+
+  <!-- 登录弹窗 DOM -->
+  <div id="auth-overlay">
+    <div class="auth-box">
+      <div class="auth-title">TERMINAL // 骑士终端认证</div>
+      <div class="auth-subtitle">IDENTIFICATION & CLOUD ARCHIVE</div>
+
+      <div class="auth-field">
+        <label>邮箱地址 / EMAIL</label>
+        <input type="email" id="auth-email" placeholder="rider@domain.com">
+      </div>
+      <div class="auth-field">
+        <label>终端密钥 / PASSWORD</label>
+        <input type="password" id="auth-password" placeholder="••••••••">
+      </div>
+
+      <div class="auth-msg" id="auth-status"></div>
+
+      <button class="auth-btn-main" id="btn-email-action">登 录 终 端</button>
+      <button class="auth-btn-guest" id="btn-guest-action">以 游 客 身 份 进 入</button>
+
+      <div class="auth-footer">
+        <span class="auth-link" id="btn-toggle-mode">没有账号？点击注册</span>
+        <span class="auth-close" id="btn-auth-close">关闭</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 按依赖层级引入脚本（每次更新文件后，把 ?v= 后面的数字改一下，可强制浏览器拉取新版本）-->
+  <script src="js/config.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/equipment.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/power.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/player.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/battle.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/scenes.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/portal.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/capstar.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/titles.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/tower.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/ui.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/menu.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/ryuki.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/faiz.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/blade.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/henshin.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/malaya_henshin.js?v=20261002" onerror="__jsErr(this)"></script>
+  <script src="js/auth.js?v=20261002" onerror="__jsErr(this)"></script> <!-- ★ 新增 Auth 模块 -->
+  <script src="js/settings.js?v=20261002" onerror="__jsErr(this)"></script> <!-- ★ 新增：ESC 设置界面 -->
+  <script src="js/coop.js?v=20261002" onerror="__jsErr(this)"></script> <!-- ★ 新增 -->
+  <script src="js/mechanics.js?v=20261002" onerror="__jsErr(this)"></script> <!-- ★ 骑士专属机制 (R 键) -->
+  <script src="js/main.js?v=20261002" onerror="__jsErr(this)"></script>
+</body>
+</html>

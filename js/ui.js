@@ -250,7 +250,18 @@ function drawStaminaHUD(x, y) {
 
 // ===== 货币图标（Assets/Icon/Coin.png / Diamond.png）=====
 // 载入时裁掉透明边并逐级缩小到 96px 高（直接把 2000px 大图画成 20px 会有锯齿）；没载入到就退回原来的矢量图 / emoji
-const ICO = { g: null, d: null };
+const ICO = { g: null, d: null, mat: null, scr: null };   // mat = 强化碎晶(Shard.png)，scr = 强化卷轴(Scroll.png)
+// ===== 装备部位图标（Assets/Icon/Equip_xxx.png），没有素材时退回 emoji =====
+const EQI = {};   // { weapon, chest, belt, legs, boots, necklace, ring, ryuki_cap } -> canvas
+function fitIco(ic, cx, cy, box) {   // 等比缩放进 box×box 的方框（取宽高中较大的一边），居中绘制
+  if (!ic) return false;
+  const k = box / Math.max(ic.width, ic.height), w = ic.width * k, h = ic.height * k;
+  ctx.drawImage(ic, cx - w / 2, cy - h / 2, w, h); return true;
+}
+function slotIco(slot, cx, cy, box, fs) {   // box = 图标方框边长；fs = 没贴图时 emoji 的字号
+  if (fitIco(EQI[slot], cx, cy, box)) return;
+  txt(SLOT_ICON[slot] || '', cx, cy, fs, '#fff', 'center', false);
+}
 function mkIcon(im, H = 96) {
   if (!im) return null;
   let c = trim(toCanvas(im));
@@ -272,7 +283,7 @@ function shrinkH(c, H) {
 const icoW = (ic, h) => ic.width * h / ic.height;
 function drawIco(ic, cx, cy, h) { if (!ic) return false; const w = icoW(ic, h); ctx.drawImage(ic, cx - w / 2, cy - h / 2, w, h); return true }
 // 文字开头的 🪙/💰/💎 换成图标；go=true 时只换金币（材料也用 💎，不是钻石）
-function curParse(s, go) { const m = /^(🪙|💰|💎) ?/.exec(s); if (!m || (go && m[1] === '💎')) return null; const ic = m[1] === '💎' ? ICO.d : ICO.g; return ic ? { ic, rest: s.slice(m[0].length) } : null }
+function curParse(s, go) { const m = /^(🪙|💰|💎|📜) ?/.exec(s); if (!m) return null; const ic = m[1] === '📜' ? ICO.scr : m[1] === '💎' ? (go ? ICO.mat : ICO.d) : ICO.g; return ic ? { ic, rest: s.slice(m[0].length) } : null }
 function curW(s, sz, go) { const c = curParse(s, go); return c ? icoW(c.ic, sz * 1.05) + 3 + tw(c.rest, sz) : tw(s, sz) }
 function curT(s, x, y, sz, col, al = 'left', tf = txt, go) {
   const c = curParse(s, go); if (!c) return tf(s, x, y, sz, col, al);
@@ -393,6 +404,21 @@ const BAG_FILTERS = [
   { id: 'legs', n: '腿甲' }, { id: 'boots', n: '靴子' }, { id: 'necklace', n: '项链' }, { id: 'ring', n: '戒指' }
 ];
 const bagHit = (x, y, w, h, f) => BH.push({ x, y, w, h, f });
+// 鼠标位置（仅鼠标指针；触屏没有悬停，点开详情页就能对比）
+const MOUSE = { x: -1, y: -1, on: false };
+cv.addEventListener('pointermove', e => { const r = cv.getBoundingClientRect(); MOUSE.x = (e.clientX - r.left) / r.width * 960; MOUSE.y = (e.clientY - r.top) / r.height * 540; MOUSE.on = e.pointerType === 'mouse'; });
+cv.addEventListener('pointerleave', () => { MOUSE.on = false; });
+let bagHover = null;   // 本帧鼠标指着的背包装备
+// 数值差异小标签（▲ 绿 / ▼ 红）；返回标签左边缘，没有差异返回 null
+function bagDelta(d, fmt, rightX, yy, sz = 12, h = 20) {
+  if (Math.abs(d) < 1e-6) return null;
+  const up = d > 0, s = (up ? '▲ ' : '▼ ') + fmt(Math.abs(d)), w = bagTw(s, sz) + 14, px = rightX - w;
+  rpath(px, yy - h / 2, w, h, 5); ctx.fillStyle = up ? 'rgba(46,213,115,.16)' : 'rgba(255,71,87,.16)'; ctx.fill();
+  txt(s, px + w / 2, yy, sz, up ? '#2ed573' : '#ff6b81', 'center', false);
+  return px;
+}
+const BASE_ROWS = { atk: ['攻击力', '#ff9f9f'], hp: ['生命值', '#7dffd0'], mp: ['魔力值', '#8ec5ff'], crit: ['暴击率', '#ffe08a', 1], def: ['免伤值', '#9dffb8'] };
+const baseFmt = (k, v) => k === 'crit' ? (v * 100).toFixed(1) + '%' : Math.round(v).toLocaleString();
 const bagTw = (s, sz) => { ctx.save(); ctx.font = `700 ${sz}px ${BAG_FONT}`; const w = ctx.measureText(String(s)).width; ctx.restore(); return w };
 const bagArmed = k => bagArmKey === k && T < bagArmUntil;
 
@@ -497,10 +523,10 @@ function drawCharPanel() {
   curT('💰 ' + fmtN(S.g) + ' G', lx + 110, ly + 42, 12, '#ffd84a', 'left', txt, true);
   {   // 第二行按实际宽度顺排：数字再长也不会叠在一起
     let ex = lx + 20;
-    const dS = '💎 ' + fmtN(S.d), mS = '◆碎晶 ' + fmtN(S.mat), cS = '📜 ' + fmtN(S.scr || 0);
+    const dS = '💎 ' + fmtN(S.d), mS = ICO.mat ? '💎 ' + fmtN(S.mat) : '◆碎晶 ' + fmtN(S.mat), cS = '📜 ' + fmtN(S.scr || 0);
     curT(dS, ex, ly + 60, 12, '#7fe9ff', 'left', txt); ex += curW(dS, 12) + 16;
-    txt(mS, ex, ly + 60, 12, '#c58bff'); ex += bagTw(mS, 12) + 16;
-    txt(cS, ex, ly + 60, 12, '#ffa502');
+    curT(mS, ex, ly + 60, 12, '#c58bff', 'left', txt, true); ex += curW(mS, 12, true) + 16;
+    curT(cS, ex, ly + 60, 12, '#ffa502', 'left', txt, true);
   }
 
   // 角色舞台（中间）
@@ -539,7 +565,7 @@ function drawCharPanel() {
     ctx.fillStyle = tc; ctx.fillRect(sl.col ? sx + SW - 4 : sx, sy + 9, 4, SHt - 18);   // 贴向角色一侧的品质色条
     const tx = sl.col ? sx + 8 : sx + 10;
     txt(sl.n, tx, sy + 13, 11, '#8fa0b3');
-    txt(SLOT_ICON[sl.k] || '', sx + (sl.col ? SW - 20 : SW - 14), sy + 13, 12, '#fff', 'center', false);
+    slotIco(sl.k, sx + (sl.col ? SW - 20 : SW - 16), sy + 14, 20, 12);
     if (it) {
       fitTxt(it.name, tx, sy + 31, SW - 22, 12, tc);
       if (it.lvl) txt('+' + it.lvl, tx, sy + 46, 11, '#ffa502');
@@ -559,16 +585,64 @@ function drawCharPanel() {
   ctx.save(); ctx.strokeStyle = 'rgba(0,229,255,.55)'; ctx.lineWidth = 1; ctx.beginPath();   // 心电线装饰
   for (let i = 0; i <= 40; i++) { const px = lx + 190 + i * 3, v = (i % 10 === 4 ? -7 : i % 10 === 5 ? 6 : 0) + Math.sin(T * 4 + i) * .6; i ? ctx.lineTo(px, py0 + 15 + v) : ctx.moveTo(px, py0 + 15 + v) }
   ctx.stroke(); ctx.restore();
-  txt('攻击 ' + (P.atk | 0), lx + 22, py0 + 42, 13, '#ff9f9f');
-  txt('暴击 ' + Math.round(P.cr * 100) + '%', lx + 122, py0 + 42, 13, '#ffeaa7');
-  txt('免伤 ' + (P.def * 100).toFixed(1) + '%', lx + 222, py0 + 42, 13, '#7dff9a');
-  txt('生命 ' + P.mh, lx + 22, py0 + 70, 13, '#55efc4');
-  txt('魔力 ' + P.mm, lx + 122, py0 + 70, 13, '#74b9ff');
+  txt('攻击 ' + (P.atk | 0), lx + 22, py0 + 36, 13, '#ff9f9f');
+  txt('暴击 ' + Math.round(P.cr * 100) + '%', lx + 122, py0 + 36, 13, '#ffeaa7');
+  txt('免伤 ' + (P.def * 100).toFixed(1) + '%', lx + 222, py0 + 36, 13, '#7dff9a');
+  txt('生命 ' + P.mh, lx + 22, py0 + 58, 13, '#55efc4');
+  txt('魔力 ' + P.mm, lx + 122, py0 + 58, 13, '#74b9ff');
+  txt('吸血 ' + (affixTotal('ls') * 100).toFixed(1) + '%', lx + 222, py0 + 58, 13, '#ff6b81');
+  txt('移速 +' + Math.round(affixTotal('spd') * 100) + '%', lx + 22, py0 + 80, 13, '#7df9ff');
 
   // ================= 右侧：列表视图 / 详情视图 =================
   const rx = x + 358, ry = y + 46, rw = 534, rh = 440;
   techPanel(rx, ry, rw, rh, 'rgba(0,229,255,.4)', 12);
-  if (!bagMulti && selItem && selItem.item) drawBagDetail(rx, ry, rw); else drawBagList(rx, ry, rw);
+  bagHover = null;
+  if (!bagMulti && selItem && selItem.item) drawBagDetail(rx, ry, rw); else { drawBagList(rx, ry, rw); if (bagHover) drawBagTip(bagHover); }
+  ctx.restore();
+}
+
+// ---------- 悬停对比浮窗：指着的装备（带 ▲▼）vs 当前穿戴的同部位装备 ----------
+function drawTipCard(o, ref, x, y, w, h, label, lcol) {
+  rpath(x, y, w, h, 8); ctx.fillStyle = 'rgba(10,16,32,.96)'; ctx.fill();
+  ctx.lineWidth = 1.5; ctx.strokeStyle = o ? TIERS[o.tier].c : 'rgba(255,255,255,.2)'; ctx.stroke();
+  txt(label, x + 10, y + 11, 10, lcol, 'left', false);
+  if (!o) { txt('该部位未穿戴', x + w / 2, y + h / 2, 13, '#6f7f95', 'center', false); return; }
+  const tier = TIERS[o.tier];
+  fitTxt(o.name + (o.lvl ? ' +' + o.lvl : ''), x + 10, y + 29, w - 20, 13, tier.c);
+  const sub = 'Lv.' + (o.reqLvl || 1) + (o.star ? '  ⭐' + o.star : '');
+  txt(sub, x + 10, y + 46, 11, (o.reqLvl || 1) > S.lv ? '#ff6b7a' : '#aab6c3', 'left', false);
+  const bks = Object.keys(o.baseStats || {}).filter(k => o.baseStats[k] && BASE_ROWS[k]), affs = o.affix || [], rh = 21, y0 = y + 58;
+  bks.forEach((k, i) => {
+    const r = BASE_ROWS[k], yy = y0 + rh * (i + .5), nv = baseShow(o, k);
+    txt(r[0], x + 10, yy, 11.5, r[1], 'left', false);
+    txt(baseFmt(k, nv), x + 66, yy, 13.5, '#fff');
+    if (ref) bagDelta(nv - baseShow(ref, k), v => baseFmt(k, v), x + w - 8, yy, 10.5, 17);
+  });
+  const ay = y0 + rh * bks.length;
+  ctx.fillStyle = 'rgba(255,255,255,.16)'; ctx.fillRect(x + 8, ay + 1, w - 16, 1);
+  affs.forEach((a, i) => {
+    const d = AFFIX_DEFS[a.k]; if (!d) return;
+    const yy = ay + 4 + rh * (i + .5);
+    ctx.fillStyle = d.c; ctx.fillRect(x + 8, yy - 8, 2, 16);
+    txt('◆ ' + d.n, x + 14, yy, 11.5, d.c, 'left', false);
+    txt(affixStr(o, a), x + 76, yy, 12.5, d.c);
+    if (ref) bagDelta(affixNum(o, a.k) - affixNum(ref, a.k), v => affixFmt(a.k, v), x + w - 8, yy, 10.5, 17);
+  });
+}
+function drawBagTip(it) {
+  const cur = S.eq[it.slot], CW = 196, gap = 6, H = 58 + 21 * 5 + 8 + 4, FH = 26, W = CW * 2 + gap, TH = H + FH;
+  let x = MOUSE.x + 18, y = MOUSE.y + 14;
+  if (x + W > 950) x = MOUSE.x - 18 - W;
+  x = Math.max(8, x); y = Math.max(8, Math.min(y, 532 - TH));
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = 16;
+  rpath(x - 4, y - 4, W + 8, TH + 8, 10); ctx.fillStyle = 'rgba(4,7,16,.94)'; ctx.fill();
+  ctx.shadowBlur = 0; ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,229,255,.5)'; ctx.stroke();
+  drawTipCard(it, cur, x, y, CW, H, '🔍 指向的装备（▲▼ = 相对当前穿戴）', '#7df9ff');
+  drawTipCard(cur || null, null, x + CW + gap, y, CW, H, '✅ 当前穿戴', '#7dff9a');
+  const dcp = cur ? cpDelta(it) : null;
+  if (dcp !== null) txt(cpTag(dcp), x + W / 2, y + H + FH / 2 - 1, 13, dcp > 0 ? '#2ed573' : dcp < 0 ? '#ff6b81' : '#9fb0c6', 'center');
+  else txt('该部位空着，穿上就是提升', x + W / 2, y + H + FH / 2 - 1, 13, '#2ed573', 'center');
   ctx.restore();
 }
 
@@ -616,6 +690,9 @@ function drawBagList(rx, ry, rw) {
     if (!it) { bevel(cx, cy, gw, gh, 8); ctx.fillStyle = 'rgba(12,16,32,.5)'; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.stroke(); continue }
     const tier = TIERS[it.tier], chk = batchSel.has(it.id);
     techCard(cx, cy, gw, gh, chk ? '#00e5ff' : tier.c, chk);
+    if (MOUSE.on && MOUSE.x >= cx && MOUSE.x <= cx + gw && MOUSE.y >= cy && MOUSE.y <= cy + gh) {   // 鼠标悬停：高亮 + 记录，稍后画对比浮窗
+      bagHover = it; bevel(cx, cy, gw, gh, 8); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,.65)'; ctx.stroke();
+    }
     if (chk) { bevel(cx, cy, gw, gh, 8); ctx.fillStyle = 'rgba(0,229,255,.22)'; ctx.fill() }
     const up = isUpgrade(it), canW = (it.reqLvl || 1) <= S.lv;
     fitTxt(it.name, cx + 8, cy + 18, up ? gw - 34 : gw - 16, 13, tier.c);
@@ -630,7 +707,7 @@ function drawBagList(rx, ry, rw) {
       ctx.save(); bevel(cx, cy, gw, gh, 8); ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,216,74,.55)'; ctx.stroke(); ctx.restore();
       txt('🔒', cx + gw - 16, cy + gh - 16, 16, '#ffd84a', 'center', false);
     } else if (!bagMulti) {                                // 右下角部位图标
-      txt(SLOT_ICON[it.slot] || '', cx + gw - 16, cy + gh - 16, 15, '#fff', 'center', false);
+      slotIco(it.slot, cx + gw - 20, cy + gh - 20, 28, 15);
     } else if (bagMulti) {                                 // 多选模式：右下角大勾选框，点整格即可切换
       const bx = cx + gw - 26, by = cy + gh - 26;
       rpath(bx, by, 20, 20, 5); ctx.fillStyle = chk ? '#00e5ff' : 'rgba(255,255,255,.08)'; ctx.fill();
@@ -750,7 +827,7 @@ function drawBagDetail(rx, ry, rw) {
   { const g = ctx.createLinearGradient(X, ty, X + 60, ty + 60); g.addColorStop(0, tier.c); g.addColorStop(1, 'rgba(8,12,26,0)');
     ctx.save(); ctx.globalAlpha = .6; ctx.fillStyle = g; ctx.fill(); ctx.restore(); }
   ctx.save(); ctx.shadowColor = tier.c; ctx.shadowBlur = 12; ctx.lineWidth = 2; ctx.strokeStyle = tier.c; bevel(X, ty, 60, 60, 9); ctx.stroke(); ctx.restore();
-  txt(SLOT_ICON[it.slot] || '', X + 30, ty + 31, 28, '#fff', 'center', false);
+  slotIco(it.slot, X + 30, ty + 30, 40, 28);
 
   let nsz = 20; while (nsz > 12 && bagTw(it.name, nsz) > 250) nsz--;
   txt(it.name, X + 74, ty + 14, nsz, tier.c);
@@ -771,27 +848,32 @@ function drawBagDetail(rx, ry, rw) {
     const tab = (x, w, label, on, f) => { rpath(x, cy + 5, w, 20, 5); ctx.fillStyle = on ? 'rgba(0,229,255,.25)' : 'rgba(255,255,255,.05)'; ctx.fill(); ctx.strokeStyle = on ? '#00e5ff' : 'rgba(255,255,255,.2)'; ctx.lineWidth = 1; ctx.stroke(); txt(label, x + w / 2, cy + 15, 11.5, on ? '#fff' : '#8fa0b3', 'center', false); bagHit(x, cy + 5, w, 20, f); };
     tab(tx - 58, 58, '词条 ' + na, bagAffTab, () => { bagAffTab = true });
     tab(tx - 58 - 4 - 46, 46, '属性', !bagAffTab, () => { bagAffTab = false }); }
-  const oldStats = (currEq && currEq.stats) ? currEq.stats : {};
-  const rows = [['攻击力', 'atk', '#ff9f9f'], ['生命值', 'hp', '#7dffd0'], ['魔力值', 'mp', '#8ec5ff'], ['暴击率', 'crit', '#ffe08a', 1], ['免伤值', 'def', '#9dffb8']]
-    .filter(r => (it.stats[r[1]] || 0) || (oldStats[r[1]] || 0));
-  if (bagAffTab) rows.length = 0;   // 词条页不画属性行
-  if (!bagAffTab && !rows.length) txt('无属性加成', X + lcw / 2, cy + 90, 13, '#5d6b7c', 'center');
-  const rh = Math.min(28, 126 / Math.max(1, rows.length));
-  rows.forEach((r, i) => {
-    const yy = cy + 34 + rh * (i + .5), nv = it.stats[r[1]] || 0, ov = oldStats[r[1]] || 0, pc = !!r[3];
-    const show = v => pc ? Math.round(v * 100) + '%' : Math.round(v).toLocaleString();
-    if (i) { ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fillRect(X + 10, cy + 34 + rh * i, lcw - 20, 1) }
-    txt(r[0], X + 12, yy, 12.5, r[2], 'left', false);
-    txt(show(nv), X + 74, yy, 17, '#fff');
-    if (!isWorn) {
-      const d = nv - ov;
-      if (d !== 0) {
-        const up = d > 0, s = (up ? '▲ ' : '▼ ') + show(Math.abs(d)), w = bagTw(s, 12) + 14, px = X + lcw - 10 - w;
-        rpath(px, yy - 10, w, 20, 5); ctx.fillStyle = up ? 'rgba(46,213,115,.16)' : 'rgba(255,71,87,.16)'; ctx.fill();
-        txt(s, px + w / 2, yy, 12, up ? '#2ed573' : '#ff6b81', 'center', false);
-      } else txt('＝', X + lcw - 18, yy, 14, '#778', 'center', false);
-    }
-  });
+  // —— 属性页：2 项固定基础属性（吃强化 / 升星） + 3 条副词条（带 ◆ 和底色，数值固定）——
+  if (!bagAffTab) {
+    const bks = Object.keys(it.baseStats || {}).filter(k => it.baseStats[k] && BASE_ROWS[k]), affs = it.affix || [];
+    const n = Math.max(1, bks.length + affs.length), rh = Math.min(28, 126 / n), vs = n >= 5 ? 15 : 17;
+    bks.forEach((k, i) => {
+      const r = BASE_ROWS[k], yy = cy + 34 + rh * (i + .5), nv = baseShow(it, k), ov = currEq ? baseShow(currEq, k) : 0;
+      if (i) { ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fillRect(X + 10, cy + 34 + rh * i, lcw - 20, 1) }
+      txt(r[0], X + 12, yy, 12.5, r[1], 'left', false);
+      txt(baseFmt(k, nv), X + 90, yy, vs, '#fff');
+      if (!isWorn && bagDelta(nv - ov, v => baseFmt(k, v), X + lcw - 10, yy) === null) txt('＝', X + lcw - 18, yy, 14, '#778', 'center', false);
+    });
+    affs.forEach((a, i) => {
+      const d = AFFIX_DEFS[a.k]; if (!d) return;
+      const j = bks.length + i, top = cy + 34 + rh * j, yy = top + rh / 2, nv = affixNum(it, a.k), ov = affixNum(currEq, a.k);
+      if (i === 0) { ctx.fillStyle = 'rgba(255,255,255,.16)'; ctx.fillRect(X + 10, top, lcw - 20, 1) }   // 基础属性与词条的分界线
+      rpath(X + 8, top + 2, lcw - 16, rh - 4, 4); ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fill();
+      ctx.fillStyle = d.c; ctx.fillRect(X + 8, top + 4, 2.5, rh - 8);                                   // 左侧色条
+      txt('◆ ' + d.n, X + 16, yy, 12.5, d.c, 'left', false);
+      const vtxt = affixStr(it, a), vw = bagTw(vtxt, 14);
+      txt(vtxt, X + 90, yy, 14, d.c);                                                                    // 数值紧贴在文字旁边
+      let left = X + lcw - 10;
+      if (!isWorn) { const px = bagDelta(nv - ov, v => affixFmt(a.k, v), X + lcw - 10, yy, 11.5, 18); if (px === null) txt('＝', X + lcw - 18, yy, 14, '#778', 'center', false); else left = px; }
+      if (a.q >= AFFIX_PERFECT && X + 90 + vw + 6 + 24 < left - 2) txt('完美', X + 90 + vw + 6, yy, 9.5, '#ffd84a', 'left', false);
+    });
+    if (!bks.length && !affs.length) txt('无属性加成', X + lcw / 2, cy + 90, 13, '#5d6b7c', 'center');
+  }
 
   // —— 词条页：词条列表 + 品质条 + 重铸 ——
   if (bagAffTab) {
@@ -802,20 +884,28 @@ function drawBagDetail(rx, ry, rw) {
       const yy = cy + 34 + i * 29, perfect = a.q >= AFFIX_PERFECT;
       txt('◆ ' + d.n, X + 12, yy + 6, 12.5, d.c, 'left', false);
       if (perfect) txt('完美', X + 12 + bagTw('◆ ' + d.n, 12.5) + 8, yy + 6, 10, '#ffd84a', 'left', false);
-      txt(affixStr(it, a), X + lcw - 12, yy + 6, 14.5, '#fff', 'right');
+      { const lw = 22, lx = X + lcw - 12 - lw;   // 锁定开关：锁定的词条重铸时保持不变
+        rpath(lx, yy - 3, lw, 18, 4); ctx.fillStyle = a.lk ? 'rgba(255,216,74,.22)' : 'rgba(255,255,255,.06)'; ctx.fill();
+        ctx.lineWidth = 1; ctx.strokeStyle = a.lk ? '#ffd84a' : 'rgba(255,255,255,.22)'; ctx.stroke();
+        txt(a.lk ? '🔒' : '🔓', lx + lw / 2, yy + 6, 11, '#fff', 'center', false);
+        bagHit(lx, yy - 3, lw, 18, () => toggleAffixLock(it, i));
+        txt(affixStr(it, a), lx - 6, yy + 6, 14.5, '#fff', 'right'); }
       rpath(X + 12, yy + 17, lcw - 24, 5, 2.5); ctx.fillStyle = 'rgba(255,255,255,.1)'; ctx.fill();
       rpath(X + 12, yy + 17, Math.max(5, (lcw - 24) * a.q), 5, 2.5); ctx.fillStyle = perfect ? '#ffd84a' : d.c; ctx.fill();
     });
     const rc = rerollCost(it), rok = S.g >= rc.g && S.mat >= rc.mat, kr = 'rr:' + it.id, ar = bagArmed(kr);
-    txt('💰 ' + fmtN(rc.g) + '    💎 ' + fmtN(rc.mat), X + lcw / 2, cy + CH - 42, 11, rok ? '#cfd8e3' : '#ff8a8a', 'center', false);
-    actBtn(X + 10, cy + CH - 33, lcw - 20, 26, ar ? '再点一次 确认重铸' : '♻ 重铸词条', ar ? '#e0563a' : '#a55eea', rok, 12.5,
-      () => bagConfirm(kr, '再点一次确认重铸（现有词条将被全部重新随机）', () => rerollAffix(it)));
+    { const a = '💰 ' + fmtN(rc.g), b = '💎 ' + fmtN(rc.mat), col = rok ? '#cfd8e3' : '#ff8a8a', gap = 18, aw = curW(a, 11, true), bw = curW(b, 11, true), x0 = X + lcw / 2 - (aw + gap + bw) / 2, tf = (s, x, y, z, c, al) => txt(s, x, y, z, c, al, false);
+      curT(a, x0, cy + CH - 42, 11, col, 'left', tf, true);
+      curT(b, x0 + aw + gap, cy + CH - 42, 11, col, 'left', tf, true); }
+    { const nl = affixLockN(it);
+    actBtn(X + 10, cy + CH - 33, lcw - 20, 26, ar ? '再点一次 确认重铸' : (nl ? '♻ 重铸词条（锁定 ' + nl + ' 条）' : '♻ 重铸词条'), ar ? '#e0563a' : '#a55eea', rok, 12.5,
+      () => bagConfirm(kr, nl ? '再点一次确认重铸（已锁定 ' + nl + ' 条保持不变，其余重新随机）' : '再点一次确认重铸（现有词条将被全部重新随机）', () => rerollAffix(it))); }
   }
 
   // —— 右上卡：强化（按钮就在卡片里）——
   dPanel(RX, cy, rcw, 80, '🔨 强化  +' + it.lvl + ' → +' + (it.lvl + 1), '', '#ffa502');
   actBtn(RX + rcw - 76, cy + 4, 68, 26, '强化 +1', '#ff9f43', canUp, 12, () => upgradeItem(it));
-  txt('每级 +8% 基础属性', RX + 12, cy + 38, 11, '#8fa0b3', 'left', false);
+  txt('每级 +8% 两项基础属性 · 词条不变', RX + 12, cy + 38, 11, '#8fa0b3', 'left', false);
   { let cx = RX + 10; const yy = cy + 50;
     cx += chipFit(cx, yy, 24, '💰 ' + fmtN(uc.g), S.g >= uc.g) + 5;
     cx += chipFit(cx, yy, 24, '💎 ' + fmtN(uc.mat), S.mat >= uc.mat) + 5;
@@ -829,7 +919,7 @@ function drawBagDetail(rx, ry, rw) {
   } else {
     dPanel(RX, sy, rcw, 80, '⭐ 升星  ' + star + ' → ' + (star + 1), '', '#ffd84a');
     actBtn(RX + rcw - 76, sy + 4, 68, 26, '升星', '#d4a017', canStar, 12, () => starUpItem(it));
-    txt('每星 全属性 +15%', RX + 12, sy + 38, 11, '#8fa0b3', 'left', false);
+    txt('每星 两项基础属性 +15% · 词条不变', RX + 12, sy + 38, 11, '#8fa0b3', 'left', false);
     let cx = RX + 10; const yy = sy + 50;
     cx += chipFit(cx, yy, 24, '💰 ' + fmtN(sc), S.g >= sc) + 5;
     chipFit(cx, yy, 24, '📦 同名同品质 ' + Math.min(mats, 99) + '/2', mats >= 2, 11);
@@ -855,6 +945,8 @@ function drawBagDetail(rx, ry, rw) {
 }
 
 // ===== 极速胶囊检索与契约驱动终端 (按 N 键呼出) =====
+const CAPL = { cardY: 10, cardH: 108, titleY: 136, btnY: 152, btnH: 36, p1Y: 198, p2Y: 298, pH: 92 };   // 胶囊详情的纵向布局（特效也读它）
+const CAPACT = { x: -99, y: -99, w: 0, h: 0 };   // 「装配 / 卸下」按钮命中区，每帧由 drawCapsuleModal0 登记
 function drawCapsuleModal0() {
   const pw = 780, ph = 470, px = (960 - pw) / 2, py = 35;
   ctx.save();
@@ -988,7 +1080,13 @@ function drawCapsuleModal0() {
       ctx.stroke();
 
       const sym = c.id === 'ryuki' ? '龍' : (c.id === '555' ? 'Φ' : (c.id === 'blade' ? '♠' : c.rider[0]));
-      txt(sym, iconX + iconSize / 2, iconY + iconSize / 2, 18, isOwned ? '#ffffff' : '#6f7a8c', 'center');
+      if (EQI.ryuki_cap) {
+        ctx.save(); if (!isOwned) ctx.globalAlpha = .38;
+        fitIco(EQI.ryuki_cap, iconX + iconSize / 2, iconY + iconSize / 2 - 1, 32); ctx.restore();
+        txt(sym, iconX + iconSize - 7, iconY + iconSize - 8, 10, isOwned ? '#ffffff' : '#6f7a8c', 'center');
+      } else txt(sym, iconX + iconSize / 2, iconY + iconSize / 2, 18, isOwned ? '#ffffff' : '#6f7a8c', 'center');
+      const stN = isOwned ? capStar(c.id) : 0;
+      if (stN > 0) txt('★' + stN, cardX + 60 + bagTw(c.name, 13) + 8, rowY + 18, 11.5, '#ffd84a');
 
       // 6. 胶囊名称与类别标签
       const nameX = cardX + 60;
@@ -1037,85 +1135,80 @@ function drawCapsuleModal0() {
   const isCapEquipped = selCap ? S.eqCap === selCap.id : false;
 
   if (selCap) {
-    // ★ 统一右侧所有元素对齐基线：左侧 cx，宽度统一为 cw，右边界为 cx + cw
-    const cx = rx + 12, cw = rw - 24;
+    // 右侧详情：卡面 → 名称/星级 → 操作按钮 → 两张信息卡；所有行距 ≥ 18px，标签与内容分列，不再挤在一起
+    const L = CAPL, cx = rx + 14, cw = rw - 28;
+    const csN = isCapOwned ? capStar(selCap.id) : 0, MAXS = CAP_STAR_MAX;
 
-    // 1. 胶囊卡面全息展示框（高度收至 138px，留出舒适纵向呼吸间距）
-    const cardH = 138;
-    bevel(cx, ry + 12, cw, cardH, 9);
-    ctx.fillStyle = 'rgba(8, 12, 26, 0.95)'; ctx.fill();
-
-    const cg = ctx.createLinearGradient(cx, ry + 12, cx, ry + 12 + cardH);
-    cg.addColorStop(0, selCap.c + '38');
-    cg.addColorStop(1, 'rgba(5, 10, 20, 0)');
-    ctx.fillStyle = cg; ctx.fill();
-
-    ctx.save();
-    ctx.shadowColor = isCapEquipped ? '#2ed573' : selCap.c;
-    ctx.shadowBlur = 12;
-    ctx.lineWidth = 1.8;
-    ctx.strokeStyle = isCapEquipped ? '#2ed573' : (isCapOwned ? selCap.c : 'rgba(255, 255, 255, 0.15)');
-    ctx.stroke();
-    ctx.restore();
-
-    // 绘制卡面图像（带切角剪裁）
+    // 1. 卡面
+    bevel(cx, ry + L.cardY, cw, L.cardH, 9); ctx.fillStyle = 'rgba(8,12,26,.95)'; ctx.fill();
+    const cg = ctx.createLinearGradient(cx, ry + L.cardY, cx, ry + L.cardY + L.cardH);
+    cg.addColorStop(0, selCap.c + '38'); cg.addColorStop(1, 'rgba(5,10,20,0)'); ctx.fillStyle = cg; ctx.fill();
     if (CAP_IMGS[selCap.id]) {
-      ctx.save();
-      bevel(cx + 2, ry + 14, cw - 4, cardH - 4, 7);
-      ctx.clip();
-      drawArt(CAP_IMGS[selCap.id], cx + 2, ry + 14, cw - 4, cardH - 4);
+      ctx.save(); bevel(cx + 2, ry + L.cardY + 2, cw - 4, L.cardH - 4, 7); ctx.clip();
+      drawArt(CAP_IMGS[selCap.id], cx + 2, ry + L.cardY + 2, cw - 4, L.cardH - 4);
+      if (!isCapOwned) { ctx.fillStyle = 'rgba(4,8,18,.55)'; ctx.fillRect(cx, ry + L.cardY, cw, L.cardH) }   // 未拥有：压暗
       ctx.restore();
     } else {
-      ctx.save();
-      const midX = cx + cw / 2, midY = ry + 12 + cardH / 2;
-      ctx.beginPath(); ctx.arc(midX, midY, 36, 0, Math.PI * 2);
-      ctx.fillStyle = isCapOwned ? `${selCap.c}28` : 'rgba(30, 36, 50, 0.5)'; ctx.fill();
-      ctx.strokeStyle = isCapOwned ? selCap.c : '#666'; ctx.lineWidth = 2; ctx.stroke();
+      const midX = cx + cw / 2, midY = ry + L.cardY + L.cardH / 2;
+      ctx.save(); ctx.beginPath(); ctx.arc(midX, midY, 34, 0, 7);
+      ctx.fillStyle = isCapOwned ? selCap.c + '28' : 'rgba(30,36,50,.5)'; ctx.fill(); ctx.strokeStyle = isCapOwned ? selCap.c : '#666'; ctx.lineWidth = 2; ctx.stroke();
       txt(selCap.rider, midX, midY - 6, 14, isCapOwned ? '#fff' : '#777', 'center');
-      txt(selCap.tag, midX, midY + 12, 11, isCapOwned ? selCap.c : '#555', 'center');
-      ctx.restore();
+      txt(selCap.tag, midX, midY + 12, 11, isCapOwned ? selCap.c : '#555', 'center'); ctx.restore();
     }
-
-    // 展示框内左右角标（内边距严格 8px 对称）
-    badge(cx + 8, ry + 20, TIERS[selCap.tier].n + '契约级', TIERS[selCap.tier].c, TIERS[selCap.tier].bg);
+    ctx.save(); bevel(cx, ry + L.cardY, cw, L.cardH, 9);
+    ctx.shadowColor = isCapEquipped ? '#2ed573' : selCap.c; ctx.shadowBlur = 10; ctx.lineWidth = 1.8;
+    ctx.strokeStyle = isCapEquipped ? '#2ed573' : (isCapOwned ? selCap.c : 'rgba(255,255,255,.15)'); ctx.stroke(); ctx.restore();
+    badge(cx + 8, ry + L.cardY + 8, TIERS[selCap.tier].n + '契约级', TIERS[selCap.tier].c, TIERS[selCap.tier].bg);
     const tagW0 = bagTw(selCap.tag, 11) + 16;
-    badge(cx + cw - 8 - tagW0, ry + 20, selCap.tag, '#7df9ff', 'rgba(0, 229, 255, 0.18)');
+    badge(cx + cw - 8 - tagW0, ry + L.cardY + 8, selCap.tag, '#7df9ff', 'rgba(0,229,255,.18)');
 
-    // 2. 骑士名称与星级横栏（垂直精确居中于展示框底与装配按钮之间，间距各 13px）
-    const titleY = ry + 172;
-    // 左对齐：紧贴 cx 基准线
-    txt(selCap.name, cx, titleY, 15, selCap.c);
-    txt('· ' + selCap.rider, cx + bagTw(selCap.name, 15) + 6, titleY, 12, '#ffd84a');
+    // 2. 名称 + 骑士标签 + 星级
+    const ty = ry + L.titleY, nw = bagTw(selCap.name, 17);
+    txt(selCap.name, cx + 2, ty, 17, isCapOwned ? selCap.c : '#8c96a6');
+    const rw2 = bagTw(selCap.rider, 10.5) + 14, rxx = cx + 2 + nw + 10;
+    rpath(rxx, ty - 10, rw2, 20, 6); ctx.fillStyle = 'rgba(255,216,74,.12)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,216,74,.7)'; ctx.lineWidth = 1; ctx.stroke();
+    txt(selCap.rider, rxx + rw2 / 2, ty, 10.5, '#ffd84a', 'center', false);
+    for (let s = 0; s < MAXS; s++) starShape((cx + cw - 8) - (MAXS - 1 - s) * 17, ty, 6.5, s < csN);
 
-    // 右对齐：5 颗星徽的最右端严格贴合 cx + cw
-    for (let s = 0; s < 5; s++) {
-      const starX = (cx + cw - 6) - (4 - s) * 15;
-      starShape(starX, titleY, 5.5, true);
-    }
-
-    // 3. 一键装配/卸下大按钮（Y 保持在 ry + 192，高度 36，宽度与上下严格对齐）
-    const actBtnY = ry + 192, actBtnH = 36;
+    // 3. 操作按钮：装配 / 卸下 + 升星（升星按钮内含碎片数量）
+    const by = ry + L.btnY, bh = L.btnH;
     if (!isCapOwned) {
-      actBtn(cx, actBtnY, cw, actBtnH, '🔒 尚未拥有此胶囊（可前往扭蛋终端抽取）', '#2a3140', false, 12);
-    } else if (isCapEquipped) {
-      actBtn(cx, actBtnY, cw, actBtnH, '✔ 当前已装配 [点击卸下契约]', '#2e86de', true, 13);
+      actBtn(cx, by, cw, bh, '🔒 尚未拥有（可前往扭蛋终端抽取）', '#2a3140', false, 12);
+      Object.assign(CAPACT, { x: cx, y: by, w: cw, h: bh }); Object.assign(CAPUP, { x: -99, y: -99, w: 0, h: 0 });
     } else {
-      actBtn(cx, actBtnY, cw, actBtnH, '⚡ 立即装配该变身胶囊', '#2ed573', true, 13.5);
+      const uw0 = 116, ew = cw - uw0 - 8, ux = cx + cw - uw0;
+      if (isCapEquipped) actBtn(cx, by, ew, bh, '✔ 当前已装配 [点击卸下]', '#2e86de', true, 13);
+      else actBtn(cx, by, ew, bh, '⚡ 立即装配该变身胶囊', '#2ed573', true, 13.5);
+      Object.assign(CAPACT, { x: cx, y: by, w: ew, h: bh });
+      const need = capStarCost(selCap.id), maxed = need === 0, have = capShards(), can = !maxed && have >= need;
+      actBtn(ux, by, uw0, bh, '', '#a55eea', can, 12);
+      if (maxed) txt('★ 已满星', ux + uw0 / 2, by + bh / 2, 12.5, '#ffd84a', 'center', false);
+      else {
+        txt('⭐ 升星', ux + uw0 / 2, by + 12, 12.5, can ? '#fff' : '#9aa6b8', 'center', false);
+        txt('碎片 ' + have + ' / ' + need, ux + uw0 / 2, by + 27, 10, can ? '#f1e6ff' : '#b08cff', 'center', false);
+      }
+      Object.assign(CAPUP, { x: ux, y: by, w: uw0, h: bh });
     }
 
-    // 4. 属性加成与必杀技参数卡片（文字避开 30px 标题栏，行距均匀）
-    // 卡片 1：契约属性强化 (高 66px)
-    const p1Y = ry + 238, p1H = 66;
-    dPanel(cx, p1Y, cw, p1H, '契约战力加成', 'FORM BUFF', '#00e5ff');
-    txt('• 属性提升: ' + selCap.buff, cx + 14, p1Y + 37, 11.5, '#ffd84a');
-    txt('• 核心特性: ' + (selCap.trait || '专属形态动作模组与独立变身音效'), cx + 14, p1Y + 54, 11, '#e6ebf5');
+    // 4. 信息卡（标签 + 内容 两列）
+    const lab = (y, l, v, col) => { ut(l, cx + 14, y, 10.5, '#7f8da3', 'left', { w: 600, sh: 0 }); qFit(v, cx + 76, y, cw - 76 - 14, 11.5, col, 600); };
+    let buffS = selCap.buff;
+    if (isCapOwned && typeof capAtkMul === 'function' && typeof capCrAdd === 'function') {   // 含升星加成的实际数值
+      const f1 = n => String(Math.round(n * 10) / 10), sp = ((selCap.spdMul || 1) - 1) * 100;
+      buffS = '攻击力 +' + f1((capAtkMul(selCap) - 1) * 100) + '%，暴击率 +' + f1(capCrAdd(selCap) * 100) + '%' + (sp > .5 ? '，移速 +' + f1(sp) + '%' : '');
+    }
+    const p1 = ry + L.p1Y;
+    dPanel(cx, p1, cw, L.pH, '契约战力加成', csN ? '★' + csN + ' 加成已生效' : 'FORM BUFF', '#00e5ff');
+    lab(p1 + 44, '属性提升', buffS, csN ? '#9dff9d' : '#ffd84a');
+    lab(p1 + 62, '核心特性', selCap.trait || '专属形态动作模组与独立变身音效', '#e6ebf5');
+    if (CAPUP.msg && T < CAPUP.until) lab(p1 + 80, '提示', CAPUP.msg, '#ffd84a');
+    else lab(p1 + 80, '升星成长', csN && typeof capStarBonusText === 'function' ? capStarBonusText(selCap.id) : '每星 攻击 +4%，暴击 +1.5%；3★ / 5★ 缩减冷却', '#c79bff');
 
-    // 卡片 2：技能与必杀战术 (高 88px)
-    const p2Y = ry + 314, p2H = 88;
-    dPanel(cx, p2Y, cw, p2H, '形态技能与战术', 'SKILLS & TACTIC', '#ffa502');
-    txt('• 战术技能: ' + selCap.skill, cx + 14, p2Y + 36, 11, '#7df9ff');
-    fitTxt('• 终结必杀: ' + selCap.finisher, cx + 14, p2Y + 54, cw - 28, 11, '#ff7675');
-    txt('★ 战术提示: 战斗中按「变身」键变身/解除', cx + 14, p2Y + 72, 10.5, '#7dff9a');
+    const p2 = ry + L.p2Y;
+    dPanel(cx, p2, cw, L.pH, '形态技能与战术', 'SKILLS & TACTIC', '#ffa502');
+    lab(p2 + 44, '战术技能', selCap.skill, '#7df9ff');
+    lab(p2 + 62, '终结必杀', selCap.finisher, '#ff8f8f');
+    lab(p2 + 80, '操作提示', '战斗中按「变身」键变身 / 解除', '#7dff9a');
   }
 
   ctx.restore();
@@ -1168,7 +1261,7 @@ function gachaPull(n) {
     let r = Math.random() * 100, hit = tb[tb.length - 1];
     for (const e of tb) { if (r < e.p) { hit = e; break } r -= e.p }
     if (hit.kind === 'cap') {
-      if (S.caps.includes(hit.c.id)) res.push({ k: 'dup', c: hit.c });
+      if (S.caps.includes(hit.c.id)) { S.csh = (S.csh | 0) + CAP_DUP_SHARD; res.push({ k: 'dup', c: hit.c, sh: CAP_DUP_SHARD }); }   // 重复胶囊 → 契约碎片（用于升星）
       else { S.caps.push(hit.c.id); if (!S.eqCap) S.eqCap = hit.c.id; res.push({ k: 'new', c: hit.c }); fresh.push(hit.c.id) }
     } else if (hit.kind === 'potion') {
       if (S.hp < 9) { S.hp++; res.push({ k: 'potion' }) } else res.push({ k: 'potion', full: 1 });
@@ -1218,12 +1311,12 @@ function items() {
     bk
   ];
 
-  // 铁匠铺：胶囊已剥离，无上限等级，攻击+1%/生命+5%/伤害-0.1%/魔力+3%
+  // 铁匠铺：胶囊已剥离，无上限等级，攻击+2%/生命+5%/伤害-0.05%/魔力+3%
   if (p === 'eq') {
     const q = (k, n, d, ic) => ({ n: n + '  Lv.' + S[k], ic, d, g: forgeCost(S[k]), max: false, bt: '研磨', st: 1, f: () => S[k]++ });
     return [
-      q('sw', '基础斩刃研磨', '基础攻击力 +1% / 级（无上限）', '⚔'),
-      q('ar', '基础装甲强化', '基础生命 +5%、受到伤害 -0.1% / 级（无上限）', '🛡'),
+      q('sw', '基础斩刃研磨', '基础攻击力 +2% / 级（无上限）', '⚔'),
+      q('ar', '基础装甲强化', '基础生命 +5%、受到伤害 -0.05% / 级（无上限）', '🛡'),
       q('bt', '驱动引擎调试', '基础魔力 +3% / 级（无上限）', '⚙'),
       bk
     ];
@@ -1238,13 +1331,13 @@ function items() {
 
 // ===== 屏幕专属技能栏 HUD（支持图标、CD 遮罩与冷却数字） =====
 function drawSkillBarHUD() {
-  if (G !== 'play') return;
+  if (G !== 'play' || (typeof TOUCH !== 'undefined' && TOUCH)) return;   // 手机端：冷却直接显示在右下角按键上
   const curRk = curRiderKey();
   const skills = [
     { key: 'atk', label: 'J', name: '普攻', mp: 0, cd: 0, mcd: 0 },
-    { key: 'l',   label: 'L', name: lSkillName(), mp: 10, cd: P.cd.l || 0, mcd: P.maxCd.l || 1 },
-    { key: 'e',   label: 'E', name: '战车', mp: 35, cd: P.cd.e || 0, mcd: P.maxCd.e || 1 },
-    { key: 'k',   label: 'K', name: '终结技', mp: 60, cd: P.cd.k || 0, mcd: P.maxCd.k || 1 },
+    { key: 'l',   label: 'L', name: lSkillName(), mp: 20, cd: P.cd.l || 0, mcd: P.maxCd.l || 1 },
+    { key: 'e',   label: 'E', name: '战车', mp: 70, cd: P.cd.e || 0, mcd: P.maxCd.e || 1 },
+    { key: 'k',   label: 'K', name: '终结技', mp: 120, cd: P.cd.k || 0, mcd: P.maxCd.k || 1 },
     { key: 'p',   label: 'P', name: inForm() ? '解除' : '变身', mp: 0, cd: P.cd.p || 0, mcd: P.maxCd.p || 1 }
   ];
 
@@ -1441,7 +1534,7 @@ function drawWinSettlement() {
   ctx.fillStyle = hg; ctx.fillRect(px + 40, py + 2, pw - 80, 50);
 
   // 3. 标题与下移后的关卡名（解决贴合过紧问题）
-  txt('VICTORY · 关卡完成', px + pw / 2, py + 30, 25, '#ffd84a', 'center');
+  txt(W.tower ? 'VICTORY · 第 ' + W.tower + ' 层通关' : 'VICTORY · 关卡完成', px + pw / 2, py + 30, 25, '#ffd84a', 'center');
   txt(W.stageName, px + pw / 2, py + 66, 14, '#a2b4cb', 'center'); // ★ 下移至 py+66
 
   // 4. 星级与 Rank 徽章（绝对同一水平线 py + 108 对齐）
@@ -1485,7 +1578,7 @@ function drawWinSettlement() {
   });
 
   // 6. 奖励卡片网格（★ 大幅收紧与上方的间距，从 py+224 提前至 py+204）
-  const cardW = 180, cardH = 70, cardGap = 14;
+  let cardW = 180; const cardH = 70, cardGap = 14;
   const cards = [
     { title: '金币收益', val: '+' + Math.round(W.gold * p).toLocaleString(), icon: ICO.g, col: '#ffd84a' },
     { 
@@ -1498,6 +1591,10 @@ function drawWinSettlement() {
     { title: '获得经验', val: '+' + W.expGain + ' EXP', sym: '⚡', col: '#7dff9a' }
   ];
 
+  if (W.shards > 0) cards.push({ title: '契约碎片', val: '+' + W.shards, sym: '◆', col: '#c79bff', badge: W.tower ? 'BOSS' : null });   // 无尽塔首领层 / 双人副本
+  if (W.mats > 0) cards.push({ title: '碎晶 / 卷轴', val: '+' + W.mats + ' / +' + (W.scrs | 0), sym: '🔨', col: '#ffa502' });   // 双人副本
+  cardW = cards.length >= 5 ? 118 : cards.length === 4 ? 150 : 180;
+  if (cardW < 130) cards.forEach(c => { c.badge = null; });   // 卡片太窄时不画角标，避免盖住标题
   const totalCardsW = cards.length * cardW + (cards.length - 1) * cardGap;
   const cardX0 = px + (pw - totalCardsW) / 2, cardY = py + 204; // ★ 紧凑排布
 
@@ -1542,7 +1639,7 @@ function drawWinSettlement() {
   const btnDefs = [
     { id: 'base', text: '返回大厅 [ESC]', w: 140, bg: 'rgba(255,255,255,0.08)', col: '#ccd6e0', border: 'rgba(255,255,255,0.2)' },
     { id: 'retry', text: '再次挑战 [R]', w: 140, bg: 'rgba(0, 229, 255, 0.15)', col: '#7df9ff', border: '#00e5ff' },
-    { id: 'next', text: isLast ? '完成出征 [Enter]' : '下一战役 [Enter]', w: 190, bg: 'rgba(255, 216, 74, 0.25)', col: '#ffd84a', border: '#ffd84a', main: true }
+    { id: 'next', text: ST[cur].tw ? '下一层 [Enter]' : isLast ? '完成出征 [Enter]' : '下一战役 [Enter]', w: 190, bg: 'rgba(255, 216, 74, 0.25)', col: '#ffd84a', border: '#ffd84a', main: true }
   ];
 
   const totalBtnW = btnDefs.reduce((a, b) => a + b.w, 0) + 24;
@@ -1645,12 +1742,12 @@ function drawWBSettlement() {
 
   // 提示信息
   const subTip = isWin 
-    ? '★ 成功破除首领装甲，额外获得 50% 赏金加成与满额战利品 ★'
-    : '金币收益按实际伤害比例发放；撤退、超时或战败均结算战利品';
+    ? '★ 成功破除首领装甲，额外获得 50% 赏金与钻石加成 ★'
+    : '金币与钻石按实际伤害比例发放；撤退、超时或战败均结算战利品';
   txt(subTip, px + pw / 2, py + 148, 11.5, isWin ? '#7dff9a' : '#ffa502', 'center');
 
   // 5. 奖励展示卡片网格 (py + 204，收紧间距)
-  const cardW = 180, cardH = 70, cardGap = 14;
+  const cardW = 150, cardH = 70, cardGap = 14;
   const cards = [
     { 
       title: '战果赏金', 
@@ -1659,6 +1756,7 @@ function drawWBSettlement() {
       col: '#ffd84a',
       badge: W.isKill ? 'KILL +50%' : null
     },
+    { title: '世界首领钻石', val: '+' + (W.diam | 0), icon: ICO.d, col: '#4fe3ff', badge: W.isKill ? 'KILL +50%' : null },
     { 
       title: '历史最高伤害', 
       val: poN(W.bestDmg), 
@@ -1763,16 +1861,16 @@ function drawBossBar(b, name) {
   else BOSSB.ghost = Math.max(b.hp, BOSSB.ghost - (BOSSB.ghost - b.hp) * Math.min(1, d * 5) - b.mhp * .02 * d);
 
   const r = cl(b.hp / b.mhp, 0, 1), gr = cl(BOSSB.ghost / b.mhp, 0, 1);
-  const bw = 320, bh = 16, bx = (960 - bw) / 2 + (BOSSB.flash > 0 ? (Math.random() - .5) * 4 : 0), by = 30;
+  const bw = 300, bh = 16, bx = (CP_HUD.w ? CP_HUD.x + 3 : 317) + (BOSSB.flash > 0 ? (Math.random() - .5) * 4 : 0), by = 66;   // 放在战力 / 任务按钮正下方（与战力胶囊左对齐）
   const pulse = r < .25 ? .5 + .5 * Math.sin(T * 9) : 0;
   const cols = r > .5 ? ['#ff4757', '#ff9f43'] : r > .25 ? ['#d81f3a', '#ff6a3d'] : ['#a80018', '#ff2d2d'];
   const rage = !!b.rg;
 
   ctx.save();
   // 名称 + 狂暴标记 + 百分比
-  txt(name, bx + 2, 17, 14, '#fff', 'left');
-  if (rage) txt('狂暴', bx + 2 + ctx.measureText(name).width + 10, 17, 12, '#ff3838', 'left');
-  txt((r * 100 < 10 && r > 0 ? (r * 100).toFixed(1) : Math.ceil(r * 100)) + '%', bx + bw - 2, 17, 13, r < .25 ? '#ff6b6b' : '#ffd8a8', 'right');
+  txt(name, bx + 2, 53, 14, '#fff', 'left');
+  if (rage) txt('狂暴', bx + 2 + ctx.measureText(name).width + 10, 53, 12, '#ff3838', 'left');
+  txt((r * 100 < 10 && r > 0 ? (r * 100).toFixed(1) : Math.ceil(r * 100)) + '%', bx + bw - 2, 53, 13, r < .25 ? '#ff6b6b' : '#ffd8a8', 'right');
 
   // 底框
   rpath(bx - 3, by - 3, bw + 6, bh + 6, 10);
@@ -1944,6 +2042,7 @@ function capKeys() {
 }
 function drawCapsuleModal() {
   drawCapsuleModal0();
+  drawCapUpFx();
   if (typeof TOUCH !== 'undefined' && TOUCH) return;
   ut('W/S 选择    A/D 切换分类    Enter 装配 / 卸下    N 或 Esc 关闭', 480, 523, 11, 'rgba(210,218,232,.8)', 'center', { w: 500, sp: .5 });
 }
@@ -1967,7 +2066,7 @@ function psTick(dt) {
   const p = ps(); p.pt += dt;
   if (G === 'play') { const k = curRiderKey(); p.formT[k] = (p.formT[k] || 0) + dt }
   psSaveT += dt;
-  if (psSaveT > 15) { psSaveT = 0; try { localStorage.malaya = JSON.stringify(S) } catch (e) { } }   // 仅本地，云端仍走 save() 的防抖
+  if (psSaveT > 15) { psSaveT = 0; if (!window.__noSave) try { localStorage.malaya = JSON.stringify(S) } catch (e) { } }   // 仅本地，云端仍走 save() 的防抖
 }
 function psHit(d, c) { const p = ps(); p.dmg += d; p.hits++; if (c) p.crits++; if (d > p.maxHit) p.maxHit = d }
 function psKill(isBoss) { const p = ps(); p.kills++; if (isBoss) p.boss++ }
@@ -1976,8 +2075,8 @@ function psDia(n) { if (n > 0) ps().dE += n }
 function psTaken(d) { ps().taken += d }
 function psResult(w) { const p = ps(); if (w) p.win++; else p.lose++ }
 function psHen() { ps().hen++ }
-addEventListener('beforeunload', () => { try { localStorage.malaya = JSON.stringify(S) } catch (e) { } });
-document.addEventListener('visibilitychange', () => { if (document.hidden) try { localStorage.malaya = JSON.stringify(S) } catch (e) { } });
+addEventListener('beforeunload', () => { if (!window.__noSave) try { localStorage.malaya = JSON.stringify(S) } catch (e) { } });
+document.addEventListener('visibilitychange', () => { if (document.hidden && !window.__noSave) try { localStorage.malaya = JSON.stringify(S) } catch (e) { } });
 
 function psCanOpen() {
   return !showStat && !showQuest && !M && !showChar && !showCapModal && !gachaModal && (G === 'vil' || G === 'room' || G === 'play');
@@ -1986,7 +2085,7 @@ function psOpen() {
   if (G === 'play' && typeof coopBattleOn === 'function' && coopBattleOn()) {
     DT.push({ x: P.x, y: P.y - 180, s: '联机战斗中无法暂停查看战绩', t: 1.2, c: '#ffd84a' }); return;
   }
-  showStat = true;
+  showStat = true; TS.open = false; LB.view = null;
 }
 function psBadgeHit(x, y) { return Math.hypot(x - PS_BADGE.x, y - PS_BADGE.y) <= PS_BADGE.r }
 const PS_PANEL = { x: 110, y: 26, w: 740, h: 488 };
@@ -2013,69 +2112,145 @@ function psDur(s) {
 const PS_TITLES = [[0, '见习骑士'], [50, '正式骑士'], [300, '资深战士'], [1000, '王牌骑士'], [3000, '传说骑士'], [10000, '大红花守护者']];
 const PS_FORM = { malaya: 'Malaya', ryuki: '龙骑', '555': '555', blade: 'Blade' };
 
+// ---- 档案数据源：自己（实时）/ 排行榜上的其他骑士（leaderboard.profile）----
+function psSelfView() {
+  const gear = [...S.inv, ...Object.values(S.eq || {}).filter(Boolean)];
+  return {
+    self: true, nick: S.nick || '无名骑士', lv: S.lv, cp: (typeof calcCP === 'function') ? calcCP() : 0,
+    title: (typeof ttName === 'function' ? ttName() : '') || '', p: ps(), g: S.g, d: S.d,
+    cl: Math.min(S.cl, NST), s3: Object.values(S.stars || {}).filter(v => v >= 3).length,
+    caps: S.caps.length, top: gear.reduce((m, it) => it && it.tier > m ? it.tier : m, -1)
+  };
+}
+function psViewFromRow(r) {
+  const f = r.profile && typeof r.profile === 'object' && r.profile.p && typeof r.profile.p === 'object' ? r.profile : null;
+  const v = { nick: r.nickname || '无名骑士', lv: r.lv || 1, cp: Math.round(r.cp || 0), title: r.title || (f && f.title) || '', p: null };
+  if (!f) return v;   // 对方还没同步过详细档案（没升级到新版 / 数据库没加 profile 列）
+  const n = x => Number(x) || 0, o = f.p;
+  v.p = { pt: n(o.pt), gE: n(o.gE), dE: n(o.dE), dmg: n(o.dmg), maxHit: n(o.maxHit), hits: n(o.hits), crits: n(o.crits), kills: n(o.kills),
+    boss: n(o.boss), win: n(o.win), lose: n(o.lose), taken: n(o.taken), hen: n(o.hen), first: n(o.first) || Date.now(),
+    formT: o.formT && typeof o.formT === 'object' ? o.formT : {} };
+  v.g = n(f.g); v.d = n(f.d); v.cl = n(f.cl); v.s3 = n(f.s3); v.caps = n(f.caps); v.top = f.top == null ? -1 : n(f.top);
+  return v;
+}
+
 function drawStatModal() {
-  const p = ps(), b = PS_PANEL, acc = inForm() ? formCol() : '#00e5ff';
+  const v = LB.view || psSelfView(), p = v.p || ps(), hasP = !!v.p, b = PS_PANEL, acc = inForm() ? formCol() : '#00e5ff';
   LB.hit = [];
   if (LB.tab === 1) { drawLeaderboard(); return; }   // 战力排行榜页（power.js）
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,.62)'; ctx.fillRect(0, 0, 960, 540);
   hudPanel(b.x, b.y, b.w, b.h, acc, 18);
 
-  // 头部：等级徽章 + 称号
-  let title = PS_TITLES[0][1]; for (const t of PS_TITLES) if (p.kills >= t[0]) title = t[1];
-  const cx = b.x + 56, cy = b.y + 58;
-  ctx.beginPath(); ctx.arc(cx, cy, 28, 0, 7); ctx.fillStyle = 'rgba(3,5,12,.92)'; ctx.fill();
-  ctx.lineWidth = 2; ctx.strokeStyle = acc; ctx.stroke();
+  // ===== 头部横幅：头像 + 昵称 + 称号 + 战力 / 称号收集 =====
+  const hx = b.x + 20, hy = b.y + 44, hw = b.w - 40, hh = 78, hcy = hy + hh / 2;
+  ut('// 骑士档案 · RIDER PROFILE', b.x + 24, b.y + 23, 10.5, acc, 'left', { w: 700, sp: 1.5, sh: 0 });
+  ctx.save();
+  rpath(hx, hy, hw, hh, 12);
+  const hbg = ctx.createLinearGradient(hx, 0, hx + hw, 0);
+  hbg.addColorStop(0, acc + '30'); hbg.addColorStop(.5, 'rgba(255,255,255,.045)'); hbg.addColorStop(1, 'rgba(255,255,255,.02)');
+  ctx.fillStyle = hbg; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = acc + '55'; ctx.stroke();
+  ctx.restore();
+
+  // 头像环：LV
+  const cx = hx + 14 + 30, cy = hcy;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, 32, 0, 7); ctx.lineWidth = 1; ctx.strokeStyle = acc + '44'; ctx.stroke();
+  ctx.shadowColor = acc; ctx.shadowBlur = 14;
+  ctx.beginPath(); ctx.arc(cx, cy, 27, 0, 7); ctx.fillStyle = 'rgba(3,5,12,.94)'; ctx.fill();
+  ctx.lineWidth = 2.2; ctx.strokeStyle = acc; ctx.stroke();
+  ctx.restore();
   ut('LV', cx, cy - 9, 8, UIC.sub, 'center', { w: 700, sp: 1.5, sh: 0 });
-  ut(S.lv, cx, cy + 5, 19, UIC.hi, 'center', { w: 700 });
-  ut(S.nick || '无名骑士', b.x + 100, b.y + 44, 17, UIC.hi, 'left', { w: 700 });
-  ut('称号 · ' + title, b.x + 100, b.y + 68, 11.5, acc, 'left', { w: 700, sp: 1.5, sh: 0 });
+  ut(v.lv, cx, cy + 6, 19, UIC.hi, 'center', { w: 700 });
+
+  // 昵称（大）+ 称号（在昵称下面，比昵称小一号）
+  const tx = hx + 96, tcy = hy + 57;
+  ut(v.nick || '无名骑士', tx, hy + 24, 24, UIC.hi, 'left', { w: 700 });
+  const wornT = (v.title && typeof ttByName === 'function') ? ttByName(v.title) : null;
+  let tImgW = wornT ? ttBadge(wornT, tx, tcy, 30, 130) : 0;
+  if (wornT && !tImgW) {   // 有称号但没有图片：文字徽章
+    const pw = uw(wornT.n, 12.5, 700) + 22;
+    const rc = ttRar(wornT).col;
+    rpath(tx, tcy - 11, pw, 22, 11); ctx.fillStyle = rc + '2e'; ctx.fill();
+    ctx.lineWidth = 1.2; ctx.strokeStyle = rc; ctx.stroke();
+    ut(wornT.n, tx + pw / 2, tcy + .5, 12.5, rc, 'center', { w: 700, sh: 0 });
+    tImgW = pw;
+  }
+  if (wornT) ttRarTag(tx + tImgW + 8, tcy, wornT, true);   // 稀有度小标签
+  if (!wornT) {
+    const pw = uw('无称号', 12, 600) + 22;
+    rpath(tx, tcy - 11, pw, 22, 11); ctx.fillStyle = 'rgba(255,255,255,.04)'; ctx.fill();
+    ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.22)'; ctx.stroke();
+    ut('无称号', tx + pw / 2, tcy + .5, 12, '#8a93a1', 'center', { w: 600, sh: 0 });
+    tImgW = pw;
+  }
+  if (!LB.view) LB.hit.push({ x: tx - 6, y: tcy - 22, w: Math.max(tImgW + 12, 96), h: 44, fn: ttPickerOpen });   // 点称号：打开「更换称号」面板（查看他人时不可点）
+
+  // 右侧：战力
+  const r1 = hx + hw - 28;
+  ut('战 力', r1, hcy - 15, 10, UIC.sub, 'right', { w: 600, sp: 1, sh: 0 });
+  ut((v.cp || 0).toLocaleString(), r1, hcy + 9, 24, acc, 'right', { w: 700 });
+
+  // 关闭按钮 + 页签
   rpath(b.x + b.w - 70, b.y + 10, 60, 26, 6); ctx.fillStyle = 'rgba(255,71,87,.25)'; ctx.fill(); ctx.strokeStyle = '#ff4757'; ctx.lineWidth = 1.2; ctx.stroke();
   ut('✕ 关闭', b.x + b.w - 40, b.y + 23, 11.5, '#ff9aa4', 'center', { w: 700 });
-  lbTabBtn(b);   // 战绩 ⇄ 排行榜
+  if (LB.view) lbBtn(b.x + b.w - 154, b.y + 10, 76, 26, '← 排行榜', '#ffd84a', () => { LB.view = null; LB.tab = 1; lbFetch(); });   // 查看他人档案时：返回排行榜
+  else lbTabBtn(b);   // 战绩 ⇄ 排行榜
 
-  // 六张核心数据卡（3×2）
+  if (!hasP) {   // 对方还没有同步详细档案
+    ut('该骑士的详细档案还没有同步', 480, b.y + 250, 16, UIC.hi, 'center', { w: 700 });
+    ut('需要对方登录新版游戏并上线一次后才会显示', 480, b.y + 278, 11.5, UIC.sub, 'center', { w: 500, sh: 0 });
+    ut('[I] / Esc / 点击空白处关闭', 480, b.y + b.h - 9, 9.5, 'rgba(210,218,232,.5)', 'center', { w: 500, sh: 0 });
+    ctx.restore(); drawTitlePicker(); return;
+  }
+
+  // ===== 六张核心数据卡（3×2）=====
   const days = Math.max(0, (Date.now() - p.first) / 864e5);
   const avg = p.hits ? p.dmg / p.hits : 0;
   const cards = [
-    ['总游戏时长', psDur(p.pt), '开始记录 ' + (days < 1 ? '不到 1' : days | 0) + ' 天', '#7df9ff'],
-    ['累计获得金币', psBig(p.gE) + ' G', '当前持有 ' + psBig(S.g), '#ffd84a'],
-    ['累计获得钻石', psBig(p.dE), '当前持有 ' + psBig(S.d), '#4fe3ff'],
-    ['总造成伤害', psBig(p.dmg), '平均每击 ' + psBig(avg), '#ff7675'],
-    ['最高单击伤害', psBig(p.maxHit), p.maxHit && avg ? '约为平均伤害的 ' + (p.maxHit / avg).toFixed(1) + ' 倍' : '还没出过手', '#ff9f43'],
-    ['消灭怪物总数', psBig(p.kills), '其中 BOSS ' + p.boss + ' 只', '#7dff9a']
+    ['总游戏时长', psDur(p.pt), '开始记录 ' + (days < 1 ? '不到 1' : days | 0) + ' 天', '#7df9ff', '⏱'],
+    ['累计获得金币', psBig(p.gE) + ' G', '当前持有 ' + psBig(v.g), '#ffd84a', '🪙'],
+    ['累计获得钻石', psBig(p.dE), '当前持有 ' + psBig(v.d), '#4fe3ff', '💎'],
+    ['总造成伤害', psBig(p.dmg), '平均每击 ' + psBig(avg), '#ff7675', '⚔'],
+    ['最高单击伤害', psBig(p.maxHit), p.maxHit && avg ? '约为平均伤害的 ' + (p.maxHit / avg).toFixed(1) + ' 倍' : '还没出过手', '#ff9f43', '💥'],
+    ['消灭怪物总数', psBig(p.kills), '其中 BOSS ' + p.boss + ' 只', '#7dff9a', '☠']
   ];
-  const cw = 224, ch = 78, gx = 14, x0 = b.x + 20, y0 = b.y + 92;
+  const cw = 224, ch = 70, gx = 14, gy = 10, x0 = hx, y0 = b.y + 134;
   cards.forEach((c, i) => {
-    const x = x0 + (i % 3) * (cw + gx), y = y0 + (i / 3 | 0) * (ch + 12);
-    rpath(x, y, cw, ch, 8); ctx.fillStyle = 'rgba(255,255,255,.045)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1; ctx.stroke();
-    rpath(x, y + 10, 3, ch - 20, 1.5); ctx.fillStyle = c[3]; ctx.fill();
-    ut(c[0], x + 14, y + 16, 10.5, UIC.sub, 'left', { w: 600, sp: .8, sh: 0 });
-    ut(c[1], x + 14, y + 41, 22, c[3], 'left', { w: 700 });
-    ut(c[2], x + 14, y + 63, 10, 'rgba(210,218,232,.65)', 'left', { w: 500, sh: 0 });
+    const x = x0 + (i % 3) * (cw + gx), y = y0 + (i / 3 | 0) * (ch + gy), col = c[3];
+    rpath(x, y, cw, ch, 10);
+    const cg = ctx.createLinearGradient(x, y, x + cw, y + ch); cg.addColorStop(0, col + '24'); cg.addColorStop(1, 'rgba(255,255,255,.02)');
+    ctx.fillStyle = cg; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = col + '40'; ctx.stroke();
+    ctx.save(); ctx.shadowColor = col; ctx.shadowBlur = 8; rpath(x, y + 12, 3, ch - 24, 1.5); ctx.fillStyle = col; ctx.fill(); ctx.restore();
+    ctx.save(); ctx.globalAlpha = .16; ut(c[4], x + cw - 14, y + ch / 2 + 1, 32, '#fff', 'right', { sh: 0 }); ctx.restore();   // 右侧淡淡的大图标
+    ut(c[0], x + 16, y + 15, 10.5, UIC.sub, 'left', { w: 600, sp: .8, sh: 0 });
+    ut(c[1], x + 16, y + 38, 24, col, 'left', { w: 700 });
+    ut(c[2], x + 16, y + 57, 10, 'rgba(210,218,232,.65)', 'left', { w: 500, sh: 0 });
   });
 
-  // 更多资讯
-  const iy = y0 + 2 * (ch + 12) + 4;
-  ut('// 更多资讯', b.x + 22, iy + 8, 11, acc, 'left', { w: 700, sp: 1.5, sh: 0 });
+  // ===== 更多资讯 =====
+  const iy = y0 + 2 * (ch + gy) + 16;
+  ut('// 更多资讯', b.x + 24, iy, 11, acc, 'left', { w: 700, sp: 1.5, sh: 0 });
+  const rg = ctx.createLinearGradient(b.x + 116, 0, b.x + b.w - 20, 0); rg.addColorStop(0, acc + '66'); rg.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = rg; ctx.fillRect(b.x + 116, iy, b.w - 136, 1);
   const total = p.win + p.lose, ft = Object.entries(p.formT).sort((a, b2) => b2[1] - a[1])[0];
-  const gear = [...S.inv, ...Object.values(S.eq || {}).filter(Boolean)];
-  const top = gear.reduce((m, it) => it && it.tier > m ? it.tier : m, -1);
-  const stars3 = Object.values(S.stars || {}).filter(v => v >= 3).length;
+  const top = v.top;
   const info = [
     ['战斗战绩', p.win + ' 胜 / ' + p.lose + ' 负' + (total ? '（胜率 ' + Math.round(p.win / total * 100) + '%）' : '')],
     ['暴击', p.crits.toLocaleString() + ' 次' + (p.hits ? '（占 ' + (p.crits / p.hits * 100).toFixed(1) + '%）' : '')],
     ['累计承受伤害', psBig(p.taken)],
     ['变身次数', p.hen.toLocaleString() + ' 次'],
     ['最常用形态', ft ? (PS_FORM[ft[0]] || ft[0]) + '（' + psDur(ft[1]) + '）' : '暂无'],
-    ['关卡进度', Math.min(S.cl, ST.length) + ' / ' + ST.length + ' 通关 · 三星 ' + stars3],
-    ['胶囊收集', S.caps.length + ' / ' + CAPSULES.length],
+    ['关卡进度', v.cl + ' / ' + NST + ' 通关 · 三星 ' + v.s3],
+    ['胶囊收集', v.caps + ' / ' + CAPSULES.length],
     ['最高品质装备', top >= 0 ? TIERS[top].n : '暂无']
   ];
   info.forEach((r, i) => {
-    const x = b.x + 22 + (i % 2) * 358, y = iy + 32 + (i / 2 | 0) * 24;
-    ut(r[0], x, y, 11.5, UIC.sub, 'left', { w: 600, sh: 0 });
-    ut(r[1], x + 330, y, 12, UIC.txt, 'right', { w: 700 });
+    const row = i / 2 | 0, x = hx + (i % 2) * 358, y = iy + 22 + row * 28;
+    if (row % 2 === 0) { rpath(x, y - 13, 342, 26, 6); ctx.fillStyle = 'rgba(255,255,255,.04)'; ctx.fill(); }
+    ctx.beginPath(); ctx.arc(x + 12, y, 2.2, 0, 7); ctx.fillStyle = acc + 'aa'; ctx.fill();
+    ut(r[0], x + 22, y, 11.5, UIC.sub, 'left', { w: 600, sh: 0 });
+    ut(r[1], x + 330, y, 12, UIC.hi, 'right', { w: 700 });
   });
 
   // 趣味小贴士（每小时换一条）
@@ -2086,12 +2261,13 @@ function drawStatModal() {
     p.taken ? '你挨的打 ' + psBig(p.taken) + ' 点，是出手总伤害的 ' + (p.taken / Math.max(1, p.dmg) * 100).toFixed(1) + '%，防守得不错。' : '至今零受伤记录，或者是刚开始记录？',
     p.hen ? '每次变身平均能带来 ' + (p.kills / p.hen).toFixed(1) + ' 个击杀。' : '试试按 P 变身，看看数据怎么变。'
   ];
-  const tip = fun[(Date.now() / 36e5 | 0) % fun.length];
+  const tip = LB.view ? (LB.view.mine ? '这是你在排行榜上的公开档案，其他骑士点你的名字看到的就是这些。' : '正在查看「' + v.nick + '」的档案 · 数据为对方最近一次同步时的状态。') : fun[(Date.now() / 36e5 | 0) % fun.length];
   const ty = b.y + b.h - 44;
-  rpath(b.x + 20, ty, b.w - 40, 26, 6); ctx.fillStyle = 'rgba(255,216,74,.08)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,216,74,.3)'; ctx.lineWidth = 1; ctx.stroke();
-  ut('💡 ' + tip, b.x + 34, ty + 13, 11.5, '#ffe9a6', 'left', { w: 600, sh: 0 });
+  rpath(b.x + 20, ty, b.w - 40, 28, 8); { const tg = ctx.createLinearGradient(b.x + 20, 0, b.x + b.w - 20, 0); tg.addColorStop(0, 'rgba(255,216,74,.16)'); tg.addColorStop(1, 'rgba(255,216,74,.03)'); ctx.fillStyle = tg; } ctx.fill(); ctx.strokeStyle = 'rgba(255,216,74,.32)'; ctx.lineWidth = 1; ctx.stroke();
+  ut('💡 ' + tip, b.x + 34, ty + 14.5, 11.5, '#ffe9a6', 'left', { w: 600, sh: 0 });
   ut('[I] / Esc / 点击空白处关闭 · 统计从本功能上线后开始累计', 480, b.y + b.h - 9, 9.5, 'rgba(210,218,232,.5)', 'center', { w: 500, sh: 0 });
   ctx.restore();
+  drawTitlePicker();   // 「更换称号」面板（titles.js），盖在战绩档案上层
 }
 
 // ===== 每日任务 + 成就（按 [Q] / 点击战力旁的「任务」按钮）=====
@@ -2129,17 +2305,21 @@ const QD_POOL = [
 ];
 const QD_BY = {}; for (const q of QD_POOL) QD_BY[q.id] = q;
 const QD_N = 4;
+const QD_DIAM = 100, QD_BONUS_DIAM = 200;   // 每日任务钻石：4 个任务各 100，全勤奖励 200
 
 function qdInit() {   // 幂等：每天第一次调用时抽 4 个任务并记录当天起点快照
   const day = qDay();
   let d = S.qd;
-  if (d && d.day === day && Array.isArray(d.ids) && d.ids.length && d.base && d.tg && d.rw && d.claimed) return d;
+  if (d && d.day === day && Array.isArray(d.ids) && d.ids.length && d.base && d.tg && d.rw && d.claimed) {
+    for (const id of d.ids) if (!d.claimed[id] && d.rw[id]) d.rw[id].d = QD_DIAM;   // 今天已经抽好的任务也按新钻石数发放
+    return d;
+  }
   const p = ps(), rnd = qRng('malaya|' + day), lv = S.lv;
   const pool = QD_POOL.filter(q => !q.need || q.need());
   for (let i = pool.length - 1; i > 0; i--) { const j = (rnd() * (i + 1)) | 0; [pool[i], pool[j]] = [pool[j], pool[i]]; }
   const ids = pool.slice(0, QD_N).map(q => q.id), base = {}, tg = {}, rw = {};
   for (const q of QD_POOL) base[q.id] = q.get(p);
-  for (const id of ids) { const q = QD_BY[id]; tg[id] = q.tg(lv); rw[id] = Object.assign({ g: qR10(150 + lv * 20), d: 6 }, q.x); }
+  for (const id of ids) { const q = QD_BY[id]; tg[id] = q.tg(lv); rw[id] = Object.assign({ g: qR10(150 + lv * 20), d: QD_DIAM }, q.x); }
   d = S.qd = { day, ids, base, tg, rw, claimed: {}, bonus: 0 };
   save();
   return d;
@@ -2151,7 +2331,7 @@ function qdList() {
     return { q, id, t, v, ok: v >= t, got: !!d.claimed[id], rw: d.rw[id] };
   });
 }
-const qdBonusRw = () => ({ d: 30, g: qR10(600 + (S.qd ? S.qd.lv || S.lv : S.lv) * 60), s: 3, m: 10 });
+const qdBonusRw = () => ({ d: QD_BONUS_DIAM, g: qR10(600 + (S.qd ? S.qd.lv || S.lv : S.lv) * 60), s: 3, m: 10 });
 
 // ---------- 成就 ----------
 function qGear() { return [...S.inv, ...Object.values(S.eq || {}).filter(Boolean)]; }
@@ -2161,7 +2341,7 @@ const QA = [
   { id: 'kill', n: '猎魔人', ic: '🗡️', tiers: [100, 500, 2000, 10000, 50000], d: t => '累计消灭 ' + psBig(t) + ' 只怪物', get: () => ps().kills },
   { id: 'boss', n: '弑王者', ic: '👑', tiers: [1, 10, 50, 200], d: t => '累计击败 ' + psBig(t) + ' 只 BOSS', get: () => ps().boss },
   { id: 'win', n: '常胜骑士', ic: '🏁', tiers: [1, 10, 50, 200, 1000], d: t => '赢得 ' + psBig(t) + ' 场战斗', get: () => ps().win },
-  { id: 'stage', n: '征途不止', ic: '🗺️', tiers: () => qUniq([1, 3, 5, 8, ST.length].filter(x => x > 0 && x <= Math.max(1, ST.length))), d: t => '通关 ' + t + ' 个关卡', get: () => Math.min(S.cl, ST.length) },
+  { id: 'stage', n: '征途不止', ic: '🗺️', tiers: () => qUniq([1, 3, 5, 8, NST].filter(x => x > 0 && x <= Math.max(1, NST))), d: t => '通关 ' + t + ' 个关卡', get: () => Math.min(S.cl, NST) },
   { id: 'star3', n: '完美主义', ic: '⭐', tiers: [1, 3, 5, 10], d: t => '获得 ' + t + ' 个关卡的三星评价', get: () => Object.values(S.stars || {}).filter(v => v >= 3).length },
   { id: 'lv', n: '成长之路', ic: '🆙', tiers: [10, 30, 60, 100, 200], d: t => '角色等级达到 Lv.' + t, get: () => S.lv },
   { id: 'crit', n: '致命一击', ic: '💥', tiers: [100, 1000, 10000, 50000], d: t => '累计打出 ' + psBig(t) + ' 次暴击', get: () => ps().crits },
@@ -2236,6 +2416,8 @@ function qScan() {
   if (!d.bonus && list.every(o => o.got)) { pd++; mark('b:' + d.day, '🎁 今日任务全部完成，可领取全勤奖励！', '#ffd84a'); }
   for (const a of QA) { const s = qaState(a); if (s.ok) { pa++; mark('a:' + a.id + ':' + s.c, '🏆 成就达成：' + a.n + ' ' + QROM[s.c], '#ffd84a'); } }
   QST.pendD = pd; QST.pendA = pa; QST.pend = pd + pa;
+  if (typeof wkSync === 'function') wkSync();   // 周榜跨周结转（power.js）
+  if (typeof ttScan === 'function') ttScan();   // 新称号提示（titles.js）
 }
 function questTick(dt) {
   if (G === 'title' || G === 'load') return;
@@ -2303,81 +2485,178 @@ function qRowBg(x, y, w, h, col) {
   rpath(x, y, w, h, 8); ctx.fillStyle = 'rgba(255,255,255,.045)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1; ctx.stroke();
   rpath(x, y + 8, 3, h - 16, 1.5); ctx.fillStyle = col; ctx.fill();
 }
-function qRwDraw(x, y, r) { for (const c of qRwList(r)) { ut(c[0], x, y, 11.5, c[1], 'left', { w: 700, sh: 0 }); x += uw(c[0], 11.5, 700) + 12; } }
+// ---- 任务界面新版：固定列宽、文字自动收缩，保证任何内容都不会互相重叠 ----
+const QD_IC = { kill: '⚔️', boss: '👑', win: '🏁', hen: '🔄', crit: '💥', dmg: '🔥', up: '🔨', dis: '♻️', gold: '💰', form: '⚡' };
+const QRW_DEF = [['d', '💠', '#7df9ff'], ['g', '💰', '#ffd84a'], ['s', '📜', '#ffa502'], ['m', '💎', '#c79bff']];
+function qFit(s, x, y, maxW, sz, col, w = 600, al = 'left') {   // 超宽就等比缩小字号
+  const k = uw(s, sz, w); ut(s, x, y, k > maxW ? Math.max(8, sz * maxW / k) : sz, col, al, { w, sh: 0 });
+}
+function qRwIco(k) { return k === 'd' ? ICO.d : k === 'g' ? ICO.g : k === 's' ? ICO.scr : ICO.mat }
+// 奖励：两列网格（最多 2 行），在 [x, x+w] 范围内垂直居中于 cy
+function qRwGrid(x, cy, w, r) {
+  const items = QRW_DEF.filter(d => r[d[0]]), cw = w / 2, rows = Math.ceil(items.length / 2), gap = 17;
+  items.forEach((d, i) => {
+    const ix = x + (i % 2) * cw, iy = cy + (((i / 2) | 0) - (rows - 1) / 2) * gap;
+    if (!fitIco(qRwIco(d[0]), ix + 8, iy, 15)) ut(d[1], ix + 8, iy, 12, '#fff', 'center', { sh: 0 });
+    qFit(psBig(r[d[0]]), ix + 20, iy, cw - 24, 12, d[2], 700);
+  });
+}
+function qCard(x, y, w, h, st, col) {   // st: 'ready' 可领取 / 'done' 已完成 / 'todo' 进行中
+  const pu = .5 + .5 * Math.sin(performance.now() / 1000 * 4);
+  rpath(x, y, w, h, 10);
+  if (st === 'ready') {
+    const g = ctx.createLinearGradient(x, 0, x + w, 0); g.addColorStop(0, 'rgba(125,255,154,.17)'); g.addColorStop(1, 'rgba(125,255,154,.04)');
+    ctx.fillStyle = g; ctx.fill(); ctx.strokeStyle = 'rgba(125,255,154,' + (.4 + .35 * pu) + ')'; ctx.lineWidth = 1.4; ctx.stroke();
+  } else if (st === 'done') {
+    ctx.fillStyle = 'rgba(255,255,255,.025)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = 1; ctx.stroke();
+  } else {
+    const g = ctx.createLinearGradient(x, 0, x + w, 0); g.addColorStop(0, 'rgba(255,255,255,.07)'); g.addColorStop(1, 'rgba(255,255,255,.03)');
+    ctx.fillStyle = g; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.13)'; ctx.lineWidth = 1; ctx.stroke();
+  }
+  rpath(x, y + 10, 3, h - 20, 1.5); ctx.fillStyle = col; ctx.fill();
+}
+function qIcoBox(x, y, s, ic) {
+  rpath(x, y, s, s, 9); ctx.fillStyle = 'rgba(255,255,255,.07)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.1)'; ctx.lineWidth = 1; ctx.stroke();
+  ut(ic, x + s / 2, y + s / 2 + 1, s * .5, '#fff', 'center', { sh: 0 });
+}
+function qClaimBtn(x, y, w, h, label, st, col, fn) {   // st: 'ready' / 'done' / 'idle'
+  const pu = .5 + .5 * Math.sin(performance.now() / 1000 * 4);
+  rpath(x, y, w, h, 7);
+  if (st === 'ready') {
+    const g = ctx.createLinearGradient(0, y, 0, y + h); g.addColorStop(0, col); g.addColorStop(1, col + 'aa');
+    ctx.save(); ctx.shadowColor = col; ctx.shadowBlur = 6 + pu * 8; ctx.fillStyle = g; ctx.fill(); ctx.restore();
+    ut(label, x + w / 2, y + h / 2 + .5, 12.5, '#0b1220', 'center', { w: 800, sh: 0 });
+    QST.hit.push({ x, y, w, h, fn });
+  } else {
+    ctx.fillStyle = 'rgba(255,255,255,.05)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.14)'; ctx.lineWidth = 1; ctx.stroke();
+    ut(label, x + w / 2, y + h / 2 + .5, 11.5, st === 'done' ? '#8fa0b3' : '#6f7a8c', 'center', { w: 600, sh: 0 });
+  }
+}
 
 function drawQuestModal() {
   const b = PS_PANEL, acc = '#7dff9a';
   QST.hit = [];
+  if (QST.tab > 1) QST.tab = 0;
   ctx.save();
-  ctx.fillStyle = 'rgba(0,0,0,.62)'; ctx.fillRect(0, 0, 960, 540);
+  ctx.fillStyle = 'rgba(0,0,0,.66)'; ctx.fillRect(0, 0, 960, 540);
   hudPanel(b.x, b.y, b.w, b.h, acc, 18);
-  ut('任务 · 成就', b.x + 28, b.y + 34, 19, UIC.hi, 'left', { w: 700 });
-  ut('DAILY QUESTS & ACHIEVEMENTS', b.x + 28, b.y + 58, 10.5, acc, 'left', { w: 700, sp: 1.5, sh: 0 });
-  qBtn(b.x + b.w - 70, b.y + 10, 60, 26, '✕ 关闭', '#ff4757', true, () => { showQuest = false; });
-  qBtn(b.x + b.w - 160, b.y + 10, 82, 26, '一键领取' + (QST.pend ? ' ' + QST.pend : ''), '#ffd84a', QST.pend > 0, qClaimAll);
 
-  // 页签
+  // ---- 头部 ----
+  ut('任务 · 成就', b.x + 28, b.y + 34, 20, UIC.hi, 'left', { w: 700 });
+  ut('DAILY QUESTS & ACHIEVEMENTS', b.x + 28, b.y + 58, 10.5, acc, 'left', { w: 700, sp: 1.5, sh: 0 });
+  qBtn(b.x + b.w - 76, b.y + 12, 64, 26, '✕ 关闭', '#ff4757', true, () => { showQuest = false; });
+  qBtn(b.x + b.w - 76 - 8 - 112, b.y + 12, 112, 26, '一键领取' + (QST.pend ? '  ' + QST.pend : ''), '#ffd84a', QST.pend > 0, qClaimAll);
+  const dv = ctx.createLinearGradient(b.x + 24, 0, b.x + b.w - 24, 0); dv.addColorStop(0, 'rgba(125,255,154,.55)'); dv.addColorStop(1, 'rgba(125,255,154,0)');
+  ctx.fillStyle = dv; ctx.fillRect(b.x + 24, b.y + 66, b.w - 48, 1);
+
+  // ---- 页签（只有 每日任务 / 成就）----
   const tabs = [['每日任务', QST.pendD], ['成就  ' + qaPoints() + ' 点', QST.pendA]];
   tabs.forEach((t, i) => {
-    const x = b.x + 28 + i * 150, y = b.y + 74, on = QST.tab === i;
-    rpath(x, y, 140, 28, 7); ctx.fillStyle = on ? 'rgba(125,255,154,.18)' : 'rgba(255,255,255,.05)'; ctx.fill();
-    ctx.strokeStyle = on ? acc : 'rgba(255,255,255,.2)'; ctx.lineWidth = 1.2; ctx.stroke();
-    ut(t[0], x + 70, y + 14.5, 12.5, on ? '#fff' : UIC.sub, 'center', { w: 700 });
-    if (t[1] > 0) { ctx.beginPath(); ctx.arc(x + 134, y + 4, 4.5, 0, 7); ctx.fillStyle = '#ff4757'; ctx.fill(); }
-    QST.hit.push({ x, y, w: 140, h: 28, fn: () => { QST.tab = i; QST.page = 0; } });
+    const x = b.x + 28 + i * 160, y = b.y + 76, on = QST.tab === i;
+    rpath(x, y, 150, 30, 8); ctx.fillStyle = on ? 'rgba(125,255,154,.2)' : 'rgba(255,255,255,.05)'; ctx.fill();
+    ctx.strokeStyle = on ? acc : 'rgba(255,255,255,.2)'; ctx.lineWidth = on ? 1.5 : 1.1; ctx.stroke();
+    ut(t[0], x + 75, y + 15.5, 13, on ? '#fff' : UIC.sub, 'center', { w: 700 });
+    if (t[1] > 0) { ctx.beginPath(); ctx.arc(x + 144, y + 5, 5, 0, 7); ctx.fillStyle = '#ff4757'; ctx.fill(); }
+    QST.hit.push({ x, y, w: 150, h: 30, fn: () => { QST.tab = i; QST.page = 0; } });
   });
 
-  const x0 = b.x + 20, w = b.w - 40, y0 = b.y + 116;
+  const x0 = b.x + 20, w = b.w - 40, y0 = b.y + 118;
   if (QST.tab === 0) {
-    const d = qdInit(), list = qdList(), rh = 54, pitch = 60;
-    ut('距离刷新  ' + qHMS(qSecsLeft()), b.x + b.w - 28, b.y + 88, 11.5, UIC.sub, 'right', { w: 600, sh: 0 });
-    list.forEach((o, i) => {
-      const y = y0 + i * pitch;
-      qRowBg(x0, y, w, rh, o.got ? '#5d6b7c' : o.ok ? '#7dff9a' : '#00e5ff');
-      ut(o.q.n, x0 + 18, y + 17, 14, o.got ? UIC.sub : UIC.hi, 'left', { w: 700 });
-      ut(o.q.d(o.t), x0 + 18, y + 38, 10.5, UIC.sub, 'left', { w: 500, sh: 0 });
-      qBar(x0 + 270, y + 17, 190, 10, o.v / o.t, o.ok ? '#2ed573' : '#00b8d9');
-      ut(psBig(Math.floor(o.v)) + ' / ' + psBig(o.t), x0 + 365, y + 40, 10.5, UIC.txt, 'center', { w: 600, sh: 0 });
-      qRwDraw(x0 + 484, y + 27, o.rw);
-      if (o.got) qBtn(x0 + w - 88, y + 13, 76, 28, '已领取', '#5d6b7c', false);
-      else if (o.ok) qBtn(x0 + w - 88, y + 13, 76, 28, '领取', '#7dff9a', true, () => qClaimOne(s => qdClaim(o.id, s)));
-      else qBtn(x0 + w - 88, y + 13, 76, 28, '进行中', '#5d6b7c', false);
-    });
-    // 全勤奖励
-    const y = y0 + list.length * pitch + 4, n = list.filter(o => o.got).length, rdy = qdBonusReady();
-    qRowBg(x0, y, w, rh, '#ffd84a');
-    ut('🎁 全勤奖励', x0 + 18, y + 17, 14, '#ffd84a', 'left', { w: 700 });
-    ut('领取全部 ' + list.length + ' 项每日任务奖励后解锁', x0 + 18, y + 38, 10.5, UIC.sub, 'left', { w: 500, sh: 0 });
-    qBar(x0 + 270, y + 17, 190, 10, n / list.length, '#ffd84a');
-    ut(n + ' / ' + list.length, x0 + 365, y + 40, 10.5, UIC.txt, 'center', { w: 600, sh: 0 });
-    qRwDraw(x0 + 484, y + 27, qdBonusRw());
-    if (d.bonus) qBtn(x0 + w - 88, y + 13, 76, 28, '已领取', '#5d6b7c', false);
-    else if (rdy) qBtn(x0 + w - 88, y + 13, 76, 28, '领取', '#ffd84a', true, () => qClaimOne(s => qdClaimBonus(s)));
-    else qBtn(x0 + w - 88, y + 13, 76, 28, '未完成', '#5d6b7c', false);
+    const d = qdInit(), list = qdList(), rh = 60, pitch = 66, doneN = list.filter(o => o.got).length;
+    ut('今日 ' + doneN + ' / ' + list.length + '   ·   距离刷新  ' + qHMS(qSecsLeft()), b.x + b.w - 28, b.y + 91, 11.5, UIC.sub, 'right', { w: 600, sh: 0 });
+    const row = (y, st, col, ic, name, nameCol, desc, v, t, rw, btn) => {
+      ctx.save(); if (st === 'done') ctx.globalAlpha = .62;
+      qCard(x0, y, w, rh, st, col);
+      qIcoBox(x0 + 14, y + 10, 40, ic);
+      qFit(name, x0 + 66, y + 20, 196, 14.5, nameCol, 700);
+      qFit(desc, x0 + 66, y + 42, 196, 10.5, UIC.sub, 500);
+      qBar(x0 + 276, y + 17, 150, 9, t ? v / t : 0, st === 'ready' ? '#2ed573' : st === 'done' ? '#5d6b7c' : '#00b8d9');
+      qFit(psBig(Math.floor(v)) + ' / ' + psBig(t), x0 + 351, y + 41, 150, 10.5, UIC.txt, 600, 'center');
+      qRwGrid(x0 + 446, y + rh / 2, 156, rw);
+      ctx.restore();
+      qClaimBtn(x0 + w - 90, y + 15, 78, 30, btn.l, btn.s, btn.c, btn.fn);
+    };
+    list.forEach((o, i) => row(y0 + i * pitch, o.got ? 'done' : o.ok ? 'ready' : 'todo', o.got ? '#5d6b7c' : o.ok ? '#7dff9a' : '#00e5ff',
+      QD_IC[o.id] || '📋', o.q.n, o.got ? UIC.sub : UIC.hi, o.q.d(o.t), o.v, o.t, o.rw,
+      o.got ? { l: '✔ 已领取', s: 'done' } : o.ok ? { l: '领取', s: 'ready', c: '#7dff9a', fn: () => qClaimOne(s => qdClaim(o.id, s)) } : { l: '进行中', s: 'idle' }));
+    const rdy = qdBonusReady();
+    row(y0 + list.length * pitch + 2, d.bonus ? 'done' : rdy ? 'ready' : 'todo', '#ffd84a', '🎁', '全勤奖励', d.bonus ? UIC.sub : '#ffd84a',
+      '领取全部 ' + list.length + ' 项任务奖励后解锁', doneN, list.length, qdBonusRw(),
+      d.bonus ? { l: '✔ 已领取', s: 'done' } : rdy ? { l: '领取', s: 'ready', c: '#ffd84a', fn: () => qClaimOne(s => qdClaimBonus(s)) } : { l: '未完成', s: 'idle' });
   } else {
     const np = Math.ceil(QA.length / QA_PER), rh = 50, pitch = 54;
     QST.page = cl(QST.page, 0, np - 1);
+    ut('已获得成就点数  ' + qaPoints(), b.x + b.w - 28, b.y + 91, 11.5, UIC.sub, 'right', { w: 600, sh: 0 });
     QA.slice(QST.page * QA_PER, QST.page * QA_PER + QA_PER).forEach((a, i) => {
-      const st = qaState(a), y = y0 + i * pitch, fv = a.f || (v => psBig(Math.floor(v)));
-      qRowBg(x0, y, w, rh, st.done ? '#ffd84a' : st.ok ? '#7dff9a' : '#00e5ff');
-      rpath(x0 + 10, y + 7, 36, 36, 8); ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fill();
-      ut(a.ic, x0 + 28, y + 26, 19, '#fff', 'center', { sh: 0 });
-      ut(a.n, x0 + 58, y + 16, 13.5, st.done ? '#ffd84a' : UIC.hi, 'left', { w: 700 });
-      let px = x0 + 58 + uw(a.n, 13.5, 700) + 12;
+      const st = qaState(a), y = y0 + i * pitch, fv = a.f || (v => psBig(Math.floor(v))), cs = st.done ? 'done' : st.ok ? 'ready' : 'todo';
+      ctx.save(); if (st.done) ctx.globalAlpha = .75;
+      qCard(x0, y, w, rh, cs, st.done ? '#ffd84a' : st.ok ? '#7dff9a' : '#00e5ff');
+      qIcoBox(x0 + 12, y + 7, 36, a.ic);
+      qFit(a.n, x0 + 58, y + 16, 110, 13.5, st.done ? '#ffd84a' : UIC.hi, 700);
+      const nw = Math.min(110, uw(a.n, 13.5, 700)); let px = x0 + 58 + nw + 12;
       for (let k = 0; k < st.ts.length; k++, px += 11) { ctx.beginPath(); ctx.arc(px, y + 16, 3.6, 0, 7); ctx.fillStyle = k < st.c ? '#ffd84a' : 'rgba(255,255,255,.18)'; ctx.fill(); }
-      ut(st.done ? '全部档位已完成' : a.d(st.t), x0 + 58, y + 36, 10.5, UIC.sub, 'left', { w: 500, sh: 0 });
-      qBar(x0 + 300, y + 16, 180, 9, st.done ? 1 : st.v / st.t, st.done ? '#ffd84a' : st.ok ? '#2ed573' : '#00b8d9');
-      ut(st.done ? '已满' : fv(st.v) + ' / ' + (a.f ? a.f(st.t) : psBig(st.t)), x0 + 390, y + 37, 10.5, UIC.txt, 'center', { w: 600, sh: 0 });
-      if (!st.done) qRwDraw(x0 + 500, y + 25, st.rw);
-      if (st.done) qBtn(x0 + w - 82, y + 11, 70, 28, '已完成', '#5d6b7c', false);
-      else if (st.ok) qBtn(x0 + w - 82, y + 11, 70, 28, '领取', '#7dff9a', true, () => qClaimOne(s => qaClaim(a.id, s)));
-      else qBtn(x0 + w - 82, y + 11, 70, 28, '进行中', '#5d6b7c', false);
+      qFit(st.done ? '全部档位已完成' : a.d(st.t), x0 + 58, y + 36, 226, 10.5, UIC.sub, 500);
+      qBar(x0 + 298, y + 15, 136, 9, st.done ? 1 : st.v / st.t, st.done ? '#ffd84a' : st.ok ? '#2ed573' : '#00b8d9');
+      qFit(st.done ? '已满' : fv(st.v) + ' / ' + (a.f ? a.f(st.t) : psBig(st.t)), x0 + 366, y + 37, 150, 10.5, UIC.txt, 600, 'center');
+      if (!st.done) qRwGrid(x0 + 450, y + rh / 2, 156, st.rw);
+      ctx.restore();
+      if (st.done) qClaimBtn(x0 + w - 82, y + 10, 70, 30, '已完成', 'done');
+      else if (st.ok) qClaimBtn(x0 + w - 82, y + 10, 70, 30, '领取', 'ready', '#7dff9a', () => qClaimOne(s => qaClaim(a.id, s)));
+      else qClaimBtn(x0 + w - 82, y + 10, 70, 30, '进行中', 'idle');
     });
     const fy = b.y + b.h - 44;
     qBtn(b.x + b.w / 2 - 110, fy, 62, 24, '◀ 上页', '#7df9ff', true, () => { QST.page = (QST.page - 1 + np) % np; });
     ut('第 ' + (QST.page + 1) + ' / ' + np + ' 页', b.x + b.w / 2, fy + 12.5, 11.5, UIC.sub, 'center', { w: 600, sh: 0 });
     qBtn(b.x + b.w / 2 + 48, fy, 62, 24, '下页 ▶', '#7df9ff', true, () => { QST.page = (QST.page + 1) % np; });
   }
-  ut('[Q] / Esc 关闭 · A / D 切换页签 · W / S 翻页 · Enter 一键领取 · 每日任务按本机日期 0 点刷新', 480, b.y + b.h - 9, 9.5, 'rgba(210,218,232,.5)', 'center', { w: 500, sh: 0 });
+  ut('[Q] / Esc 关闭 · A / D 切换页签 · W / S 翻页 · Enter 一键领取 · 每日任务按本机日期 0 点刷新', 480, b.y + b.h - 11, 9.5, 'rgba(210,218,232,.5)', 'center', { w: 500, sh: 0 });
+  ctx.restore();
+}
+
+
+// ===== 胶囊升星特效：卡面闪光 + 光环 + 火花 + 新亮起的星星 + 飘字 + 属性栏闪烁 =====
+const CAPFX = { id: null, star: 0, t0: -9, ps: [] };
+function capUpFx(id, star) {
+  CAPFX.id = id; CAPFX.star = star; CAPFX.t0 = performance.now() / 1000;
+  CAPFX.ps = Array.from({ length: 36 }, () => ({ a: Math.random() * 6.283, v: 80 + Math.random() * 170, l: .7 + Math.random() * .8, s: 2 + Math.random() * 3 }));
+}
+function drawCapUpFx() {
+  const el = performance.now() / 1000 - CAPFX.t0, DUR = 1.9;
+  if (!CAPFX.id || el < 0 || el > DUR || CAPFX.id !== curSelCapId) return;
+  const L = CAPL, rx = 90 + 392, ry = 35 + 48, cx = rx + 14, cw = 370 - 28, mx = cx + cw / 2, my = ry + L.cardY + L.cardH / 2;
+  const MAXS = typeof CAP_STAR_MAX !== 'undefined' ? CAP_STAR_MAX : 5, c = (CAPSULES.find(k => k.id === CAPFX.id) || {}).c || '#ffd84a';
+  ctx.save();
+  // 卡面闪光
+  if (el < .55) { ctx.save(); bevel(cx, ry + L.cardY, cw, L.cardH, 9); ctx.clip(); const g = ctx.createRadialGradient(mx, my, 4, mx, my, 190); g.addColorStop(0, 'rgba(255,240,170,' + (1 - el / .55) * .85 + ')'); g.addColorStop(1, 'rgba(255,200,60,0)'); ctx.fillStyle = g; ctx.fillRect(cx, ry + L.cardY, cw, L.cardH); ctx.restore(); }
+  // 扩散光环
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 2; i++) { const e2 = el - i * .18; if (e2 <= 0) continue; ctx.globalAlpha = Math.max(0, 1 - e2 / 1.0) * .9; ctx.lineWidth = 3 - i; ctx.strokeStyle = i ? c : '#ffe27a'; ctx.beginPath(); ctx.arc(mx, my, 14 + e2 * 240, 0, 7); ctx.stroke(); }
+  // 火花
+  for (const p of CAPFX.ps) { if (el > p.l) continue; const x = mx + Math.cos(p.a) * p.v * el, y = my + Math.sin(p.a) * p.v * el + 90 * el * el; ctx.globalAlpha = 1 - el / p.l; ctx.fillStyle = '#ffe27a'; ctx.fillRect(x - p.s / 2, y - p.s / 2, p.s, p.s); }
+  ctx.globalCompositeOperation = 'source-over';
+  // 新亮起的那颗星：放大 + 光晕
+  const idx = Math.min(MAXS, CAPFX.star) - 1, sx = (cx + cw - 8) - (MAXS - 1 - idx) * 17, sy = ry + L.titleY;
+  const pop = Math.max(0, .9 - el * 1.6);
+  ctx.globalAlpha = Math.max(0, 1 - el / 1.3); const gg = ctx.createRadialGradient(sx, sy, 1, sx, sy, 22); gg.addColorStop(0, 'rgba(255,230,120,.9)'); gg.addColorStop(1, 'rgba(255,200,60,0)'); ctx.fillStyle = gg; ctx.fillRect(sx - 24, sy - 24, 48, 48);
+  ctx.globalAlpha = 1; starShape(sx, sy, 6.5 * (1 + pop * 1.4), true);
+  // 属性栏绿色闪烁
+  ctx.globalAlpha = Math.max(0, 1 - el / DUR) * (.45 + .55 * Math.abs(Math.sin(el * 9))); ctx.lineWidth = 2; ctx.strokeStyle = '#7dff9a'; ctx.strokeRect(cx, ry + L.p1Y, cw, L.pH);
+  // 飘字
+  const fa = el < .15 ? el / .15 : el > DUR - .6 ? (DUR - el) / .6 : 1; ctx.globalAlpha = Math.max(0, fa);
+  txt('★ 升至 ' + CAPFX.star + ' 星！', mx, my - 8 - Math.min(el, .8) * 26, 22, '#ffe27a', 'center');
+  if (typeof capStarBonusText === 'function') txt(capStarBonusText(CAPFX.id), mx, my + 20 - Math.min(el, .8) * 26, 12.5, '#c9ffd2', 'center');
+  ctx.restore();
+}
+
+
+// ===== 右下角“已备份”灰色小字（云存档成功后淡出，取代原来的飘字）=====
+let cloudHintAt = -1e9;
+function cloudHintShow() { cloudHintAt = performance.now(); }
+function drawCloudHint() {
+  const el = (performance.now() - cloudHintAt) / 1000, DUR = 2.6;
+  if (el < 0 || el > DUR) return;
+  const a = el < .25 ? el / .25 : el > DUR - .8 ? (DUR - el) / .8 : 1;
+  ctx.save(); ctx.globalAlpha = a * .5;
+  txt('已备份', 950, 528, 11, '#aeb6c2', 'right', false);
   ctx.restore();
 }

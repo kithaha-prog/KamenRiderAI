@@ -583,16 +583,32 @@ function mechHUD() {
   if (typeof TOUCH === 'undefined' || !TOUCH) return;
   const t0 = setInterval(() => {
     const ui = document.getElementById('tc'); if (!ui) return; clearInterval(t0);
-    const b = document.createElement('div'); b.className = 'b skl ult';
-    b.style.cssText = 'right:calc(var(--s)*3.95 + 3vmin);bottom:calc(var(--s)*1.45 + 3vmin);display:none';
+    const b = document.createElement('div'); b.className = 'b skl sk-r';
+    b.style.cssText = (window.TC_POS && TC_POS.R || 'right:calc(var(--s)*3.95 + 3vmin);bottom:calc(var(--s)*1.45 + 3vmin)') + ';display:none';
+    b.innerHTML = '<span class="t"></span><span class="cd"></span>';
+    const tEl = b.querySelector('.t'), cdEl = b.querySelector('.cd');
     ui.appendChild(b);
     b.addEventListener('pointerdown', e => { e.preventDefault(); b.setPointerCapture(e.pointerId); b.classList.add('on'); if (!K.KeyR) PR.KeyR = 1; K.KeyR = 1; });
     const up = () => { b.classList.remove('on'); K.KeyR = 0; };
     b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up);
+    let lastCd = '', lastT = '';
     setInterval(() => {
-      const on = G === 'play' && typeof inForm === 'function' && inForm() && !showChar && !showCapModal;
+      const on = G === 'play' && typeof inForm === 'function' && inForm() && !(window.tcHidden && tcHidden());
       b.style.display = on ? 'flex' : 'none';
-      if (on) { const t = P.ryuki ? '契约<br>Advent' : P.k5 ? 'Accel' : '卡牌<br>合成'; if (b.dataset.t !== t) { b.dataset.t = t; b.innerHTML = t; } }
-    }, 120);
+      if (!on) return;
+      const t = P.ryuki ? '契约<br>Advent' : P.k5 ? 'Accel' : '卡牌<br>合成';
+      if (t !== lastT) { lastT = t; tEl.innerHTML = t; }
+      // 冷却：和其它技能键一样用扇形遮罩；Accel 持续期间改为「剩余时间」，按键发光
+      const act = P.k5 && MECH.accel > 0;
+      let frac = 0;
+      if (act) frac = 1 - MECH.accel / MECH_CFG.k555.dur;          // 已消耗的部分变暗
+      else if (MECH.cd > 0) frac = cl(MECH.cd / (MECH.mcd || 1), 0, 1);
+      const v = frac > 0 ? 'conic-gradient(rgba(0,0,0,.62) ' + (frac * 360).toFixed(1) + 'deg, transparent 0)' : '';
+      if (v !== lastCd) { lastCd = v; cdEl.style.background = v; }
+      // 条件不满足（Advent 卡 / 卡牌不够）时变灰
+      const low = !act && ((P.ryuki && MECH.cards <= 0) || (P.bl && MECH.hand.length < 2));
+      b.classList.toggle('low', low);
+      b.style.boxShadow = act ? '0 0 16px #7dd3ff' : '';
+    }, 50);
   }, 200);
 })();

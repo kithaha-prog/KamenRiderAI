@@ -148,7 +148,13 @@ async function prep() {
   }
 };
   IM.v = await li(A + 'Interior/基地.jpg');
-  ICO.g = mkIcon(await li(A + 'Icon/Coin.png')); ICO.d = mkIcon(await li(A + 'Icon/Diamond.png'));   // 金币 / 钻石图标（Assets/Icon/）
+  ICO.g = mkIcon(await li(A + 'Icon/Coin.png')); ICO.d = mkIcon(await li(A + 'Icon/Diamond.png'));
+  {   // 碎晶 / 强化卷轴 / 装备部位图标（Assets/Icon/）；缺哪张就继续用 emoji，不会报错
+    const lq = async f => { try { return await load(f) } catch (e) { return null } };
+    ICO.mat = mkIcon(await lq(A + 'Icon/Shard.png')); ICO.scr = mkIcon(await lq(A + 'Icon/Scroll.png'));
+    for (const k of ['weapon', 'chest', 'belt', 'legs', 'boots', 'necklace', 'ring']) EQI[k] = mkIcon(await lq(A + 'Icon/Equip_' + k + '.png'));
+    EQI.ryuki_cap = mkIcon(await lq(A + 'Icon/Equip_capsule.png'));
+  }   // 金币 / 钻石图标（Assets/Icon/）
   { const pi = await li(A + 'Buildings/传送门.png'); if (pi) PG.bi = trim(toCanvas(pi)); }   // 传送门贴图
   for (const b of BD) {
   if (b.rf) b.ri = await li(A + 'Interior/' + b.rf);
@@ -241,6 +247,7 @@ function upd(dt) {
   // [I] 键或点击等级徽章：战绩档案（弹窗期间整局暂停）
   if (PR.KeyI) { if (showStat) showStat = false; else if (psCanOpen()) psOpen(); delete PR.KeyI; }
   if (showStat) {
+    if (typeof ttPickerKeys === 'function' && ttPickerKeys()) return;   // 「更换称号」面板打开时，Esc / 翻页键先给它
     if (PR.Escape || PR.Enter || PR.Space || PR.KeyF) { showStat = false; delete PR.Escape; delete PR.Enter; delete PR.Space; delete PR.KeyF; }
     return;
   }
@@ -507,23 +514,23 @@ function upd(dt) {
       P.st = 'atk'; P.t = 0; P.h = 0;
       if (!gr) P.vy = Math.min(P.vy * 0.4, 60);
     }
-    else if (PR.KeyK && P.mp >= 60 && (P.cd.k || 0) <= 0) {
-      P.mp -= 60;
+    else if (PR.KeyK && P.mp >= 120 && (P.cd.k || 0) <= 0) {
+      P.mp -= 120;
       P.cd.k = getSkillCD('k');
       P.maxCd.k = P.cd.k;
       P.st = 'fv'; P.t = 0; P.hit = {}; P.h = 0; delete P.landT;
       if (P.ryuki) playRyukiFV();
     }
-    else if (PR.KeyL && P.mp >= 10 && (P.cd.l || 0) <= 0) {
-      P.mp -= 10;
+    else if (PR.KeyL && P.mp >= 20 && (P.cd.l || 0) <= 0) {
+      P.mp -= 20;
       P.cd.l = getSkillCD('l');
       P.maxCd.l = P.cd.l;
       P.st = 'thr'; P.t = 0; P.h = 0;
       if (!gr) P.vy = Math.min(P.vy * 0.5, 60);
     }
-    else if (PR.KeyE && P.mp >= 35 && (P.cd.e || 0) <= 0) {
+    else if (PR.KeyE && P.mp >= 70 && (P.cd.e || 0) <= 0) {
       // ★ E 战车脱手技能：不再锁定玩家动作，瞬间召唤冲锋！
-      P.mp -= 35;
+      P.mp -= 70;
       P.cd.e = getSkillCD('e');
       P.maxCd.e = P.cd.e;
       spawnBike();
@@ -696,7 +703,7 @@ function upd(dt) {
   for (const o of OR) {
     if (!P.down && Math.abs(o.x - P.x) < 45) {
       o.g = 1;
-      if (o.k === 'h') P.hp = Math.min(P.mh, P.hp + 25);
+      if (o.k === 'h') { const hv = Math.max(1, Math.round(P.mh * .1)); P.hp = Math.min(P.mh, P.hp + hv); DT.push({ x: P.x, y: P.y - 200, s: '+' + hv, t: .8, c: '#7dff9a' }); }
       else P.mp = Math.min(P.mm, P.mp + 30);
     }
   }
@@ -790,7 +797,7 @@ function draw() {
     if (showCapModal) drawCapsuleModal();
     if (showStat) drawStatModal();
     if (showQuest) drawQuestModal();
-    drawQuestToast();
+    drawQuestToast(); drawCloudHint();
     // 绘制升级全屏横幅与光效
     if (LV_POP) drawLevelUpBanner();
     ctx.restore(); return;
@@ -881,7 +888,7 @@ function draw() {
   if (showCapModal) drawCapsuleModal();
   if (showStat) drawStatModal();
     if (showQuest) drawQuestModal();
-    drawQuestToast();
+    drawQuestToast(); drawCloudHint();
   
   // ★ 升级弹窗必须放在最后，保证浮在所有战斗画面最上层
   if (LV_POP) drawLevelUpBanner();
@@ -934,73 +941,186 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
   const press = c => { if (!K[c]) PR[c] = 1; K[c] = 1 }, rel = c => { K[c] = 0 };
   let lastEsc = 0;
   // ===== 手游式按键布局 =====
-  // 右下：大号「剑击/互动」+ 弧形排列的技能键；左上（HUD 下方）：变身 / 药水；右上：背包 / 胶囊 / 撤退 / 全屏；
-  // 左下：浮动圆盘摇杆（见下方逻辑 + index.html 里的 #joy 样式）；▲▼ 只在菜单打开时出现
-  const R0 = '3vmin', B0 = '3vmin';
-  const atkCodes = () => (G === 'play' && !showChar && !showCapModal) ? ((typeof coopCanRescue === 'function' && coopCanRescue()) ? ['KeyF'] : ['KeyJ']) : ['KeyF', 'Enter'];   // 战斗=剑击；基地/菜单=互动·确认
-  const B = [
-    ['剑击', 'atk', `right:${R0};bottom:${B0}`, atkCodes],
-    ['跳', 'jmp', `right:calc(var(--s)*1.65 + ${R0});bottom:calc(var(--s)*.05 + ${B0})`, ['Space']],
-    ['飞剑', 'skl', `right:calc(var(--s)*1.5 + ${R0});bottom:calc(var(--s)*1.45 + ${B0})`, ['KeyL']],
-    ['终结技', 'skl ult', `right:calc(var(--s)*.25 + ${R0});bottom:calc(var(--s)*1.7 + ${B0})`, ['KeyK']],
-    ['闪避<br>疾跑', 'dg', `right:calc(var(--s)*2.85 + ${R0});bottom:calc(var(--s)*.7 + ${B0})`, ['ShiftLeft']],
-    ['机车', 'skl', `right:calc(var(--s)*2.9 + ${R0});bottom:calc(var(--s)*1.95 + ${B0})`, ['KeyE']],
-    // 左上：变身 + 两瓶药
-    ['变身', 'trf', 'left:2vmin;top:19vmin', ['KeyP']],
-    ['药①', 'sm pot', 'left:calc(2vmin + var(--s)*1.1);top:calc(19vmin + var(--s)*.1)', ['Digit1']],
-    ['药②', 'sm pot', 'left:calc(2vmin + var(--s)*2);top:calc(19vmin + var(--s)*.1)', ['Digit2']],
-    // 右上：系统键
-    ['背包<br>规格', 'sm sys', 'right:2vmin;top:14vmin', ['KeyC']],
-    ['胶囊', 'sm sys', 'right:calc(2vmin + var(--s)*.95);top:14vmin', ['KeyN']],
-    ['关闭<br>撤退', 'sm sys', 'right:calc(2vmin + var(--s)*1.9);top:14vmin', ['Escape'], 1],
-    ['任务', 'sm sys', 'right:calc(2vmin + var(--s)*2.85);top:14vmin', ['KeyQ']],
-    // 菜单上下选择（仅菜单/胶囊终端打开时显示）
-    ['▲', 'sm nav', `left:3vmin;bottom:calc(var(--s)*1.1 + ${B0})`, ['KeyW']],
-    ['▼', 'sm nav', `left:3vmin;bottom:${B0}`, ['KeyS']],
+  // 右下：以「剑击」为圆心的两圈弧形 —— 内圈 闪避 / 跳 / 变身，外圈 机车 / 飞剑 / 终结技（基地里外圈第一格换成「胶囊」）
+  // 左侧（HUD 下方）：更多 / 药①②（药水只在战斗里出现）。右上的任务信息面板、左上 HUD 区域一律不放按键。
+  // 冷却：和闪避键一样，用「扇形遮罩」显示；打开任何弹窗时整套操作键隐藏（只留一个小的 ✕ 关闭键）。
+  const R0 = 'max(3vmin, env(safe-area-inset-right, 0px))', B0 = 'max(3vmin, env(safe-area-inset-bottom, 0px))', L0 = 'max(2vmin, env(safe-area-inset-left, 0px))';
+  const f3 = n => +n.toFixed(3);
+  const arc = (r, deg, z = 1) => {   // 圆心 = 剑击键中心；r 单位为按键尺寸 --s
+    const a = deg * Math.PI / 180;
+    return `right:calc(${R0} + var(--s)*${f3(.75 + r * Math.cos(a) - z / 2)});bottom:calc(${B0} + var(--s)*${f3(.75 + r * Math.sin(a) - z / 2)})`;
+  };
+  const atkCodes = () => (G === 'play' && !showChar && !showCapModal) ? ((typeof coopCanRescue === 'function' && coopCanRescue()) ? ['KeyF'] : ['KeyJ']) : ['KeyF', 'Enter'];   // 战斗=剑击；基地=互动
+  // ctx：b=基地+战斗  p=只在战斗  v=只在基地
+  const BTN = [
+    { id: 'atk', t: '剑击', c: 'atk', pos: `right:${R0};bottom:${B0}`, codes: atkCodes, ctx: 'b' },
+    { id: 'dg', t: '闪避', c: 'dg', pos: arc(1.55, 0), codes: ['ShiftLeft'], ctx: 'b' },
+    { id: 'jmp', t: '跳', c: 'jmp', pos: arc(1.55, 45), codes: ['Space'], ctx: 'b' },
+    { id: 'p', t: '变身', c: 'trf', pos: arc(1.55, 90), codes: ['KeyP'], ctx: 'b' },
+    { id: 'e', t: '机车', c: 'skl sk-e', pos: arc(2.7, 10), codes: ['KeyE'], ctx: 'p', mp: 70 },
+    { id: 'l', t: '飞剑', c: 'skl sk-l', pos: arc(2.7, 38), codes: ['KeyL'], ctx: 'p', mp: 20 },
+    { id: 'k', t: '终结技', c: 'skl ult', pos: arc(2.7, 66), codes: ['KeyK'], ctx: 'p', mp: 120 },
+    { id: 'more', t: '更多', c: 'sm sys', pos: `left:${L0};top:29%`, ctx: 'b', more: 1 },
+    { id: 'hp', t: '药①', c: 'sm pot', pos: `left:${L0};top:calc(29% + var(--s)*1)`, codes: ['Digit1'], ctx: 'p' },
+    { id: 'mpp', t: '药②', c: 'sm pot mpot', pos: `left:${L0};top:calc(29% + var(--s)*1.9)`, codes: ['Digit2'], ctx: 'p' }
   ];
+  window.TC_POS = { R: arc(2.7, 92) };   // mechanics.js 的 R 键（契约 / 卡牌）用同一套布局
 
   const ui = document.createElement('div'); ui.id = 'tc';
   // 浮动摇杆：左半屏任意位置按下即出现，手指移动时圆盘跟随；上推=跳跃
   const jz = document.createElement('div'); jz.id = 'joyz';
   const jh = document.createElement('div'); jh.id = 'joyh'; jh.innerHTML = '<i>◀</i><i>▶</i>';
-  const jr = document.createElement('div'); jr.id = 'joy'; jr.innerHTML = '<i class="a l">◀</i><i class="a r">▶</i><i class="a u">▲</i><b></b>';
+  const jr = document.createElement('div'); jr.id = 'joy'; jr.innerHTML = '<i class=\"a l\">◀</i><i class=\"a r\">▶</i><i class=\"a u\">▲</i><b></b>';
   ui.appendChild(jz); ui.appendChild(jh); ui.appendChild(jr);   // 先于按钮加入 → 按钮在其上层
-  for (const [t, c, pos, codes, esc] of B) {
-    const b = document.createElement('div'); b.className = 'b ' + c; b.style.cssText = pos; b.innerHTML = t; ui.appendChild(b);
+
+  let moreOpen = false;
+  // 技能键按下时：冷却中 / 蓝不够 / 没药 → 在角色头顶提示（同一个键 0.6 秒内只提示一次）
+  const warn = (o, s, c) => { const t = performance.now(); if (o.wt && t - o.wt < 600) return; o.wt = t; DT.push({ x: P.x, y: P.y - 190, s, t: .9, c: c || '#ffa502' }) };
+  const tcWarn = o => {
+    if (G !== 'play' && o.id !== 'p') return;
+    const cdLeft = k => (P.cd[k] || 0), f1 = v => v.toFixed(1) + 's';
+    if (o.id === 'dg') { if (P.exh) warn(o, '能量耗尽！', '#ff8a4a'); else if (P.dcd > 0) warn(o, '闪避冷却中 ' + f1(P.dcd)); }
+    else if (o.id === 'p') { if (cdLeft('p') > 0) warn(o, '变身冷却中 ' + f1(cdLeft('p'))); }
+    else if (o.id === 'l' || o.id === 'e' || o.id === 'k') {
+      if (cdLeft(o.id) > 0) warn(o, o.tEl.textContent + '冷却中 ' + f1(cdLeft(o.id)));
+      else if (P.mp < o.mp) warn(o, '蓝量不足', '#70a1ff');
+    }
+    else if (o.id === 'hp') { if (S.hp <= 0) warn(o, '没有生命药水了', '#ff7675'); else if (P.hp >= P.mh) warn(o, '生命已满', '#7dff9a'); }
+    else if (o.id === 'mpp') { if (S.mp <= 0) warn(o, '没有蓝药水了', '#ff7675'); else if (P.mp >= P.mm) warn(o, '蓝量已满', '#7dff9a'); }
+  };
+  const bind = (b, codes, onDown, pre) => {
     let held = [];
     b.addEventListener('pointerdown', e => {
       e.preventDefault(); b.setPointerCapture(e.pointerId); b.classList.add('on');
-      if (esc && G === 'play' && !showChar && !showCapModal && Date.now() - lastEsc > 1500) { lastEsc = Date.now(); DT.push({ x: P.x, y: P.y - 180, s: '再点一次撤退', t: 1.2, c: '#ffd84a' }); return }
+      if (pre) pre();
+      if (onDown) return onDown();
       held = typeof codes === 'function' ? codes() : codes; held.forEach(press);
     });
     const up = () => { b.classList.remove('on'); held.forEach(rel); held = [] };
     b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up);
+  };
+  const mk = (cls, pos, html) => { const b = document.createElement('div'); b.className = 'b ' + cls; b.style.cssText = pos; b.innerHTML = html; ui.appendChild(b); return b };
+  for (const o of BTN) {
+    o.el = mk(o.c, o.pos, '<span class="t">' + o.t + '</span><span class="cd"></span>' + '');
+    o.tEl = o.el.querySelector('.t'); o.cdEl = o.el.querySelector('.cd'); o.nEl = o.el.querySelector('.n');
+    bind(o.el, o.codes, o.more ? () => (moreOpen ? closeMore() : openMore()) : null, o.more ? null : () => tcWarn(o));
   }
+  const byId = id => BTN.find(o => o.id === id);
+  // 菜单上下选择：只在「可滚动的列表菜单」（商店 / 铁匠铺等）里出现，手机上没法滚轮
+  const navBtns = [
+    mk('sm nav', `left:${L0};bottom:calc(var(--s)*1.1 + ${B0})`, '▲'), mk('sm nav', `left:${L0};bottom:${B0}`, '▼')
+  ];
+  bind(navBtns[0], ['KeyW']); bind(navBtns[1], ['KeyS']);
+  // 弹窗里的小 ✕ 关闭键（相当于 Esc）
+  const closeBtn = mk('sm sys cls', 'right:max(1.5vmin, env(safe-area-inset-right, 0px));top:1.5vmin', '✕');
+  bind(closeBtn, ['Escape']);
 
-  const dgBtn = ui.querySelector('.b.dg');
-  const lBtn = [...ui.querySelectorAll('.b')].find(b => b.textContent === '飞剑');
-  const atkBtn = ui.querySelector('.b.atk'), navBtns = [...ui.querySelectorAll('.b.nav')];
-  setInterval(() => {
-    if (lBtn) { const t = lSkillName(); if (lBtn.textContent !== t) lBtn.textContent = t }
-    if (atkBtn) {   // 剑击 / 互动 / 确认 共用一个键
-      const inBattle = G === 'play' && !showChar && !showCapModal;
-      const t = inBattle ? ((typeof coopCanRescue === 'function' && coopCanRescue()) ? '救援' : '剑击') : (M || showCapModal || showChar || gachaModal) ? '确认' : (typeof NR !== 'undefined' && NR) ? '互动' : '剑击';
-      if (atkBtn.textContent !== t) atkBtn.textContent = t;
-      atkBtn.classList.toggle('hot', t !== '剑击');
+  // ===== 「更多」面板：贴着「更多」键弹出的小面板，其余按键保持可用 =====
+  // 样式写在这里（不依赖 index.html 里的 CSS，避免缓存了旧的 index.html 导致面板没样式）
+  const css = document.createElement('style');
+  css.textContent = `
+    #tc .b{overflow:hidden}
+    #tc .b .t{position:relative;z-index:1;pointer-events:none;display:flex;flex-direction:column;align-items:center}
+    #tc .b .cd{position:absolute;inset:0;border-radius:50%;pointer-events:none;z-index:2}
+    #tc .b .n{position:absolute;left:0;right:0;bottom:7%;z-index:3;font-style:normal;font-size:calc(var(--s)*.2);font-weight:700;color:#8fd0ff;pointer-events:none;text-shadow:0 1px 2px #000}
+    #tc .b.pot .n{position:static;color:#fff}
+    #tc .b.low{filter:grayscale(1) brightness(.7)}
+    /* 每个技能一个颜色：红=剑击  蓝=跳  绿=闪避  青=变身  冰蓝=飞剑  橙=机车  紫=终结技  金=特殊技(R) */
+    #tc .b.dg{background:rgba(30,150,90,.5);border-color:rgba(130,255,180,.85)}
+    #tc .b.sk-l{background:rgba(30,130,200,.55);border-color:rgba(130,215,255,.95);box-shadow:0 0 10px rgba(80,190,255,.45)}
+    #tc .b.sk-e{background:rgba(200,100,10,.55);border-color:rgba(255,190,100,.95);box-shadow:0 0 10px rgba(255,150,40,.45)}
+    #tc .b.skl.ult{background:rgba(150,60,200,.55);border-color:rgba(230,170,255,.95);box-shadow:0 0 10px rgba(200,120,255,.5)}
+    #tc .b.sk-r{background:rgba(190,150,10,.55);border-color:#ffe066;box-shadow:0 0 10px rgba(255,216,74,.5)}
+    #tc .b.pot.mpot{background:rgba(30,80,190,.5);border-color:rgba(120,170,255,.85)}
+    #tc .b.on{background:rgba(255,255,255,.35);border-color:#fff}
+    #tc .b.cls{display:none;opacity:.85}
+    #tc .b.sys .t{font-size:calc(var(--s)*.24)}
+    #tcmore{display:none;position:absolute;pointer-events:auto;touch-action:none;box-sizing:border-box;
+      padding:calc(var(--s)*.22);border:1.5px solid #00e5ff;border-radius:14px;
+      background:linear-gradient(180deg,rgba(14,23,42,.96),rgba(6,10,20,.96));box-shadow:0 0 18px rgba(0,229,255,.35);
+      grid-template-columns:repeat(3,calc(var(--s)*1.25));gap:calc(var(--s)*.18)}
+    #tcmore.show{display:grid}
+    #tcmore .tile{height:calc(var(--s)*1.05);border-radius:10px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);
+      display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(var(--s)*.06);color:#e2e8f0;
+      font:700 calc(var(--s)*.22)/1 system-ui,sans-serif;touch-action:none;-webkit-tap-highlight-color:transparent}
+    #tcmore .tile i{font-style:normal;font-size:calc(var(--s)*.42)}
+    #tcmore .tile:active{transform:scale(.94);background:rgba(0,229,255,.22)}
+    #tcmore .tile.warn{border-color:#ff4757;color:#ff8a95;background:rgba(255,71,87,.15)}`;
+  document.head.appendChild(css);
+  const mp = document.createElement('div'); mp.id = 'tcmore';
+  mp.style.cssText = `left:calc(${L0} + var(--s)*1.0);top:29%`;
+  ui.appendChild(mp);
+  const mg = mp;
+  const tap = (...codes) => () => { codes.forEach(press); setTimeout(() => codes.forEach(rel), 90) };
+  const TILES = () => {
+    const base = G === 'vil' || G === 'room', t = [
+      { ic: '🎒', t: '背包', f: tap('KeyC') }, { ic: '💊', t: '胶囊', f: tap('KeyN') },
+      { ic: '📜', t: '任务', f: tap('KeyQ') }, { ic: '📊', t: '战绩', f: tap('KeyI') }
+    ];
+    if (base && window.openSettings) t.push({ ic: '⚙', t: '设置', f: () => setTimeout(window.openSettings, 120) });
+    if (document.documentElement.requestFullscreen) t.push({
+      ic: '⛶', t: '全屏', f: () => { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => { })).catch(() => { }) }
+    });
+    if (G === 'play') t.push({ ic: '🚪', t: '撤退', warn: 1, f: tap('Escape') });
+    return t;
+  };
+  function openMore() {
+    mg.innerHTML = '';
+    for (const o of TILES()) {
+      const d = document.createElement('div'); d.className = 'tile'; d.innerHTML = '<i>' + o.ic + '</i>' + o.t;
+      if (o.warn) d.classList.add('warn');
+      d.addEventListener('pointerdown', e => {
+        e.preventDefault(); e.stopPropagation();
+        if (o.warn && !d.dataset.armed) {   // 撤退需要二次确认：第一次点只变成「再点确认」
+          d.dataset.armed = 1; d.innerHTML = '<i>⚠</i>再点确认'; setTimeout(() => { if (d.isConnected) { delete d.dataset.armed; d.innerHTML = '<i>' + o.ic + '</i>' + o.t } }, 2000); return;
+        }
+        closeMore(); o.f();
+      });
+      mg.appendChild(d);
     }
-    const showNav = (!!M && !gachaModal) || showCapModal;
-    navBtns.forEach(n => n.classList.toggle('show', showNav));
-    if (!dgBtn) return;
-    const cd = G === 'play' ? Math.max(0, P.dcd / DODGE_CD) : 0;
-    dgBtn.style.background = cd > 0 ? `conic-gradient(rgba(0,0,0,.6) ${cd * 360}deg, rgba(0,190,200,.5) 0)` : '';
-    dgBtn.style.borderColor = P.exh ? '#ff6b6b' : '';
-  }, 80);
-
-  if (document.documentElement.requestFullscreen) {
-    const f = document.createElement('div'); f.className = 'b sm sys'; f.textContent = '⛶'; f.style.cssText = 'right:calc(2vmin + var(--s)*2.85);top:14vmin';
-    f.addEventListener('pointerdown', e => { e.preventDefault(); document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => { })).catch(() => { }) });
-    ui.appendChild(f);
+    moreOpen = true; mp.classList.add('show');
   }
+  function closeMore() { mp.classList.remove('show'); moreOpen = false }
+
+  // ===== 每帧状态：显示 / 隐藏、冷却扇形、蓝量不足变暗 =====
+  const overlayOn = () => ['auth-overlay', 'set-overlay'].some(id => { const e = document.getElementById(id); return e && e.classList.contains('show') });
+  const tcPopup = () => !!(M || showChar || showCapModal || showStat || showQuest || gachaModal || overlayOn() || P.st === 'trans' || P.st === 'trans_ryuki');
+  window.tcHidden = () => tcPopup();
+  const setCd = (o, r) => { const v = r > 0 ? `conic-gradient(rgba(0,0,0,.62) ${(Math.min(1, r) * 360).toFixed(1)}deg, transparent 0)` : ''; if (o.cdv !== v) { o.cdv = v; o.cdEl.style.background = v } };
+  const setT = (o, t) => { if (o.tEl.textContent !== t) o.tEl.textContent = t };
+  setInterval(() => {
+    const base = G === 'vil' || G === 'room', play = G === 'play', popup = tcPopup();
+    const show = (base || play) && !popup;
+    if (moreOpen && (!(base || play) || popup)) closeMore();
+    for (const o of BTN) {
+      const vis = show && (o.ctx === 'b' || (o.ctx === 'p' && play) || (o.ctx === 'v' && base));
+      const d = vis ? 'flex' : 'none'; if (o.el.style.display !== d) o.el.style.display = d;
+      if (!vis) continue;
+      switch (o.id) {
+        case 'atk': {
+          const inBattle = play && !showChar && !showCapModal;
+          const t = inBattle ? ((typeof coopCanRescue === 'function' && coopCanRescue()) ? '救援' : '剑击') : (typeof NR !== 'undefined' && NR) ? '互动' : '剑击';
+          setT(o, t); o.el.classList.toggle('hot', t !== '剑击'); break;
+        }
+        case 'dg': setCd(o, P.dcd > 0 ? P.dcd / DODGE_CD : 0); o.el.style.borderColor = P.exh ? '#ff6b6b' : ''; break;
+        case 'p': setT(o, inForm() ? '解除' : '变身'); setCd(o, (P.cd.p || 0) > 0 ? P.cd.p / (P.maxCd.p || 1) : 0); break;
+        case 'l': case 'e': case 'k': {
+          if (o.id === 'l') setT(o, lSkillName());
+          setCd(o, (P.cd[o.id] || 0) > 0 ? P.cd[o.id] / (P.maxCd[o.id] || 1) : 0);
+          o.el.classList.toggle('low', P.mp < o.mp); break;
+        }
+        case 'hp': case 'mpp': {
+          const n = o.id === 'hp' ? S.hp : S.mp;
+          const h = o.t + '<i class="n">×' + n + '</i>'; if (o.h !== h) { o.h = h; o.tEl.innerHTML = h }
+          o.el.classList.toggle('low', n <= 0 || (o.id === 'hp' ? P.hp >= P.mh : P.mp >= P.mm)); break;
+        }
+      }
+    }
+    const scroll = !!M && !gachaModal && V.pg !== 'st' && MN.max > 0;
+    navBtns.forEach(n => n.classList.toggle('show', scroll));
+    closeBtn.style.display = (base || play) && !gachaModal && (showChar || showCapModal || showStat || showQuest || M) ? 'flex' : 'none';
+  }, 50);
+
   if (TOUCH) document.body.appendChild(ui);
 
   // ===== 浮动摇杆逻辑 =====
@@ -1029,8 +1149,18 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
     if (u !== ju) { u ? press('Space') : rel('Space'); ju = u }
     arL.classList.toggle('on', l); arR.classList.toggle('on', r); arU.classList.toggle('on', u);
   };
+  // 左上角 HUD 按钮（等级徽章 / 战力 / 任务）：摇杆区盖在画布上面，手机上这些点击到不了画布，所以在这里先判断
+  const hudTap = e => {
+    const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 960, y = (e.clientY - r.top) / r.height * 540;
+    if (!psCanOpen()) return false;
+    if (questBtnHit(x, y)) { questOpen(); return true; }
+    if (cpHudHit(x, y)) { LB.tab = 1; psOpen(); lbFetch(); return true; }
+    if (psBadgeHit(x, y)) { LB.tab = 0; psOpen(); return true; }
+    return false;
+  };
   jz.addEventListener('pointerdown', e => {
     if (jid !== null || !joyOk()) return;
+    if (hudTap(e)) { e.preventDefault(); return; }
     e.preventDefault(); jid = e.pointerId; jz.setPointerCapture(jid);
     jr.classList.add('show'); JR = jr.offsetWidth / 2 || 60;      // 先显示再量尺寸
     ox = cl(e.clientX, JR + 4, innerWidth - JR - 4); oy = cl(e.clientY, JR + 4, innerHeight - JR - 4);
@@ -1177,10 +1307,16 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
         }
       }
 
+      // 3.5 右侧「升星」按钮（capstar.js；按钮由 drawCapsuleModal0 每帧登记位置）
+      if (typeof capUpHit === 'function' && capUpHit(x, y)) {
+        const id = curSelCapId, b0 = capStar(id);
+        capStarUp(id);
+        if (capStar(id) > b0) { calc(); if (typeof capUpFx === 'function') capUpFx(id, capStar(id)); }   // 升星成功：重算属性 + 播放特效
+        return;
+      }
+
       // 4. 右侧「立即装配 / 卸下」大按钮点击
-      const rx = px + 392, ry = py + 48, rw = 370;
-      const actBtnY = ry + 150 + 42, actBtnH = 36;
-      if (x >= rx + 14 && x <= rx + rw - 14 && y >= actBtnY && y <= actBtnY + actBtnH) {
+      if (x >= CAPACT.x && x <= CAPACT.x + CAPACT.w && y >= CAPACT.y && y <= CAPACT.y + CAPACT.h) {   // 命中区由 ui.js 每帧登记
         const selCap = CAPSULES.find(c => c.id === curSelCapId);
         if (!selCap) return;
         const isOwned = S.caps.includes(selCap.id);

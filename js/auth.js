@@ -79,7 +79,11 @@ async function loadCloudSave(user) {
       if (!Array.isArray(S.inv)) S.inv = [];
       if (!S.eq || typeof S.eq !== 'object') S.eq = { weapon: null, chest: null, belt: null, legs: null, boots: null, necklace: null, ring: null };
       if (!S.stars || typeof S.stars !== 'object') S.stars = {};
+      if (!S.cs || typeof S.cs !== 'object') S.cs = {};          // 胶囊星级
+      if (typeof S.csh !== 'number') S.csh = 0;                  // 契约碎片
+      if (!S.tw || typeof S.tw !== 'object') S.tw = { best: 0 }; // 无尽塔进度
       
+      if (typeof migrateEquip === 'function') migrateEquip();   // 云端旧装备同样要按新倍率迁移
       try { localStorage.malaya = JSON.stringify(S); } catch (e) {}
       if (typeof calc === 'function') calc();
       console.log('[Cloud Save] ✅ 成功拉取云端存档！金币:', S.g, '等级:', S.lv);
@@ -113,9 +117,7 @@ async function forceSyncCloudSave() {
     } else {
       console.log('[Cloud Save] ☁️ 进度已成功同步至 Supabase！');
       if (typeof lbSubmit === 'function') lbSubmit();   // 顺带更新排行榜（战力没变会自动跳过）
-      if (typeof DT !== 'undefined' && Array.isArray(DT) && typeof P !== 'undefined') {
-        DT.push({ x: P.x || 300, y: (P.y || 470) - 180, s: '☁️ 进度已备份云端', t: 1.2, c: '#7dff9a' });
-      }
+      if (typeof cloudHintShow === 'function') cloudHintShow();   // 右下角灰色半透明“已备份”
     }
   } catch (e) {
     console.error('[Cloud Save Upload Error]', e);
@@ -241,11 +243,46 @@ if (sbClient) {
 // ui.js 在 beforeunload / visibilitychange 时会把内存里的存档写回 localStorage，
 // 只在刷新前 removeItem 会被写回去；pagehide 在它们之后触发，所以在这里最后删一次。
 let wipeLocalOnExit = false;
-addEventListener('pagehide', () => { if (wipeLocalOnExit) { try { localStorage.removeItem('malaya'); } catch (e) {} } });
+let wipeAllOnExit = false;
+addEventListener('pagehide', () => {
+  if (wipeAllOnExit) { try { localStorage.clear(); sessionStorage.clear(); } catch (e) {} }
+  else if (wipeLocalOnExit) { try { localStorage.removeItem('malaya'); } catch (e) {} }
+});
 function wipeLocalAndReload() {
   wipeLocalOnExit = true;
   currentAuthUser = null;   // 阻止 beforeunload 把当前内存里的（别人的）进度传上云
   location.reload();
+}
+
+// 彻底注销账号：删除云端存档 + 排行榜记录 + Supabase 里的登录账号（邮箱），再清空本机所有数据。不可恢复。
+// 云端删除靠数据库里的 delete_my_account() 函数（SQL 见 supabase_delete_account.sql，需要在 Supabase 里执行一次）。
+// 云端删除失败时直接返回错误、什么都不清，免得「本机清了、云端还在」。
+async function authDeleteAccount() {
+  if (titleBusy) return { ok: false, msg: '请稍候再试' };
+  titleBusy = true;
+  const u = currentAuthUser;
+  const local = !u || String(u.id).startsWith('local_guest');
+  try {
+    if (!local) {
+      if (!sbClient) throw new Error('未连接到云端，无法注销');
+      if (cloudSyncTimer) { clearTimeout(cloudSyncTimer); cloudSyncTimer = null; }   // 取消排队中的备份，免得删完又传上去
+      const { error } = await sbClient.rpc('delete_my_account');
+      if (error) {
+        const miss = /delete_my_account|function|schema cache|404/i.test(error.message || '') || error.code === 'PGRST202';
+        throw new Error(miss ? '云端还没有注销功能：请先在 Supabase 的 SQL Editor 里执行 supabase_delete_account.sql' : (error.message || '云端删除失败'));
+      }
+      try { await sbClient.auth.signOut({ scope: 'local' }); } catch (e) {}
+    }
+  } catch (e) {
+    titleBusy = false;
+    return { ok: false, msg: e.message || String(e) };
+  }
+  window.__noSave = true;        // 从这一刻起 save() / 退出前的自动写入全部停止
+  currentAuthUser = null;
+  wipeAllOnExit = true;          // 页面关闭时再清一次（防止被退出事件写回）
+  try { localStorage.clear(); sessionStorage.clear(); } catch (e) {}
+  location.reload();
+  return { ok: true };
 }
 
 function authToast(msg) {
@@ -297,6 +334,11 @@ async function authSwitchAccount() {
   const guest = !!(currentAuthUser && currentAuthUser.is_anonymous);
   const msg = guest ? '当前是游客账号，退出后这份存档将无法找回。确定要切换账号吗？' : '切换账号？当前进度会先备份到云端。';
   if (!confirm(msg)) return;
+  return authSignOut();
+}
+// 真正执行：备份 → 退出登录 → 清本地存档 → 刷新。调用前必须已经让玩家确认过。
+async function authSignOut() {
+  if (titleBusy) return;
   titleBusy = true;
   try {
     authToast('正在备份并退出…');

@@ -181,7 +181,7 @@ for (let c = 0; c < 20; c++) {
     const recLvl = Math.max(1, Math.round(1 + (stageIndex / 199) * 499));
     
     // 关卡奖励金币随等级指数型平滑提升
-    const baseGold = Math.round(150 * Math.pow(1.055, stageIndex));
+    const baseGold = Math.round(225 * Math.pow(1.055, stageIndex));   // 起始金币 150 → 225（+50%）
     
     // 击杀目标数
     const killTarget = isBossStage ? (35 + c * 2) : (20 + s * 3 + c);
@@ -246,6 +246,16 @@ COOP_STAGES.forEach((cs, idx) => {
 // ===== 世界BOSS（作为特殊关卡追加在 ST 末尾，复用整套战斗系统；不计入章节进度 S.cl） =====
 // lv=解锁等级  r=推荐等级  g=满伤害金币奖励  hpx=生命倍率  tl=讨伐时限(秒)  set=使用第几章的怪物图与招式
 const WB_DAILY = 3;
+// ===== 各副本奖励（每个玩法都有自己的特色产出，不再互相重复）=====
+//  主线关卡：首通钻石 FIRST_CLEAR_DIAMOND（一次性）+ 经验 + 稳定装备掉落
+//  无尽塔  ：首通钻石 100 / 首领层 200（一次性、无限层数）+ 首领层契约碎片（tower.js）
+//  双人副本：首通钻石（按难度）+ 每次通关都给 契约碎片 / 强化碎晶 / 强化卷轴（可重复刷）+ 高阶装备高掉率
+//  世界BOSS：每日 WB_DAILY 次，每次按伤害占比发钻石（击杀 +50%）+ 大额金币
+const WB_DIAM = [30, 40, 50, 60, 80, 100];              // 世界BOSS：满伤害钻石（按 WB 顺序）
+const COOP_FIRST_DIAM = [100, 120, 150, 180, 220, 300]; // 双人副本：首通钻石（按 COOP_STAGES 顺序）
+const COOP_SHARD = [1, 1, 2, 2, 3, 3];                  // 双人副本：每次通关 契约碎片
+const COOP_MAT = [8, 12, 16, 20, 26, 32];               // 双人副本：每次通关 强化碎晶
+const COOP_SCR = [1, 2, 2, 3, 3, 4];                    // 双人副本：每次通关 强化卷轴
 const WB = [
   { n: '炎狱暴君', set: 2,  lv: 12, r: 15, g: 6000,    hpx: 6,  tl: 120, ov: 'rgba(120,20,0,.34)',  d: '熔岩深处苏醒的火焰君王，\n每一次咆哮都会点燃整片战场。' },
   { n: '苍雷天罚', set: 3,  lv: 21, r: 24, g: 14000,   hpx: 6,  tl: 120, ov: 'rgba(30,20,120,.34)', d: '撕裂云层的雷霆化身，\n雷光落下之前会留下短暂的预兆。' },
@@ -260,7 +270,8 @@ WB.forEach(w => {
 });
 
 // 怪物强度由推荐等级 r 推导（想整体调难度只改下面两个系数即可）
-const HP_K = 0.7, DM_K = 0.03;   // 怪物生命 / 伤害系数（原 0.6 / 0.025）
+const HIT_FRAC = 1 / 8;   // 一次「标准攻击」打掉玩家最大生命的比例（1/8 = 约 8 下致死）
+const HP_K = 1.0, DM_K = 0.04;   // 怪物生命 / 伤害系数（上一版 0.7 / 0.03）
 // 升级所需经验（原来是 等级×40，升得太快）
 const xpNeed = lv => Math.round(60 + lv * 45 + lv * lv * 1.1);
 const atkExp = r => (14 + 19 * r) * (1 + .02 * r);      // 该等级玩家的大致攻击力
@@ -381,14 +392,17 @@ const K = {}, PR = {};
 
 // 存档结构与持久化
 // 钻石：高级货币（初始 1000；首通关卡 +FIRST_CLEAR_DIAMOND；用于扭蛋）
-const FIRST_CLEAR_DIAMOND = 100;
+const FIRST_CLEAR_DIAMOND = 60;   // 首通钻石（战斗结算与关卡列表显示共用这一个常量）
 const S = {
   g: 200, d: 1000, hp: 2, mp: 1, sw: 0, ar: 0, bt: 0, lv: 1, xp: 0, tp: 0, ta: [0, 0, 0, 0], cl: 0,
   caps: [], eqCap: null,
   inv: [],
   eq: { weapon: null, chest: null, belt: null, legs: null, boots: null, necklace: null, ring: null },
   mat: 20, scr: 3,
-  stars: {} // ★ 存储每个关卡的历史最高星级 { 0: 3, 1: 2, ... }
+  stars: {}, // ★ 存储每个关卡的历史最高星级 { 0: 3, 1: 2, ... }
+  cs: {}, csh: 0,      // 胶囊星级 { 胶囊id: 0~5 } / 契约碎片（capstar.js）
+  tw: { best: 0 },     // 无尽塔：历史最高通关层数（tower.js）
+  tt: null             // 当前佩戴的称号 id（titles.js；S.tu 由 ttScan 首次运行时创建）
 };
 
 try {
@@ -400,10 +414,14 @@ try {
   if (typeof S.mat !== 'number') S.mat = 20;
   if (typeof S.scr !== 'number') S.scr = 3;
   if (typeof S.d !== 'number') S.d = 1000;
+  if (!S.cs || typeof S.cs !== 'object') S.cs = {};
+  if (typeof S.csh !== 'number') S.csh = 0;
+  if (!S.tw || typeof S.tw !== 'object') S.tw = { best: 0 };
 } catch (e) {}
 
 // 本地持久化 + 自动触发云端防抖备份
 const save = () => {
+  if (window.__noSave) return;   // 注销账号过程中：不再写本地 / 云端
   // 1. 本地实时写入
   try {
     localStorage.malaya = JSON.stringify(S);

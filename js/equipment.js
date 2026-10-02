@@ -78,7 +78,8 @@ const ITEM_NAMES = {
 };
 
 // 装备生成器（支持最高 500 级属性平滑曲线与需求等级）
-const EQ_K = 0.6;   // 装备基础数值倍率（越小装备越弱）
+const EQ_K = 0.3;        // 装备基础数值倍率（越小装备越弱）。上一版 0.6，现减半
+
 const TIER_MUL_OLD = [1.0, 1.4, 2.0, 3.0, 4.6, 6.8];   // 旧版品质倍率，仅用于旧存档迁移
 // ===== 装备词条系统 =====
 // 每件装备带 0~3 条随机词条，每条词条有「品质 q」(0.55~1.00)，q ≥ 0.9 记为「完美」。
@@ -91,12 +92,17 @@ const AFFIX_DEFS = {
   mp:   { n: '魔力',     c: '#8ec5ff', stat: true, w: 2 },
   crit: { n: '暴击率',   c: '#ffe08a', stat: true, w: 2 },
   def:  { n: '免伤',     c: '#9dffb8', stat: true, w: 2 },
-  ls:   { n: '吸血',     c: '#ff6b81', w: 1, minTier: 1 },
-  gd:   { n: '金币加成', c: '#ffd84a', w: 1, minTier: 1 },
-  xp:   { n: '经验加成', c: '#c79bff', w: 1, minTier: 1 }
+  ls:   { n: '吸血',     c: '#ff6b81', w: 2 },   // 只能通过装备词条获得
+  spd:  { n: '移速',     c: '#7df9ff', w: 2 },   // 移动速度加成（player.js walk 里生效）
+  gd:   { n: '金币加成', c: '#ffd84a', w: 1 },
+  xp:   { n: '经验加成', c: '#c79bff', w: 1 }
 };
-const AFFIX_N = [[0, .25], [1, 0], [1, .5], [2, 0], [2, .6], [3, 0]];   // 各品质词条数：[保底条数, 多 1 条的概率]
+const AFFIX_COUNT = 3;   // 每件装备固定 3 条副词条（互不相同，任何类型都可能出现）
 const AFFIX_PERFECT = .9;
+const LS_MAX = [.03, .05, .08, .11, .13, .15];   // 吸血词条满值（按装备品质：普通→神话[红]）；品质 q ≤ 1，所以红装最高 15%
+const SPD_MAX = [.03, .05, .07, .09, .12, .15];   // 移速词条满值（按装备品质）
+const AFFIX_CAP = { spd: .5 };                     // 全身同类词条合计上限（移速最多 +50%）
+const LOCK_COST_MUL = [1, 2, 3.5, 5];             // 重铸时每多锁 1 条词条，金币 / 碎晶消耗的倍率
 let bagAffTab = false;   // 背包详情：false = 属性页，true = 词条页
 
 function affixMax(k, tier, lvl) {   // 品质 q = 1 时的满值
@@ -107,7 +113,8 @@ function affixMax(k, tier, lvl) {   // 品质 q = 1 时的满值
     case 'mp': return (10 + b * 5) * mul * EQ_K;
     case 'crit': return .012 + tier * .004;
     case 'def': return (1 + b * .2) * mul * EQ_K;
-    case 'ls': return .01 + tier * .004;
+    case 'ls': return LS_MAX[tier] || LS_MAX[0];
+    case 'spd': return SPD_MAX[tier] || SPD_MAX[0];
     case 'gd': case 'xp': return .04 + tier * .02;
   }
   return 0;
@@ -117,17 +124,17 @@ function affixVal(it, a) {
   const d = AFFIX_DEFS[a.k]; if (!d) return 0;
   const mx = affixMax(a.k, it.tier | 0, it.reqLvl || 1) * a.q;
   if (!d.stat) return +mx.toFixed(3);                 // 特殊词条：不随强化 / 升星变化
-  const v = mx * itemM(it);                           // 属性词条：和基础属性一起吃强化 / 升星加成
+  const v = mx;                                       // 词条数值固定：强化 / 升星只影响两项基础属性，词条只能靠重铸提升
   return a.k === 'crit' ? +v.toFixed(3) : Math.max(1, Math.round(v));
 }
-function affixStr(it, a) {
-  const d = AFFIX_DEFS[a.k], v = affixVal(it, a);
-  return '+' + ((d && d.stat && a.k !== 'crit') ? v.toLocaleString() : (v * 100).toFixed(1) + '%');
-}
-function rollAffixes(tier, lvl) {
-  const cfg = AFFIX_N[tier] || AFFIX_N[0];
-  const n = cfg[0] + (Math.random() < cfg[1] ? 1 : 0);
-  const pool = Object.keys(AFFIX_DEFS).filter(k => !(AFFIX_DEFS[k].minTier > tier)), out = [];
+// 词条数值的显示格式：属性类（攻击 / 生命 / 魔力 / 免伤）显示整数，其余（暴击 / 吸血 / 移速 / 金币 / 经验）显示百分比
+function affixFmt(k, v) { const d = AFFIX_DEFS[k]; return (d && d.stat && k !== 'crit') ? Math.round(v).toLocaleString() : (v * 100).toFixed(1) + '%'; }
+function affixStr(it, a) { return '+' + affixFmt(a.k, affixVal(it, a)); }
+// 一件装备上某类词条的数值合计（装备对比用：没有该词条则为 0）
+function affixNum(it, k) { let t = 0; for (const a of ((it && it.affix) || [])) if (a.k === k) t += affixVal(it, a); return t; }
+function rollAffixes(tier, lvl, ex, cnt) {   // ex：要排除的词条 k 列表（已锁定的）；cnt：强制条数
+  const n = cnt != null ? cnt : AFFIX_COUNT;
+  const pool = Object.keys(AFFIX_DEFS).filter(k => !(ex && ex.includes(k))), out = [];
   while (out.length < n && pool.length) {
     let r = Math.random() * pool.reduce((s, k) => s + AFFIX_DEFS[k].w, 0), idx = 0;
     for (let i = 0; i < pool.length; i++) { r -= AFFIX_DEFS[pool[i]].w; if (r < 0) { idx = i; break } }
@@ -142,24 +149,39 @@ function affixTotal(k) {
     const it = S.eq[s];
     if (it && it.affix) for (const a of it.affix) if (a.k === k) t += affixVal(it, a);
   }
-  return t;
+  return AFFIX_CAP[k] != null ? Math.min(t, AFFIX_CAP[k]) : t;
 }
 const affixPerfect = it => (it.affix || []).filter(a => a.q >= AFFIX_PERFECT).length;
 
-function rerollCost(it) { return { g: Math.round(300 * ((it.tier | 0) + 1) * (1 + (it.reqLvl || 1) / 25)), mat: 4 * ((it.tier | 0) + 1) }; }
-// 重铸词条：金币 + 碎晶，全部词条重新随机（旧存档里没有词条的装备也能重铸出词条）
+const affixLockN = it => (it.affix || []).filter(a => a.lk).length;
+function toggleAffixLock(it, i) {
+  const a = it && it.affix && it.affix[i]; if (!a) return;
+  if (!a.lk && affixLockN(it) >= it.affix.length - 1) { bagNotice = '至少要留 1 条不锁定的词条才能重铸'; bagNoticeT = 1.8; return; }
+  a.lk = a.lk ? 0 : 1;
+  save();
+}
+// 重铸消耗：基础价 ×（1 + 锁定条数的倍率）。锁得越多越贵
+function rerollCost(it) {
+  const m = LOCK_COST_MUL[Math.min(affixLockN(it), LOCK_COST_MUL.length - 1)];
+  return { g: Math.round(300 * ((it.tier | 0) + 1) * (1 + (it.reqLvl || 1) / 25) * m), mat: Math.round(4 * ((it.tier | 0) + 1) * m) };
+}
+// 重铸词条：金币 + 碎晶；锁定的词条原样保留，其余重新随机（旧存档里没有词条的装备也能重铸出词条）
 function rerollAffix(it) {
   if (!it) return;
+  const old = it.affix || [], keep = old.filter(a => a.lk);
+  if (old.length && keep.length >= old.length) { bagNotice = '所有词条都已锁定，请先解锁要重铸的词条'; bagNoticeT = 1.8; return; }
   const c = rerollCost(it);
   if (S.g < c.g) { bagNotice = '重铸金币不足！需要 ' + c.g.toLocaleString() + ' G'; bagNoticeT = 1.8; return; }
   if (S.mat < c.mat) { bagNotice = '重铸碎晶不足！需要 ' + c.mat + ' 碎晶'; bagNoticeT = 1.8; return; }
   S.g -= c.g; S.mat -= c.mat;
-  it.affix = rollAffixes(it.tier | 0, it.reqLvl || 1);
+  const tier = it.tier | 0, lvl = it.reqLvl || 1;
+  const fresh = rollAffixes(tier, lvl, keep.map(a => a.k), Math.max(1, AFFIX_COUNT - keep.length));   // 总数固定 3 条，且不会和已锁定的重复   // 不会和已锁定的词条重复
+  it.affix = keep.concat(fresh);
   recalcItem(it);
   ps().rr++;
   calc(); save();
   const pf = affixPerfect(it);
-  bagNotice = it.affix.length ? '♻ 重铸完成：' + it.affix.length + ' 条词条' + (pf ? '（含 ' + pf + ' 条完美！）' : '') : '♻ 重铸完成：这次没有词条…再试试？';
+  bagNotice = it.affix.length ? '♻ 重铸完成：' + it.affix.length + ' 条词条' + (keep.length ? '（锁定 ' + keep.length + ' 条未变）' : '') + (pf ? '（含 ' + pf + ' 条完美！）' : '') : '♻ 重铸完成：这次没有词条…再试试？';
   bagNoticeT = 2.4;
 }
 
@@ -169,44 +191,13 @@ function genItem(slot, tier, lvl = 1) {
   if (tier === undefined) tier = 0;
   const names = ITEM_NAMES[slot][tier];
   const name = names[(Math.random() * names.length) | 0];
-  const mul = TIERS[tier].mul;
 
-  // 需求等级与最高 500 级基准计算
+  // 需求等级最高 500；两项基础属性固定（calcBase），不随机
   const reqLvl = Math.max(1, Math.min(500, lvl | 0));
-  const b = reqLvl;
-
-  const s = { atk: 0, hp: 0, mp: 0, crit: 0, def: 0 };
-  if (slot === 'weapon') {
-    s.atk = Math.round((10 + b * 5.2) * mul);
-    if (tier >= 2) s.crit = +(0.02 + tier * 0.015).toFixed(3);
-  } else if (slot === 'chest') {
-    s.hp = Math.round((60 + b * 32) * mul);
-    s.def = Math.round((2 + tier * 1.5 + b * 0.5) * mul);
-  } else if (slot === 'necklace') {
-    s.mp = Math.round((25 + b * 14) * mul);
-    s.atk = Math.round((4 + b * 1.8) * mul);
-    if (tier >= 3) s.crit = +(0.03 + tier * 0.01).toFixed(3);
-  } else if (slot === 'ring') {
-    s.atk = Math.round((6 + b * 3.2) * mul);
-    s.crit = +(0.02 + tier * 0.02).toFixed(3);
-  } else if (slot === 'belt') {
-    s.atk = Math.round((5 + b * 2.2) * mul);
-    s.hp = Math.round((40 + b * 18) * mul);
-    s.mp = Math.round((30 + b * 16) * mul);
-  } else if (slot === 'legs') {
-    s.hp = Math.round((50 + b * 25) * mul);
-    s.def = Math.round((1 + tier * 1.2 + b * 0.4) * mul);
-  } else if (slot === 'boots') {
-    s.hp = Math.round((30 + b * 15) * mul);
-    s.atk = Math.round((3 + b * 1.2) * mul);
-    if (tier >= 1) s.crit = +(0.01 + tier * 0.01).toFixed(3);
-  }
-
-  // 装备数值整体削减（EQ_K）
-  for (const k in s) s[k] = k === 'crit' ? +(s[k] * EQ_K).toFixed(3) : Math.round(s[k] * EQ_K);
+  const s = calcBase(slot, tier, reqLvl);
 
   const it = {
-    v: 2,
+    v: 4,
     id: 'eq_' + (++uid) + '_' + Math.random().toString(36).slice(2, 7),
     name,
     slot,
@@ -215,7 +206,7 @@ function genItem(slot, tier, lvl = 1) {
     star: 0,
     reqLvl,
     baseStats: s,
-    stats: { ...s }
+    stats: { atk: 0, hp: 0, mp: 0, crit: 0, def: 0 }
   };
   it.affix = rollAffixes(tier, reqLvl);   // 词条（见上方词条系统）
   recalcItem(it);
@@ -225,18 +216,36 @@ function genItem(slot, tier, lvl = 1) {
 
 // ===== 强化 / 升星 / 分解 公共计算 =====
 const MAX_STAR = 5;                 // 满星 5 星
-const STAR_BONUS = 0.15;            // 每星全属性 +25%
-const UP_BONUS = 0.08;              // 每级强化基础属性 +12%
+const STAR_BONUS = 0.15;            // 每星：两项基础属性 +15%（词条不变）
+const UP_BONUS = 0.08;              // 每级强化：两项基础属性 +8%（词条不变）
 const starStr = it => '⭐'.repeat(it.star | 0) + '☆'.repeat(MAX_STAR - (it.star | 0));
 
 // 统一重算装备属性 = 基础 × 强化加成 × 星级加成（暴击率保留小数，不再被取整成 0）
+// 两项固定基础属性：每个部位固定两项，数值只由「部位 + 品质 + 需求等级」决定（没有随机）
+const SLOT_BASE = {
+  weapon:   [['atk', (b, t, m) => (10 + b * 5.2) * m], ['hp', (b, t, m) => (30 + b * 12) * m]],
+  chest:    [['hp', (b, t, m) => (60 + b * 32) * m], ['mp', (b, t, m) => (20 + b * 8) * m]],
+  belt:     [['atk', (b, t, m) => (5 + b * 2.2) * m], ['mp', (b, t, m) => (30 + b * 16) * m]],
+  necklace: [['mp', (b, t, m) => (25 + b * 14) * m], ['crit', (b, t) => .02 + t * .01]],
+  ring:     [['atk', (b, t, m) => (6 + b * 3.2) * m], ['crit', (b, t) => .02 + t * .02]],
+  legs:     [['hp', (b, t, m) => (50 + b * 25) * m], ['def', (b, t, m) => (1 + t * 1.2 + b * .4) * m]],
+  boots:    [['hp', (b, t, m) => (30 + b * 15) * m], ['atk', (b, t, m) => (3 + b * 1.2) * m]]
+};
+function calcBase(slot, tier, lvl) {
+  const b = Math.max(1, Math.min(500, lvl | 0)), m = TIERS[tier].mul, out = {};
+  for (const [k, f] of SLOT_BASE[slot]) { const v = f(b, tier, m) * EQ_K; out[k] = k === 'crit' ? +v.toFixed(3) : Math.max(1, Math.round(v)); }
+  return out;
+}
+// 基础属性（含强化 / 升星加成），不含词条
+function baseShow(it, k) {
+  const b = (it && it.baseStats && it.baseStats[k]) || 0, m = itemM(it);
+  return k === 'crit' ? +(b * m).toFixed(3) : Math.round(b * m);
+}
 function recalcItem(it) {
-  const m = (1 + (it.lvl | 0) * UP_BONUS) * (1 + (it.star | 0) * STAR_BONUS);
-  for (const k in it.baseStats) {
-    const b = it.baseStats[k];
-    it.stats[k] = !b ? 0 : k === 'crit' ? +(b * m).toFixed(3) : Math.round(b * m);
-  }
-  // 属性类词条并入 stats（特殊词条见 affixTotal）
+  if (!it.stats) it.stats = {};
+  for (const k of ['atk', 'hp', 'mp', 'crit', 'def']) it.stats[k] = 0;
+  for (const k in it.baseStats) it.stats[k] = baseShow(it, k);   // 只有两项基础属性吃强化 / 升星
+  // 属性类词条并入 stats（数值固定；特殊词条见 affixTotal）
   if (it.affix) for (const a of it.affix) {
     const d = AFFIX_DEFS[a.k];
     if (d && d.stat) it.stats[a.k] = a.k === 'crit' ? +((it.stats[a.k] || 0) + affixVal(it, a)).toFixed(3) : (it.stats[a.k] || 0) + affixVal(it, a);
@@ -457,20 +466,23 @@ function discardItem(item) {
   bagNotice = '已丢弃该装备'; bagNoticeT = 1.8;
 }
 
-// ===== 旧存档迁移：把旧版（v1）装备的基础属性按新倍率削减一次 =====
-(function migrateEquip() {
+// ===== 旧存档迁移（→ v4）=====
+// 基础属性：按「部位 + 品质 + 需求等级」重新生成固定的两项（强化 / 升星等级保留）。
+// 副词条：保留原有的（含品质和锁定），不足 3 条的补满、互不重复。
+// 做成具名函数：云存档拉取后（auth.js loadCloudSave）也要再跑一次。
+function migrateEquip() {
   const fix = it => {
-    if (!it || it.v === 2 || !it.baseStats) return;
-    const t = it.tier | 0, k = TIERS[t].mul / TIER_MUL_OLD[t] * EQ_K;
-    for (const key in it.baseStats) {
-      const b = it.baseStats[key]; if (!b) continue;
-      it.baseStats[key] = key === 'crit' ? +(b * EQ_K).toFixed(3) : Math.max(1, Math.round(b * k));
-    }
-    it.v = 2; recalcItem(it);
+    if (!it || it.v >= 4 || !SLOT_BASE[it.slot]) return;
+    const tier = it.tier | 0, lvl = it.reqLvl || 1;
+    it.baseStats = calcBase(it.slot, tier, lvl);
+    const keep = (it.affix || []).filter(a => AFFIX_DEFS[a.k]).slice(0, AFFIX_COUNT);
+    it.affix = keep.concat(rollAffixes(tier, lvl, keep.map(a => a.k), AFFIX_COUNT - keep.length));
+    it.v = 4; recalcItem(it);
   };
   (S.inv || []).forEach(fix);
   for (const s in (S.eq || {})) fix(S.eq[s]);
-})();
+}
+migrateEquip();
 
 // 初始赠送体验装备（放在文件末尾：genItem 依赖上面所有常量都已初始化）
 if (S.inv.length === 0 && !S.eq.weapon) {

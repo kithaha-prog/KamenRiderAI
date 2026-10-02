@@ -1,7 +1,9 @@
 // ===== 维度传送门：模式选择 / 单人副本 / 双人高难联机 / 世界BOSS =====
 const NST = CHAPTERS.reduce((a, c) => a + c.stages.length, 0);
 const POX = 40, POY = 22, POW = 880, POH = 496;
-const PO = { view: 'hub', hub: 0, hp: 0, wb: 0, ret: 'hub', cp: 0, toast: '', tt: 0, hit: [] };
+const PO = { view: 'hub', hub: 0, hp: 0, wb: 0, tw: 1, ret: 'hub', cp: 0, toast: '', tt: 0, hit: [] };
+const HUB_N = 4;   // 模式数：单人副本 / 双人高难 / 世界BOSS / 无尽塔
+const hubView = i => ['dun', 'coop', 'wb', 'tower'][i] || 'dun';
 let curChapIdx = 0, selStageIdx = 0, stagePage = 0;
 let coopStageSelectIdx = 0; // 选中的双人高难副本索引
 
@@ -81,7 +83,8 @@ function openPortal(ret) {
   COOP_PIN_MODAL.show = false;
   COOP_PIN_MODAL.code = '';
   PO.view = ret ? PO.ret : 'hub';
-  PO.hub = PO.view === 'wb' ? 2 : PO.view === 'coop' ? 1 : 0; PO.hp = PO.hub;
+  PO.hub = PO.view === 'tower' ? 3 : PO.view === 'wb' ? 2 : PO.view === 'coop' ? 1 : 0; PO.hp = PO.hub;
+  PO.tw = Math.max(1, Math.min(PO.tw | 0 || 1, twFrontier()));
   curChapIdx = getHighestChapterIdx(); pickStage(); PO.cp = curChapIdx;
   wbData();
   let bi = 0; WB.forEach((w, i) => { if (wbOpen(w)) bi = i; });
@@ -161,12 +164,8 @@ function portalUpdate(dt) {
   // 1. 模式选择首页
   if (PO.view === 'hub') {
     if (L) PO.hub = Math.max(0, PO.hub - 1);
-    if (R) PO.hub = Math.min(2, PO.hub + 1);
-    if (OK) {
-      if (PO.hub === 0) PO.view = 'dun';
-      else if (PO.hub === 1) PO.view = 'coop';
-      else if (PO.hub === 2) PO.view = 'wb';
-    }
+    if (R) PO.hub = Math.min(HUB_N - 1, PO.hub + 1);
+    if (OK) PO.view = hubView(PO.hub);
     return;
   }
 
@@ -197,6 +196,9 @@ function portalUpdate(dt) {
     if (OK) pStartStage(selStageIdx);
     return;
   }
+
+  // 3.5 无尽塔
+  if (PO.view === 'tower') { towerPortalUpdate(L, R, U, D, OK); return; }
 
   // 4. 世界BOSS
   if (U || L) PO.wb = Math.max(0, PO.wb - 1);
@@ -357,16 +359,14 @@ function poHubCard(x, y, w, h, idx, o) {
   const by = cy0 + h - 46;
   pBtn(x + 16, by, w - 32, 34, '▶ 进入' + o.title, { c: o.c, ghost: !sel, sz: 13, cr: 6 }, () => {
     PO.hub = idx;
-    if (idx === 0) PO.view = 'dun';
-    else if (idx === 1) PO.view = 'coop';
-    else if (idx === 2) PO.view = 'wb';
+    PO.view = hubView(idx);
   });
   ctx.restore();
 }
 
 function drawPoHub() {
   // 滑动式模式选择（与章节轮播同款）：选中的模式居中放大，两侧模式缩小淡出
-  const HUB_COL = ['#00e5ff', '#2ed573', WB_COL];
+  const HUB_COL = ['#00e5ff', '#2ed573', WB_COL, TOWER.col];
   poFrame(HUB_COL[PO.hub], '🌌 维度传送门 · 选择出征模式');
   const cw = 262, ch = 340, cy = POY + 68, midY = cy + ch / 2;
 
@@ -399,11 +399,20 @@ function drawPoHub() {
         txt(left + ' / ' + WB_DAILY + ' (已开放 ' + n + ')', sx + sw, sy, 11, left ? '#ffd84a' : '#ff6b6b', 'right');
         bar(sx, sy + 14, sw, 7, left, WB_DAILY, '#ff4757', '#ff9f43', 4);
       }
+    },
+    {
+      c: TOWER.col, icon: '🗼', en: 'ENDLESS TOWER', title: '无尽塔',
+      d1: '层层攀登 · 每 10 层首领镇守', d2: '首通钻石 · 契约碎片 · 解锁称号',
+      status(sx, sy, sw) {
+        const b = twBest();
+        txt('历史最高', sx, sy, 11, '#9ab'); txt(b ? '第 ' + b + ' 层' : '尚未挑战', sx + sw, sy, 11, '#ffd84a', 'right');
+        bar(sx, sy + 14, sw, 7, b % 10 || (b ? 10 : 0), 10, '#a55eea', '#c79bff', 4);
+      }
     }
   ];
 
   // 远的先画、近的后画（选中卡在最上层）
-  const order = [0, 1, 2].filter(i => Math.abs(i - PO.hp) < 2).sort((a, b) => Math.abs(b - PO.hp) - Math.abs(a - PO.hp));
+  const order = [0, 1, 2, 3].filter(i => Math.abs(i - PO.hp) < 2).sort((a, b) => Math.abs(b - PO.hp) - Math.abs(a - PO.hp));
   for (const i of order) {
     const d = i - PO.hp, ad = Math.abs(d), t = Math.min(1, ad);
     const sc = 1 - .26 * t - Math.max(0, ad - 1) * .1;
@@ -426,7 +435,7 @@ function drawPoHub() {
       continue;
     }
     // 卡片先渲染到离屏画布（选中/未选中各一份），滑动时只做缩放贴图，帧率稳定
-    const key = { id: 'hub' + i + (sel ? 's' : 'n'), v: [S.cl, S.lv, wbLeft(), WB.filter(wbOpen).length, typeof COOP !== 'undefined' && COOP.active ? COOP.roomCode : ''].join('|') };
+    const key = { id: 'hub' + i + (sel ? 's' : 'n'), v: [S.cl, S.lv, wbLeft(), WB.filter(wbOpen).length, twBest(), typeof COOP !== 'undefined' && COOP.active ? COOP.roomCode : ''].join('|') };
     const e = poOffscreen(key, cw + PAD * 2, ch + PAD * 2, () => {
       const sv = PO.hub; PO.hub = sel ? i : -1;
       try {
@@ -451,9 +460,9 @@ function drawPoHub() {
   // 左右箭头 + 底部页点
   const col = HUB_COL[PO.hub];
   poArrow(POX + 12, midY - 32, -1, PO.hub > 0, col, () => { PO.hub = Math.max(0, PO.hub - 1); });
-  poArrow(POX + POW - 42, midY - 32, 1, PO.hub < 2, col, () => { PO.hub = Math.min(2, PO.hub + 1); });
-  for (let i = 0; i < 3; i++) {
-    const dx = 480 + (i - 1) * 22, dy = cy + ch + 16, on = i === PO.hub;
+  poArrow(POX + POW - 42, midY - 32, 1, PO.hub < HUB_N - 1, col, () => { PO.hub = Math.min(HUB_N - 1, PO.hub + 1); });
+  for (let i = 0; i < HUB_N; i++) {
+    const dx = 480 + (i - (HUB_N - 1) / 2) * 22, dy = cy + ch + 16, on = i === PO.hub;
     ctx.beginPath(); ctx.arc(dx, dy, on ? 5 : 4, 0, 7);
     ctx.fillStyle = on ? HUB_COL[i] : 'rgba(255,255,255,.12)'; ctx.fill();
     ctx.lineWidth = 1; ctx.strokeStyle = HUB_COL[i] + '99'; ctx.stroke();
@@ -504,8 +513,10 @@ function drawPoCoop() {
     chipX += poBadge(chipX, missionCardY + 70, '500% 赏金经验', '#ffd84a') + 6;
     poBadge(chipX, missionCardY + 70, '神话必掉', '#a55eea');
 
-    txt(`领主: ${curCoopObj.bn || '强敌'}   |   赏金: +${curCoopObj.g.toLocaleString()} G   |   强化卷轴 ×10~15`, lx + 28, missionCardY + 104, 11, '#8fa0b8');
-    txt(curCoopObj.desc || '', lx + 28, missionCardY + 126, 10.5, '#708398');
+    const cix = Math.max(0, COOP_STAGES.indexOf(curCoopObj));
+    txt(`领主: ${curCoopObj.bn || '强敌'}   |   赏金: +${curCoopObj.g.toLocaleString()} G   |   首通钻石 +${COOP_FIRST_DIAM[cix] || 0}`, lx + 28, missionCardY + 97, 11, '#8fa0b8');
+    txt(`每次通关：契约碎片 ×${COOP_SHARD[cix] || 1}   碎晶 ×${COOP_MAT[cix] || 0}   强化卷轴 ×${COOP_SCR[cix] || 0}（可重复刷）`, lx + 28, missionCardY + 115, 11, '#c79bff');
+    txt(curCoopObj.desc || '', lx + 28, missionCardY + 133, 10.5, '#708398');
 
     pBtn(lx + 24, cy + 214, w - 48, 46, '⚡ 生成专属房间码 // CREATE ROOM', { c: '#2ed573', sz: 14.5, cr: 8 }, async () => {
       if (typeof coopCreateRoom === 'function') {
@@ -908,7 +919,7 @@ function drawPoWB() {
     txt(st[0], sx, sy, 11, '#8a97aa'); txt(st[1], sx, sy + 20, 15, st[2]);
   });
   txt('📜 击杀必掉 Lv.' + w.r + ' 顶级装备 + 强化卷轴 ×5~7', rx, dy + 236, 12, '#c9d4e6');
-  txt('💰 金币按伤害占比结算，击杀额外 +50%', rx, dy + 256, 12, '#c9d4e6');
+  txt('💰 金币 + 💠 钻石（最高 ' + (WB_DIAM[PO.wb] || 30) + '）按伤害占比结算，击杀额外 +50%', rx, dy + 256, 12, '#c9d4e6');
   txt('⚠ 撤退 / 战败 / 超时同样消耗 1 次机会', rx, dy + 276, 12, '#c9d4e6');
   txt('今日剩余', rx, dy + 314, 12, '#9ab');
   for (let i = 0; i < WB_DAILY; i++) {
@@ -927,6 +938,7 @@ function drawPortalModal() {
   if (PO.view === 'hub') drawPoHub();
   else if (PO.view === 'dun') drawPoDun();
   else if (PO.view === 'coop') drawPoCoop();
+  else if (PO.view === 'tower') drawPoTower();
   else drawPoWB();
 
   if (PO.tt > 0) {

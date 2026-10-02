@@ -66,7 +66,9 @@ function fin(w) {
   // ★ 联机：房主裁决胜负并广播给客机
   if (typeof COOP !== 'undefined' && COOP.active && COOP.inGame && COOP.isHost) coopSend('game_end', { win: w ? 1 : 0, kills, RG });
 
-  if (z.wb) {
+  if (z.tw) {
+    towerFin(w, z);   // 无尽塔结算（tower.js）：首通奖励 / 契约碎片 / 层数记录
+  } else if (z.wb) {
     // 世界BOSS伤害占比与金币结算（击杀额外 +50%）
     const frac = Math.min(1, WBD / Math.max(1, WBM));
     FG = RG + Math.round(z.g * frac) + (w ? Math.round(z.g * .5) : 0);
@@ -74,6 +76,9 @@ function fin(w) {
     const i = WB.findIndex(b => b.si === cur);
     W.best[i] = Math.max(W.best[i] || 0, WBD | 0);
     if (w) W.kills[i] = (W.kills[i] || 0) + 1;
+    // 世界BOSS钻石：按伤害占比发放，击杀额外 +50%（每日 WB_DAILY 次，是稳定的钻石收入）
+    const wbD = Math.round((WB_DIAM[i] || 30) * frac) + (w ? Math.round((WB_DIAM[i] || 30) * .5) : 0);
+    if (wbD > 0) { S.d += wbD; psDia(wbD); }
 
     // 评级计算
     const dmgPct = Math.min(100, Math.floor(frac * 100));
@@ -92,6 +97,7 @@ function fin(w) {
       dmgPct: dmgPct,
       rank: rank,
       gold: FG,
+      diam: wbD,
       timeSpent: timeSpent,
       totalLimit: z.tl,
       isKill: w,
@@ -114,19 +120,22 @@ function fin(w) {
       const stars = (s1 ? 1 : 0) + (s2 ? 1 : 0) + (s3 ? 1 : 0);
       const rank = stars === 3 ? 'S' : stars === 2 ? 'A' : 'B';
 
-      const starDiamMap = { 1: 10, 2: 30, 3: 60 };
-      const curDiamGoal = starDiamMap[stars] || 10;
       S.stars = S.stars || {};
       const prevStars = S.stars[cur] || 0;
 
+      // 首通钻石：主线固定 FIRST_CLEAR_DIAMOND（60）；双人副本按难度（COOP_FIRST_DIAM）。重复挑战不再给钻石
+      const ci = z.coop ? (z.coopIdx | 0) : -1;
       if (isFirst) {
-        FD = curDiamGoal;
+        FD = z.coop ? (COOP_FIRST_DIAM[ci] || FIRST_CLEAR_DIAMOND) : FIRST_CLEAR_DIAMOND;
         S.d += FD; psDia(FD);
-      } else if (stars > prevStars) {
-        FD = curDiamGoal - (starDiamMap[prevStars] || 0);
-        if (FD > 0) { S.d += FD; psDia(FD); }
       } else {
         FD = 0;
+      }
+      // 双人副本：每次通关（可重复刷）都有 契约碎片 / 强化碎晶 / 强化卷轴
+      let cShard = 0, cMat = 0, cScr = 0;
+      if (z.coop) {
+        cShard = COOP_SHARD[ci] || 1; cMat = COOP_MAT[ci] || 8; cScr = COOP_SCR[ci] || 1;
+        S.csh = (S.csh | 0) + cShard; S.mat += cMat; S.scr = (S.scr || 0) + cScr;
       }
       if (stars > prevStars) S.stars[cur] = stars;
 
@@ -140,6 +149,7 @@ function fin(w) {
           { text: '通关耗时 ≤ ' + STAR_TIME + '秒 (' + stageT.toFixed(1) + 's)', pass: s3 }
         ],
         gold: FG, diam: FD, isFirst,
+        shards: cShard, mats: cMat, scrs: cScr,
         expGain: expGain, time: stageT
       };
       gain(WIN_RES.expGain, true);
@@ -473,6 +483,10 @@ function cancelEP(x0, x1) {
 
 function hurtP(d) {
   if (P.inv > 0 || P.down || P.st === 'trans' || P.st === 'trans_ryuki' || G !== 'play') return;
+  // ★ 伤害按玩家最大生命折算：标准攻击(接触伤害) = 最大生命 × HIT_FRAC（约 8 下致死），
+  //   招式强弱倍率保留，限制在 0.4~2 倍之间，避免首领招式 3~4 下就秒人
+  const ref = 8 * ST[cur].dm;
+  d = Math.max(1, Math.round(P.mh * HIT_FRAC * cl(d / ref, .4, 2)));
   d = Math.max(1, Math.round(d * (1 - (P.def || 0))));
   psTaken(d);
   P.hp -= d; P.inv = 1; shake = 10;
@@ -1123,8 +1137,9 @@ function drawBikes() {
 // 下一关索引：双人副本只在双人副本池里前进；单人关卡不会误入双人副本；没有则返回 -1
 function nextStageIdx() {
   const z = ST[cur];
+  if (z && z.tw) return cur;   // 无尽塔：永远有「下一层」
   if (z && z.coop) return (ST[cur + 1] && ST[cur + 1].coop) ? cur + 1 : -1;
-  return (cur + 1 < ST.length && !ST[cur + 1].wb && !ST[cur + 1].coop) ? cur + 1 : -1;
+  return (cur + 1 < ST.length && !ST[cur + 1].wb && !ST[cur + 1].coop && !ST[cur + 1].tw) ? cur + 1 : -1;
 }
 
 // 结算界面的「再次挑战 / 下一关」统一入口：联机时只发起投票，双方一致才会真正开始
@@ -1135,6 +1150,7 @@ function settleAct(act) {
     return;
   }
   if (act === 'next') {
+    if (ST[cur] && ST[cur].tw) { towerNext(); return; }   // 无尽塔：直接进入下一层
     const nx = nextStageIdx();
     if (nx < 0) { toVil('st'); return; }
     if (multi) coopVote('next'); else begin(nx);
