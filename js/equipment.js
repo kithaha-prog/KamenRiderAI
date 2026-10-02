@@ -80,6 +80,89 @@ const ITEM_NAMES = {
 // 装备生成器（支持最高 500 级属性平滑曲线与需求等级）
 const EQ_K = 0.6;   // 装备基础数值倍率（越小装备越弱）
 const TIER_MUL_OLD = [1.0, 1.4, 2.0, 3.0, 4.6, 6.8];   // 旧版品质倍率，仅用于旧存档迁移
+// ===== 装备词条系统 =====
+// 每件装备带 0~3 条随机词条，每条词条有「品质 q」(0.55~1.00)，q ≥ 0.9 记为「完美」。
+// 属性类词条（攻击 / 生命 / 魔力 / 暴击 / 免伤）直接并入 it.stats，所以战力、装备对比、穿戴计算全部自动生效；
+// 特殊词条（吸血 / 金币加成 / 经验加成）不进 it.stats，由 affixTotal() 汇总后在战斗里生效（见 battle.js）。
+// 词条只存 { k, q }，数值由 affixVal() 按「装备品质 + 需求等级 + 品质 q」实时算出，调平衡不会破坏旧存档。
+const AFFIX_DEFS = {
+  atk:  { n: '攻击',     c: '#ff9f9f', stat: true, w: 3 },
+  hp:   { n: '生命',     c: '#7dffd0', stat: true, w: 3 },
+  mp:   { n: '魔力',     c: '#8ec5ff', stat: true, w: 2 },
+  crit: { n: '暴击率',   c: '#ffe08a', stat: true, w: 2 },
+  def:  { n: '免伤',     c: '#9dffb8', stat: true, w: 2 },
+  ls:   { n: '吸血',     c: '#ff6b81', w: 1, minTier: 1 },
+  gd:   { n: '金币加成', c: '#ffd84a', w: 1, minTier: 1 },
+  xp:   { n: '经验加成', c: '#c79bff', w: 1, minTier: 1 }
+};
+const AFFIX_N = [[0, .25], [1, 0], [1, .5], [2, 0], [2, .6], [3, 0]];   // 各品质词条数：[保底条数, 多 1 条的概率]
+const AFFIX_PERFECT = .9;
+let bagAffTab = false;   // 背包详情：false = 属性页，true = 词条页
+
+function affixMax(k, tier, lvl) {   // 品质 q = 1 时的满值
+  const b = lvl, mul = TIERS[tier].mul;
+  switch (k) {
+    case 'atk': return (3 + b * 1.1) * mul * EQ_K;
+    case 'hp': return (20 + b * 9) * mul * EQ_K;
+    case 'mp': return (10 + b * 5) * mul * EQ_K;
+    case 'crit': return .012 + tier * .004;
+    case 'def': return (1 + b * .2) * mul * EQ_K;
+    case 'ls': return .01 + tier * .004;
+    case 'gd': case 'xp': return .04 + tier * .02;
+  }
+  return 0;
+}
+function itemM(it) { return (1 + (it.lvl | 0) * UP_BONUS) * (1 + (it.star | 0) * STAR_BONUS); }
+function affixVal(it, a) {
+  const d = AFFIX_DEFS[a.k]; if (!d) return 0;
+  const mx = affixMax(a.k, it.tier | 0, it.reqLvl || 1) * a.q;
+  if (!d.stat) return +mx.toFixed(3);                 // 特殊词条：不随强化 / 升星变化
+  const v = mx * itemM(it);                           // 属性词条：和基础属性一起吃强化 / 升星加成
+  return a.k === 'crit' ? +v.toFixed(3) : Math.max(1, Math.round(v));
+}
+function affixStr(it, a) {
+  const d = AFFIX_DEFS[a.k], v = affixVal(it, a);
+  return '+' + ((d && d.stat && a.k !== 'crit') ? v.toLocaleString() : (v * 100).toFixed(1) + '%');
+}
+function rollAffixes(tier, lvl) {
+  const cfg = AFFIX_N[tier] || AFFIX_N[0];
+  const n = cfg[0] + (Math.random() < cfg[1] ? 1 : 0);
+  const pool = Object.keys(AFFIX_DEFS).filter(k => !(AFFIX_DEFS[k].minTier > tier)), out = [];
+  while (out.length < n && pool.length) {
+    let r = Math.random() * pool.reduce((s, k) => s + AFFIX_DEFS[k].w, 0), idx = 0;
+    for (let i = 0; i < pool.length; i++) { r -= AFFIX_DEFS[pool[i]].w; if (r < 0) { idx = i; break } }
+    out.push({ k: pool.splice(idx, 1)[0], q: +(.55 + Math.random() * .45).toFixed(2) });
+  }
+  return out;
+}
+// 已穿戴装备的特殊词条合计（吸血 / 金币加成 / 经验加成），例如 affixTotal('gd') = 0.12 表示 +12%
+function affixTotal(k) {
+  let t = 0;
+  for (const s in S.eq) {
+    const it = S.eq[s];
+    if (it && it.affix) for (const a of it.affix) if (a.k === k) t += affixVal(it, a);
+  }
+  return t;
+}
+const affixPerfect = it => (it.affix || []).filter(a => a.q >= AFFIX_PERFECT).length;
+
+function rerollCost(it) { return { g: Math.round(300 * ((it.tier | 0) + 1) * (1 + (it.reqLvl || 1) / 25)), mat: 4 * ((it.tier | 0) + 1) }; }
+// 重铸词条：金币 + 碎晶，全部词条重新随机（旧存档里没有词条的装备也能重铸出词条）
+function rerollAffix(it) {
+  if (!it) return;
+  const c = rerollCost(it);
+  if (S.g < c.g) { bagNotice = '重铸金币不足！需要 ' + c.g.toLocaleString() + ' G'; bagNoticeT = 1.8; return; }
+  if (S.mat < c.mat) { bagNotice = '重铸碎晶不足！需要 ' + c.mat + ' 碎晶'; bagNoticeT = 1.8; return; }
+  S.g -= c.g; S.mat -= c.mat;
+  it.affix = rollAffixes(it.tier | 0, it.reqLvl || 1);
+  recalcItem(it);
+  ps().rr++;
+  calc(); save();
+  const pf = affixPerfect(it);
+  bagNotice = it.affix.length ? '♻ 重铸完成：' + it.affix.length + ' 条词条' + (pf ? '（含 ' + pf + ' 条完美！）' : '') : '♻ 重铸完成：这次没有词条…再试试？';
+  bagNoticeT = 2.4;
+}
+
 function genItem(slot, tier, lvl = 1) {
   const slotKeys = Object.keys(SLOTS);
   if (!slot) slot = slotKeys[(Math.random() * slotKeys.length) | 0];
@@ -122,7 +205,7 @@ function genItem(slot, tier, lvl = 1) {
   // 装备数值整体削减（EQ_K）
   for (const k in s) s[k] = k === 'crit' ? +(s[k] * EQ_K).toFixed(3) : Math.round(s[k] * EQ_K);
 
-  return {
+  const it = {
     v: 2,
     id: 'eq_' + (++uid) + '_' + Math.random().toString(36).slice(2, 7),
     name,
@@ -134,18 +217,11 @@ function genItem(slot, tier, lvl = 1) {
     baseStats: s,
     stats: { ...s }
   };
+  it.affix = rollAffixes(tier, reqLvl);   // 词条（见上方词条系统）
+  recalcItem(it);
+  return it;
 }
 
-// 初始赠送体验装备
-if (S.inv.length === 0 && !S.eq.weapon) {
-  S.eq.weapon = genItem('weapon', 1, 1);
-  S.eq.belt = genItem('belt', 1, 1);
-  S.inv.push(genItem('chest', 0, 1));
-  S.inv.push(genItem('necklace', 1, 1));
-  S.inv.push(genItem('ring', 0, 1));
-  S.inv.push(genItem('legs', 0, 1));
-  S.inv.push(genItem('boots', 1, 1));
-}
 
 // ===== 强化 / 升星 / 分解 公共计算 =====
 const MAX_STAR = 5;                 // 满星 5 星
@@ -158,8 +234,12 @@ function recalcItem(it) {
   const m = (1 + (it.lvl | 0) * UP_BONUS) * (1 + (it.star | 0) * STAR_BONUS);
   for (const k in it.baseStats) {
     const b = it.baseStats[k];
-    if (!b) continue;
-    it.stats[k] = k === 'crit' ? +(b * m).toFixed(3) : Math.round(b * m);
+    it.stats[k] = !b ? 0 : k === 'crit' ? +(b * m).toFixed(3) : Math.round(b * m);
+  }
+  // 属性类词条并入 stats（特殊词条见 affixTotal）
+  if (it.affix) for (const a of it.affix) {
+    const d = AFFIX_DEFS[a.k];
+    if (d && d.stat) it.stats[a.k] = a.k === 'crit' ? +((it.stats[a.k] || 0) + affixVal(it, a)).toFixed(3) : (it.stats[a.k] || 0) + affixVal(it, a);
   }
 }
 
@@ -269,6 +349,7 @@ function batchDismantle() {
   batchSel.clear();
   selItem = null;
   calc(); save();
+  ps().dis += count;
   bagNotice = `批量分解 ${count} 件！获得 ${totalG} G 与 ${totalMat} 碎晶`; bagNoticeT = 2.5;
 }
 
@@ -325,6 +406,7 @@ function upgradeItem(item) {
   item.lvl++;
   recalcItem(item);
   calc(); save();
+  ps().up++;
   bagNotice = '★ 强化成功！当前强化 +' + item.lvl; bagNoticeT = 2.0;
 }
 
@@ -360,6 +442,7 @@ function dismantleItem(item) {
   batchSel.delete(item.id);
   selItem = null;
   calc(); save();
+  ps().dis++;
   bagNotice = '分解成功！获得 ' + gGain + 'G 与 ' + matGain + ' 强化碎晶'; bagNoticeT = 2.2;
 }
 
@@ -388,3 +471,14 @@ function discardItem(item) {
   (S.inv || []).forEach(fix);
   for (const s in (S.eq || {})) fix(S.eq[s]);
 })();
+
+// 初始赠送体验装备（放在文件末尾：genItem 依赖上面所有常量都已初始化）
+if (S.inv.length === 0 && !S.eq.weapon) {
+  S.eq.weapon = genItem('weapon', 1, 1);
+  S.eq.belt = genItem('belt', 1, 1);
+  S.inv.push(genItem('chest', 0, 1));
+  S.inv.push(genItem('necklace', 1, 1));
+  S.inv.push(genItem('ring', 0, 1));
+  S.inv.push(genItem('legs', 0, 1));
+  S.inv.push(genItem('boots', 1, 1));
+}

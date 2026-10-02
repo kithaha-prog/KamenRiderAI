@@ -236,6 +236,7 @@ function upd(dt) {
   for (const g of GH) g.t -= dt; GH = GH.filter(g => g.t > 0);
 
   psTick(dt);   // 战绩：累计游戏时长 / 各形态使用时长
+  questTick(dt);   // 每日任务 / 成就：跨日刷新、进度扫描、提示
 
   // [I] 键或点击等级徽章：战绩档案（弹窗期间整局暂停）
   if (PR.KeyI) { if (showStat) showStat = false; else if (psCanOpen()) psOpen(); delete PR.KeyI; }
@@ -243,6 +244,10 @@ function upd(dt) {
     if (PR.Escape || PR.Enter || PR.Space || PR.KeyF) { showStat = false; delete PR.Escape; delete PR.Enter; delete PR.Space; delete PR.KeyF; }
     return;
   }
+
+  // [Q] 键：每日任务 + 成就（弹窗期间整局暂停）
+  if (PR.KeyQ) { if (showQuest) showQuest = false; else if (psCanOpen()) questOpen(); delete PR.KeyQ; }
+  if (showQuest) { questKeys(); return; }
 
   // [N] 键呼出/关闭胶囊终端
   if (PR.KeyN) { showCapModal = !showCapModal; delete PR.KeyN; }
@@ -784,6 +789,8 @@ function draw() {
     if (showChar) drawCharPanel();
     if (showCapModal) drawCapsuleModal();
     if (showStat) drawStatModal();
+    if (showQuest) drawQuestModal();
+    drawQuestToast();
     // 绘制升级全屏横幅与光效
     if (LV_POP) drawLevelUpBanner();
     ctx.restore(); return;
@@ -873,6 +880,8 @@ function draw() {
   if (showChar) drawCharPanel();
   if (showCapModal) drawCapsuleModal();
   if (showStat) drawStatModal();
+    if (showQuest) drawQuestModal();
+    drawQuestToast();
   
   // ★ 升级弹窗必须放在最后，保证浮在所有战斗画面最上层
   if (LV_POP) drawLevelUpBanner();
@@ -944,6 +953,7 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
     ['背包<br>规格', 'sm sys', 'right:2vmin;top:14vmin', ['KeyC']],
     ['胶囊', 'sm sys', 'right:calc(2vmin + var(--s)*.95);top:14vmin', ['KeyN']],
     ['关闭<br>撤退', 'sm sys', 'right:calc(2vmin + var(--s)*1.9);top:14vmin', ['Escape'], 1],
+    ['任务', 'sm sys', 'right:calc(2vmin + var(--s)*2.85);top:14vmin', ['KeyQ']],
     // 菜单上下选择（仅菜单/胶囊终端打开时显示）
     ['▲', 'sm nav', `left:3vmin;bottom:calc(var(--s)*1.1 + ${B0})`, ['KeyW']],
     ['▼', 'sm nav', `left:3vmin;bottom:${B0}`, ['KeyS']],
@@ -997,7 +1007,7 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
   const knob = jr.querySelector('b'), arL = jr.querySelector('.l'), arR = jr.querySelector('.r'), arU = jr.querySelector('.u');
   let jid = null, ox = 0, oy = 0, JR = 60, jl = false, jrt = false, ju = false;
   // 只在“可走动”的场景启用（弹窗 / 菜单 / 变身动画时把触摸让给画布）
-  const joyOk = () => !M && !showChar && !showCapModal && !showStat && !gachaModal && (G === 'vil' || G === 'room' || (G === 'play' && P.st !== 'trans'));
+  const joyOk = () => !M && !showChar && !showCapModal && !showStat && !showQuest && !gachaModal && (G === 'vil' || G === 'room' || (G === 'play' && P.st !== 'trans'));
   const joyStop = () => {
     if (jid !== null) { try { jz.releasePointerCapture(jid) } catch (_) { } }
     jid = null; jr.classList.remove('show'); rel('KeyA'); rel('KeyD'); rel('Space');
@@ -1042,6 +1052,7 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
     const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 960, y = (e.clientY - r.top) / r.height * 540;
     if (gachaModal) return PR.Enter = 1;
     if (showStat) { psClick(x, y); return; }
+    if (showQuest) { questClick(x, y); return; }
 
     // ===== 战败结算面板点击交互 =====
     if (G === 'over' && LOSE_RES) {
@@ -1206,6 +1217,7 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
       return;
     }
 
+    if (psCanOpen() && questBtnHit(x, y)) { questOpen(); return; }   // 点「任务」按钮
     if (psCanOpen() && cpHudHit(x, y)) { LB.tab = 1; psOpen(); lbFetch(); return; }   // 点战力胶囊 → 排行榜
     if (psCanOpen() && psBadgeHit(x, y)) { LB.tab = 0; psOpen(); return; }   // 点等级徽章 → 战绩档案
     if (G === 'title') {

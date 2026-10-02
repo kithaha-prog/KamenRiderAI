@@ -131,7 +131,7 @@ function fin(w) {
       if (stars > prevStars) S.stars[cur] = stars;
 
       // 在 fin(w) 胜利分支里：
-      const expGain = Math.round((z.r * 30 + 50) * (z.coop ? 5 : 1)); // ★ 双人 5 倍经验
+      const expGain = Math.round((z.r * 30 + 50) * (z.coop ? 5 : 1) * (1 + affixTotal('xp'))); // ★ 双人 5 倍经验
       WIN_RES = {
         t: 0, dur: 1.5, stageName: z.n, stars, rank,
         conds: [
@@ -142,7 +142,7 @@ function fin(w) {
         gold: FG, diam: FD, isFirst,
         expGain: expGain, time: stageT
       };
-      gain(WIN_RES.expGain);
+      gain(WIN_RES.expGain, true);
     } else {
       // ★ 新增：构建战败结算信息
       const aliveKills = Math.min(kills, z.k);
@@ -329,8 +329,8 @@ function drawLoseSettlement() {
   ctx.restore();
 }
 
-function gain(n) {
-  S.xp += n | 0;
+function gain(n, raw) {   // raw = true：已含经验加成，不再重复计算
+  S.xp += (raw ? n : n * (1 + affixTotal('xp'))) | 0;
   let leveled = false;
   const oldLv = S.lv;
   while (S.xp >= xpNeed(S.lv)) {
@@ -413,6 +413,7 @@ function hurt(e, d, pre) {
 
   if (e.t === 'boss' && ST[cur].wb) WBD += Math.max(0, Math.min(d, e.hp));
   if (!pre) psHit(d, c);
+  if (!pre && !P.down) { const ls = affixTotal('ls'); if (ls > 0) P.hp = Math.min(P.mh, P.hp + Math.min(P.mh * .03, Math.max(1, d * ls))); }   // 吸血词条（单次最多回 3% 生命上限）
   e.hp -= d; e.fl = .12; e.x += f * (e.t === 'boss' ? 2 : 12);
   if (!pre) P.mp = Math.min(P.mm, P.mp + 3);
   DT.push({ x: e.x, y: e.y - e.h, s: d + (c ? '!' : ''), t: .8, c: c ? '#ff8a2a' : '#ffd84a' });
@@ -424,7 +425,7 @@ function hurt(e, d, pre) {
   if (e.hp <= 0 && !e.dead) {
     e.dead = 1; kills++; if (!pre) psKill(e.t === 'boss');
     gain(ET[e.t].xp * .6 * (1 + Math.min(cur, 29) * .3)); 
-    RG += ET[e.t].g * (1 + Math.min(cur, 29) * .3) | 0;
+    RG += ET[e.t].g * (1 + Math.min(cur, 29) * .3) * (1 + affixTotal('gd')) | 0;   // 金币加成词条
     if (Math.random() < .35) OR.push({ x: e.x, k: Math.random() < .5 ? 'h' : 'm' });
     dropLoot(e);
     if (e.t === 'boss') fin(1);

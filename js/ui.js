@@ -224,6 +224,7 @@ function drawPlayerHUD(x, y) {
   ut('MP', bx + 7, y + 57.2, 8, 'rgba(255,255,255,.78)', 'left', { w: 700, sp: 1 });
   ut(fmtC(P.mp) + ' / ' + fmtC(P.mm), bx + bw - 7, y + 57.2, 9.5, '#fff', 'right', { w: 700 });
   drawCPHUD(x + w + 8, y);   // 战力胶囊（点击打开排行榜）
+  drawQuestBtn(CP_HUD.x + CP_HUD.w + 6, CP_HUD.y);   // 任务按钮（有可领奖励时显示红点）
 }
 
 function drawStaminaHUD(x, y) {
@@ -765,11 +766,16 @@ function drawBagDetail(rx, ry, rw) {
 
   // —— 左卡：属性对比 ——
   const cy = ry + 122, lcw = 240, RX = X + lcw + 8, rcw = IW - lcw - 8, CH = 168;
-  dPanel(X, cy, lcw, CH, '属性', isWorn ? '当前穿戴' : (currEq ? '对比 · ' + currEq.name : '该槽位空置'), '#00e5ff');
+  dPanel(X, cy, lcw, CH, bagAffTab ? '词条' : '属性', '', '#00e5ff');
+  { const na = (it.affix || []).length, tx = X + lcw - 10;
+    const tab = (x, w, label, on, f) => { rpath(x, cy + 5, w, 20, 5); ctx.fillStyle = on ? 'rgba(0,229,255,.25)' : 'rgba(255,255,255,.05)'; ctx.fill(); ctx.strokeStyle = on ? '#00e5ff' : 'rgba(255,255,255,.2)'; ctx.lineWidth = 1; ctx.stroke(); txt(label, x + w / 2, cy + 15, 11.5, on ? '#fff' : '#8fa0b3', 'center', false); bagHit(x, cy + 5, w, 20, f); };
+    tab(tx - 58, 58, '词条 ' + na, bagAffTab, () => { bagAffTab = true });
+    tab(tx - 58 - 4 - 46, 46, '属性', !bagAffTab, () => { bagAffTab = false }); }
   const oldStats = (currEq && currEq.stats) ? currEq.stats : {};
   const rows = [['攻击力', 'atk', '#ff9f9f'], ['生命值', 'hp', '#7dffd0'], ['魔力值', 'mp', '#8ec5ff'], ['暴击率', 'crit', '#ffe08a', 1], ['免伤值', 'def', '#9dffb8']]
     .filter(r => (it.stats[r[1]] || 0) || (oldStats[r[1]] || 0));
-  if (!rows.length) txt('无属性加成', X + lcw / 2, cy + 90, 13, '#5d6b7c', 'center');
+  if (bagAffTab) rows.length = 0;   // 词条页不画属性行
+  if (!bagAffTab && !rows.length) txt('无属性加成', X + lcw / 2, cy + 90, 13, '#5d6b7c', 'center');
   const rh = Math.min(28, 126 / Math.max(1, rows.length));
   rows.forEach((r, i) => {
     const yy = cy + 34 + rh * (i + .5), nv = it.stats[r[1]] || 0, ov = oldStats[r[1]] || 0, pc = !!r[3];
@@ -786,6 +792,25 @@ function drawBagDetail(rx, ry, rw) {
       } else txt('＝', X + lcw - 18, yy, 14, '#778', 'center', false);
     }
   });
+
+  // —— 词条页：词条列表 + 品质条 + 重铸 ——
+  if (bagAffTab) {
+    const affs = it.affix || [];
+    if (!affs.length) txt('该装备没有词条', X + lcw / 2, cy + 66, 13, '#5d6b7c', 'center');
+    affs.forEach((a, i) => {
+      const d = AFFIX_DEFS[a.k]; if (!d) return;
+      const yy = cy + 34 + i * 29, perfect = a.q >= AFFIX_PERFECT;
+      txt('◆ ' + d.n, X + 12, yy + 6, 12.5, d.c, 'left', false);
+      if (perfect) txt('完美', X + 12 + bagTw('◆ ' + d.n, 12.5) + 8, yy + 6, 10, '#ffd84a', 'left', false);
+      txt(affixStr(it, a), X + lcw - 12, yy + 6, 14.5, '#fff', 'right');
+      rpath(X + 12, yy + 17, lcw - 24, 5, 2.5); ctx.fillStyle = 'rgba(255,255,255,.1)'; ctx.fill();
+      rpath(X + 12, yy + 17, Math.max(5, (lcw - 24) * a.q), 5, 2.5); ctx.fillStyle = perfect ? '#ffd84a' : d.c; ctx.fill();
+    });
+    const rc = rerollCost(it), rok = S.g >= rc.g && S.mat >= rc.mat, kr = 'rr:' + it.id, ar = bagArmed(kr);
+    txt('💰 ' + fmtN(rc.g) + '    💎 ' + fmtN(rc.mat), X + lcw / 2, cy + CH - 42, 11, rok ? '#cfd8e3' : '#ff8a8a', 'center', false);
+    actBtn(X + 10, cy + CH - 33, lcw - 20, 26, ar ? '再点一次 确认重铸' : '♻ 重铸词条', ar ? '#e0563a' : '#a55eea', rok, 12.5,
+      () => bagConfirm(kr, '再点一次确认重铸（现有词条将被全部重新随机）', () => rerollAffix(it)));
+  }
 
   // —— 右上卡：强化（按钮就在卡片里）——
   dPanel(RX, cy, rcw, 80, '🔨 强化  +' + it.lvl + ' → +' + (it.lvl + 1), '', '#ffa502');
@@ -1931,7 +1956,7 @@ let psSaveT = 0;
 function ps() {
   let p = S.ps;
   if (!p || typeof p !== 'object') p = S.ps = {};
-  for (const k of ['pt', 'gE', 'dE', 'dmg', 'maxHit', 'hits', 'crits', 'kills', 'boss', 'win', 'lose', 'taken', 'hen'])
+  for (const k of ['pt', 'gE', 'dE', 'dmg', 'maxHit', 'hits', 'crits', 'kills', 'boss', 'win', 'lose', 'taken', 'hen', 'up', 'dis', 'rr'])
     if (typeof p[k] !== 'number') p[k] = 0;
   if (!p.formT || typeof p.formT !== 'object') p.formT = {};
   if (!p.first) p.first = Date.now();
@@ -1955,7 +1980,7 @@ addEventListener('beforeunload', () => { try { localStorage.malaya = JSON.string
 document.addEventListener('visibilitychange', () => { if (document.hidden) try { localStorage.malaya = JSON.stringify(S) } catch (e) { } });
 
 function psCanOpen() {
-  return !showStat && !M && !showChar && !showCapModal && !gachaModal && (G === 'vil' || G === 'room' || G === 'play');
+  return !showStat && !showQuest && !M && !showChar && !showCapModal && !gachaModal && (G === 'vil' || G === 'room' || G === 'play');
 }
 function psOpen() {
   if (G === 'play' && typeof coopBattleOn === 'function' && coopBattleOn()) {
@@ -1972,7 +1997,7 @@ function psClick(x, y) {
 }
 cv.addEventListener('pointermove', e => {
   const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 960, y = (e.clientY - r.top) / r.height * 540;
-  cv.style.cursor = (showStat || (psCanOpen() && psBadgeHit(x, y))) ? 'pointer' : '';
+  cv.style.cursor = (showStat || showQuest || (psCanOpen() && (psBadgeHit(x, y) || questBtnHit(x, y)))) ? 'pointer' : '';
 });
 
 function psBig(n) {
@@ -2066,5 +2091,293 @@ function drawStatModal() {
   rpath(b.x + 20, ty, b.w - 40, 26, 6); ctx.fillStyle = 'rgba(255,216,74,.08)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,216,74,.3)'; ctx.lineWidth = 1; ctx.stroke();
   ut('💡 ' + tip, b.x + 34, ty + 13, 11.5, '#ffe9a6', 'left', { w: 600, sh: 0 });
   ut('[I] / Esc / 点击空白处关闭 · 统计从本功能上线后开始累计', 480, b.y + b.h - 9, 9.5, 'rgba(210,218,232,.5)', 'center', { w: 500, sh: 0 });
+  ctx.restore();
+}
+
+// ===== 每日任务 + 成就（按 [Q] / 点击战力旁的「任务」按钮）=====
+// 数据：S.qd（今日任务）、S.ach（各成就已领取档数）、S.qs（全勤天数）——随 save() 写入本地与云端。
+// 进度全部来自战绩档案 ps() 的累计数字：每日任务记「当天开始时的快照」，进度 = 当前累计 − 快照；成就直接读累计值 / 当前状态。
+// 想加新任务 / 新成就：只要在 QD_POOL / QA 里加一项（get 返回一个累计数字即可）。
+let showQuest = false;
+const QST = { tab: 0, page: 0, hit: [], toast: [], seen: null, tickT: 0, pend: 0, pendD: 0, pendA: 0 };
+const QB = { x: -99, y: -99, w: 0, h: 22 };
+const QA_PER = 6;
+const QROM = ['Ⅰ', 'Ⅱ', 'Ⅲ', 'Ⅳ', 'Ⅴ', 'Ⅵ'];
+const QRW = [{ d: 10, g: 300 }, { d: 20, g: 1000 }, { d: 40, g: 3000, s: 2 }, { d: 80, g: 8000, s: 3 }, { d: 150, g: 20000, s: 5 }];   // 成就每一档的奖励
+const qR10 = n => Math.max(10, Math.round(n / 10) * 10);
+
+function qDay() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function qSecsLeft() { const n = new Date(), e = new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1); return Math.max(0, ((e - n) / 1000) | 0); }
+function qHMS(s) { return String(s / 3600 | 0).padStart(2, '0') + ':' + String((s % 3600) / 60 | 0).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); }
+function qRng(seed) {   // 同一天、同一台设备 / 云端 → 同样的任务
+  let h = 2166136261; for (const ch of seed) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+  return () => { h += 0x6D2B79F5; let t = Math.imul(h ^ h >>> 15, 1 | h); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+
+// ---------- 每日任务 ----------
+const QD_POOL = [
+  { id: 'kill', n: '清剿怪物', d: t => '消灭 ' + t + ' 只怪物', get: p => p.kills, tg: lv => qR10(40 + lv * 1.2), x: {} },
+  { id: 'boss', n: '讨伐首领', d: t => '击败 ' + t + ' 只 BOSS', get: p => p.boss, tg: lv => lv >= 40 ? 2 : 1, x: { s: 1 } },
+  { id: 'win', n: '凯旋而归', d: t => '赢得 ' + t + ' 场战斗', get: p => p.win, tg: lv => lv >= 30 ? 3 : 2, x: { s: 1 } },
+  { id: 'hen', n: '变身！', d: t => '变身 ' + t + ' 次', get: p => p.hen, tg: lv => lv >= 30 ? 5 : 3, x: {}, need: () => S.caps.length > 0 },
+  { id: 'crit', n: '致命节奏', d: t => '打出 ' + t + ' 次暴击', get: p => p.crits, tg: lv => qR10(30 + lv * 1.5), x: {} },
+  { id: 'dmg', n: '火力全开', d: t => '累计造成 ' + psBig(t) + ' 点伤害', get: p => p.dmg, tg: lv => Math.round((6000 + lv * 2500) / 1000) * 1000, x: {} },
+  { id: 'up', n: '锻造时间', d: t => '强化装备 ' + t + ' 次', get: p => p.up, tg: lv => lv < 20 ? 1 : 2, x: { m: 6 } },
+  { id: 'dis', n: '废物利用', d: t => '分解 ' + t + ' 件装备', get: p => p.dis, tg: () => 3, x: { m: 8 } },
+  { id: 'gold', n: '赏金猎人', d: t => '累计获得 ' + psBig(t) + ' 金币', get: p => p.gE, tg: lv => Math.round((500 + lv * 80) / 100) * 100, x: {} },
+  { id: 'form', n: '形态磨合', d: t => '以变身形态战斗 ' + t + ' 秒', get: p => (p.formT.ryuki || 0) + (p.formT['555'] || 0) + (p.formT.blade || 0), tg: () => 120, x: {}, need: () => S.caps.length > 0 }
+];
+const QD_BY = {}; for (const q of QD_POOL) QD_BY[q.id] = q;
+const QD_N = 4;
+
+function qdInit() {   // 幂等：每天第一次调用时抽 4 个任务并记录当天起点快照
+  const day = qDay();
+  let d = S.qd;
+  if (d && d.day === day && Array.isArray(d.ids) && d.ids.length && d.base && d.tg && d.rw && d.claimed) return d;
+  const p = ps(), rnd = qRng('malaya|' + day), lv = S.lv;
+  const pool = QD_POOL.filter(q => !q.need || q.need());
+  for (let i = pool.length - 1; i > 0; i--) { const j = (rnd() * (i + 1)) | 0; [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  const ids = pool.slice(0, QD_N).map(q => q.id), base = {}, tg = {}, rw = {};
+  for (const q of QD_POOL) base[q.id] = q.get(p);
+  for (const id of ids) { const q = QD_BY[id]; tg[id] = q.tg(lv); rw[id] = Object.assign({ g: qR10(150 + lv * 20), d: 6 }, q.x); }
+  d = S.qd = { day, ids, base, tg, rw, claimed: {}, bonus: 0 };
+  save();
+  return d;
+}
+function qdList() {
+  const d = qdInit(), p = ps();
+  return d.ids.map(id => {
+    const q = QD_BY[id], t = d.tg[id], v = Math.min(t, Math.max(0, q.get(p) - d.base[id]));
+    return { q, id, t, v, ok: v >= t, got: !!d.claimed[id], rw: d.rw[id] };
+  });
+}
+const qdBonusRw = () => ({ d: 30, g: qR10(600 + (S.qd ? S.qd.lv || S.lv : S.lv) * 60), s: 3, m: 10 });
+
+// ---------- 成就 ----------
+function qGear() { return [...S.inv, ...Object.values(S.eq || {}).filter(Boolean)]; }
+function qAch() { if (!S.ach || typeof S.ach !== 'object') S.ach = {}; return S.ach; }
+const qUniq = a => [...new Set(a)].sort((x, y) => x - y);
+const QA = [
+  { id: 'kill', n: '猎魔人', ic: '🗡️', tiers: [100, 500, 2000, 10000, 50000], d: t => '累计消灭 ' + psBig(t) + ' 只怪物', get: () => ps().kills },
+  { id: 'boss', n: '弑王者', ic: '👑', tiers: [1, 10, 50, 200], d: t => '累计击败 ' + psBig(t) + ' 只 BOSS', get: () => ps().boss },
+  { id: 'win', n: '常胜骑士', ic: '🏁', tiers: [1, 10, 50, 200, 1000], d: t => '赢得 ' + psBig(t) + ' 场战斗', get: () => ps().win },
+  { id: 'stage', n: '征途不止', ic: '🗺️', tiers: () => qUniq([1, 3, 5, 8, ST.length].filter(x => x > 0 && x <= Math.max(1, ST.length))), d: t => '通关 ' + t + ' 个关卡', get: () => Math.min(S.cl, ST.length) },
+  { id: 'star3', n: '完美主义', ic: '⭐', tiers: [1, 3, 5, 10], d: t => '获得 ' + t + ' 个关卡的三星评价', get: () => Object.values(S.stars || {}).filter(v => v >= 3).length },
+  { id: 'lv', n: '成长之路', ic: '🆙', tiers: [10, 30, 60, 100, 200], d: t => '角色等级达到 Lv.' + t, get: () => S.lv },
+  { id: 'crit', n: '致命一击', ic: '💥', tiers: [100, 1000, 10000, 50000], d: t => '累计打出 ' + psBig(t) + ' 次暴击', get: () => ps().crits },
+  { id: 'maxhit', n: '一击必杀', ic: '🎯', tiers: [1000, 10000, 100000, 1000000], d: t => '单次伤害达到 ' + psBig(t), get: () => ps().maxHit },
+  { id: 'dmg', n: '破坏之王', ic: '🔥', tiers: [1e5, 1e6, 1e7, 1e8, 1e9], d: t => '累计造成 ' + psBig(t) + ' 点伤害', get: () => ps().dmg },
+  { id: 'hen', n: '变身达人', ic: '🔄', tiers: [10, 50, 200, 1000], d: t => '累计变身 ' + psBig(t) + ' 次', get: () => ps().hen },
+  { id: 'cap', n: '胶囊收藏家', ic: '💊', tiers: () => qUniq([1, 2, CAPSULES.length]), d: t => '收集 ' + t + ' 枚变身胶囊', get: () => S.caps.length },
+  { id: 'gold', n: '富可敌国', ic: '💰', tiers: [1e4, 1e5, 1e6, 1e7], d: t => '累计获得 ' + psBig(t) + ' 金币', get: () => ps().gE },
+  { id: 'gear', n: '神装在身', ic: '🛡️', tiers: [2, 3, 4, 5], d: t => '拥有「' + TIERS[t].n + '」品质装备', get: () => qGear().reduce((m, it) => Math.max(m, it.tier | 0), -1), f: v => v < 0 ? '无' : TIERS[v].n },
+  { id: 'enh', n: '强化大师', ic: '🔨', tiers: [3, 6, 10, 15], d: t => '将一件装备强化到 +' + t, get: () => qGear().reduce((m, it) => Math.max(m, it.lvl | 0), 0) },
+  { id: 'star', n: '星耀之躯', ic: '🌟', tiers: [1, 3, 5], d: t => '将一件装备升到 ' + t + ' 星', get: () => qGear().reduce((m, it) => Math.max(m, it.star | 0), 0) },
+  { id: 'affix', n: '词条猎人', ic: '◆', tiers: [1, 5, 15, 40], d: t => '拥有 ' + t + ' 条完美词条（品质 ≥ 90%）', get: () => qGear().reduce((s, it) => s + affixPerfect(it), 0) },
+  { id: 'reroll', n: '重铸匠', ic: '♻️', tiers: [1, 10, 50], d: t => '重铸装备词条 ' + t + ' 次', get: () => ps().rr },
+  { id: 'power', n: '战力飙升', ic: '⚡', tiers: [1000, 5000, 20000, 100000, 500000], d: t => '战力达到 ' + psBig(t), get: () => calcCP() },
+  { id: 'time', n: '骑士之魂', ic: '⏱️', tiers: [1, 5, 24, 100], d: t => '累计游戏 ' + t + ' 小时', get: () => ps().pt / 3600, f: v => v.toFixed(1) },
+  { id: 'daily', n: '每日勤勉', ic: '📋', tiers: [1, 7, 30, 100], d: t => '累计 ' + t + ' 天完成全部每日任务', get: () => (S.qs && S.qs.days) | 0 }
+];
+const qaTiers = a => typeof a.tiers === 'function' ? a.tiers() : a.tiers;
+function qaState(a) {
+  const ts = qaTiers(a), c = Math.min(qAch()[a.id] | 0, ts.length), v = a.get(), done = c >= ts.length, t = done ? ts[ts.length - 1] : ts[c];
+  return { a, ts, c, v, t, done, ok: !done && v >= t, rw: QRW[Math.min(c, QRW.length - 1)] };
+}
+const qaPoints = () => QA.reduce((s, a) => s + Math.min(qAch()[a.id] | 0, qaTiers(a).length), 0);
+
+// ---------- 奖励 / 领取 ----------
+function qApply(r) { S.g += r.g || 0; S.d += r.d || 0; S.scr = (S.scr || 0) + (r.s || 0); S.mat += r.m || 0; }
+function qRwList(r) { const a = []; if (r.d) a.push(['💠 ' + r.d, '#7df9ff']); if (r.g) a.push(['💰 ' + psBig(r.g), '#ffd84a']); if (r.s) a.push(['📜 ' + r.s, '#ffa502']); if (r.m) a.push(['💎 ' + r.m, '#c79bff']); return a; }
+const qRwText = r => qRwList(r).map(x => x[0]).join('  ');
+function qSum(a, b) { for (const k in b) a[k] = (a[k] || 0) + b[k]; return a; }
+
+function qdClaim(id, sum) {
+  const d = qdInit(), x = qdList().find(o => o.id === id);
+  if (!x || !x.ok || x.got) return false;
+  d.claimed[id] = 1; qApply(x.rw); if (sum) qSum(sum, x.rw);
+  return true;
+}
+function qdBonusReady() { const d = qdInit(); return !d.bonus && qdList().every(o => o.got); }
+function qdClaimBonus(sum) {
+  if (!qdBonusReady()) return false;
+  const d = qdInit(), r = qdBonusRw();
+  d.bonus = 1; qApply(r); if (sum) qSum(sum, r);
+  const qs = S.qs && typeof S.qs === 'object' ? S.qs : (S.qs = { days: 0 });
+  qs.days = (qs.days | 0) + 1;
+  return true;
+}
+function qaClaim(id, sum) {
+  const a = QA.find(o => o.id === id); if (!a) return false;
+  const st = qaState(a); if (!st.ok) return false;
+  qAch()[id] = st.c + 1; qApply(st.rw); if (sum) qSum(sum, st.rw);
+  return true;
+}
+function qClaimOne(fn) {
+  const sum = {}; if (!fn(sum)) return;
+  save(); qScan(); questToast('🎁 获得 ' + qRwText(sum), '#7dff9a');
+}
+function qClaimAll() {
+  const sum = {}; let n = 0;
+  for (const x of qdList()) if (qdClaim(x.id, sum)) n++;
+  if (qdClaimBonus(sum)) n++;
+  for (const a of QA) while (qaClaim(a.id, sum)) n++;
+  if (!n) { questToast('没有可领取的奖励', '#ffa502'); return; }
+  save(); qScan(); questToast('🎁 已领取 ' + n + ' 项奖励：' + qRwText(sum), '#7dff9a');
+}
+
+// ---------- 每帧：日期刷新 / 进度扫描 / 提示 ----------
+function questToast(s, c) { QST.toast.push({ s, c: c || '#7dff9a', t: 3.6 }); if (QST.toast.length > 4) QST.toast.shift(); }
+function qScan() {
+  const d = qdInit(), first = !QST.seen; if (first) QST.seen = new Set();
+  const list = qdList(), mark = (k, msg, col) => { if (!QST.seen.has(k)) { QST.seen.add(k); if (!first) questToast(msg, col); } };
+  let pd = 0, pa = 0;
+  for (const x of list) if (x.ok && !x.got) { pd++; mark('d:' + d.day + ':' + x.id, '📋 每日任务完成：' + x.q.n, '#7dff9a'); }
+  if (!d.bonus && list.every(o => o.got)) { pd++; mark('b:' + d.day, '🎁 今日任务全部完成，可领取全勤奖励！', '#ffd84a'); }
+  for (const a of QA) { const s = qaState(a); if (s.ok) { pa++; mark('a:' + a.id + ':' + s.c, '🏆 成就达成：' + a.n + ' ' + QROM[s.c], '#ffd84a'); } }
+  QST.pendD = pd; QST.pendA = pa; QST.pend = pd + pa;
+}
+function questTick(dt) {
+  if (G === 'title' || G === 'load') return;
+  for (const t of QST.toast) t.t -= dt;
+  QST.toast = QST.toast.filter(t => t.t > 0);
+  QST.tickT -= dt; if (QST.tickT > 0) return;
+  QST.tickT = .5;
+  try { qScan(); } catch (e) { console.warn('[Quest] 扫描出错', e); }
+}
+
+// ---------- 入口 / 按键 / 点击 ----------
+function questOpen() {
+  if (G === 'play' && typeof coopBattleOn === 'function' && coopBattleOn()) { DT.push({ x: P.x, y: P.y - 180, s: '联机战斗中无法暂停查看任务', t: 1.2, c: '#ffd84a' }); return; }
+  QST.tab = 0; QST.page = 0; showQuest = true;
+  try { qScan(); } catch (e) { }
+}
+const questBtnHit = (px, py) => px >= QB.x && px <= QB.x + QB.w && py >= QB.y && py <= QB.y + QB.h;
+function questKeys() {
+  const eat = (...ks) => ks.forEach(k => delete PR[k]), np = Math.ceil(QA.length / QA_PER);
+  if (PR.Escape) { showQuest = false; eat('Escape'); return; }
+  if (PR.KeyA || PR.ArrowLeft || PR.KeyD || PR.ArrowRight) { QST.tab = QST.tab ? 0 : 1; QST.page = 0; eat('KeyA', 'ArrowLeft', 'KeyD', 'ArrowRight'); }
+  if (PR.KeyW || PR.ArrowUp) { QST.page = (QST.page - 1 + np) % np; eat('KeyW', 'ArrowUp'); }
+  if (PR.KeyS || PR.ArrowDown) { QST.page = (QST.page + 1) % np; eat('KeyS', 'ArrowDown'); }
+  if (PR.Enter || PR.Space || PR.KeyF) { qClaimAll(); eat('Enter', 'Space', 'KeyF'); }
+}
+function questClick(x, y) {
+  for (let i = QST.hit.length - 1; i >= 0; i--) { const r = QST.hit[i]; if (x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) { r.fn(); return; } }
+  const b = PS_PANEL;
+  if (x < b.x || x > b.x + b.w || y < b.y || y > b.y + b.h) showQuest = false;
+}
+
+// ---------- 绘制 ----------
+function drawQuestBtn(x, y) {   // 血条旁的小按钮（战力胶囊右边），有可领取奖励时显示红点数字
+  const w = 54, h = 22, n = QST.pend | 0;
+  hudPanel(x, y, w, h, UIC.gold, 6);
+  ut('任务', x + w / 2, y + 11.5, 11, UIC.hi, 'center', { w: 700, sh: 0 });
+  if (n > 0) {
+    ctx.save(); ctx.beginPath(); ctx.arc(x + w - 3, y + 3, 7.5, 0, 7); ctx.fillStyle = '#ff4757'; ctx.fill(); ctx.restore();
+    ut(n > 9 ? '9+' : String(n), x + w - 3, y + 3.5, 8.5, '#fff', 'center', { w: 700, sh: 0 });
+  }
+  Object.assign(QB, { x, y, w, h });
+}
+function drawQuestToast() {
+  if (!QST.toast.length) return;
+  ctx.save();
+  QST.toast.forEach((t, i) => {
+    const w = uw(t.s, 13, 700) + 36, x = 480 - w / 2, y = 96 + i * 34;
+    ctx.globalAlpha = cl(Math.min(t.t / .5, (3.6 - t.t) / .2 + .2), 0, 1);
+    rpath(x, y, w, 26, 8); ctx.fillStyle = 'rgba(8,12,24,.92)'; ctx.fill(); ctx.strokeStyle = t.c; ctx.lineWidth = 1.2; ctx.stroke();
+    ut(t.s, 480, y + 13.5, 13, t.c, 'center', { w: 700 });
+  });
+  ctx.restore();
+}
+function qBtn(x, y, w, h, label, col, on, fn) {
+  rpath(x, y, w, h, 6); ctx.fillStyle = on ? col + '33' : 'rgba(255,255,255,.05)'; ctx.fill();
+  ctx.strokeStyle = on ? col : 'rgba(255,255,255,.18)'; ctx.lineWidth = 1.2; ctx.stroke();
+  ut(label, x + w / 2, y + h / 2 + .5, 11.5, on ? '#fff' : '#7d8795', 'center', { w: 700 });
+  if (fn) QST.hit.push({ x, y, w, h, fn });
+}
+function qBar(x, y, w, h, r, col) {
+  rpath(x, y, w, h, h / 2); ctx.fillStyle = 'rgba(255,255,255,.09)'; ctx.fill();
+  if (r > 0) { rpath(x, y, Math.max(h, w * cl(r, 0, 1)), h, h / 2); ctx.fillStyle = col; ctx.fill(); }
+}
+function qRowBg(x, y, w, h, col) {
+  rpath(x, y, w, h, 8); ctx.fillStyle = 'rgba(255,255,255,.045)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1; ctx.stroke();
+  rpath(x, y + 8, 3, h - 16, 1.5); ctx.fillStyle = col; ctx.fill();
+}
+function qRwDraw(x, y, r) { for (const c of qRwList(r)) { ut(c[0], x, y, 11.5, c[1], 'left', { w: 700, sh: 0 }); x += uw(c[0], 11.5, 700) + 12; } }
+
+function drawQuestModal() {
+  const b = PS_PANEL, acc = '#7dff9a';
+  QST.hit = [];
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,.62)'; ctx.fillRect(0, 0, 960, 540);
+  hudPanel(b.x, b.y, b.w, b.h, acc, 18);
+  ut('任务 · 成就', b.x + 28, b.y + 34, 19, UIC.hi, 'left', { w: 700 });
+  ut('DAILY QUESTS & ACHIEVEMENTS', b.x + 28, b.y + 58, 10.5, acc, 'left', { w: 700, sp: 1.5, sh: 0 });
+  qBtn(b.x + b.w - 70, b.y + 10, 60, 26, '✕ 关闭', '#ff4757', true, () => { showQuest = false; });
+  qBtn(b.x + b.w - 160, b.y + 10, 82, 26, '一键领取' + (QST.pend ? ' ' + QST.pend : ''), '#ffd84a', QST.pend > 0, qClaimAll);
+
+  // 页签
+  const tabs = [['每日任务', QST.pendD], ['成就  ' + qaPoints() + ' 点', QST.pendA]];
+  tabs.forEach((t, i) => {
+    const x = b.x + 28 + i * 150, y = b.y + 74, on = QST.tab === i;
+    rpath(x, y, 140, 28, 7); ctx.fillStyle = on ? 'rgba(125,255,154,.18)' : 'rgba(255,255,255,.05)'; ctx.fill();
+    ctx.strokeStyle = on ? acc : 'rgba(255,255,255,.2)'; ctx.lineWidth = 1.2; ctx.stroke();
+    ut(t[0], x + 70, y + 14.5, 12.5, on ? '#fff' : UIC.sub, 'center', { w: 700 });
+    if (t[1] > 0) { ctx.beginPath(); ctx.arc(x + 134, y + 4, 4.5, 0, 7); ctx.fillStyle = '#ff4757'; ctx.fill(); }
+    QST.hit.push({ x, y, w: 140, h: 28, fn: () => { QST.tab = i; QST.page = 0; } });
+  });
+
+  const x0 = b.x + 20, w = b.w - 40, y0 = b.y + 116;
+  if (QST.tab === 0) {
+    const d = qdInit(), list = qdList(), rh = 54, pitch = 60;
+    ut('距离刷新  ' + qHMS(qSecsLeft()), b.x + b.w - 28, b.y + 88, 11.5, UIC.sub, 'right', { w: 600, sh: 0 });
+    list.forEach((o, i) => {
+      const y = y0 + i * pitch;
+      qRowBg(x0, y, w, rh, o.got ? '#5d6b7c' : o.ok ? '#7dff9a' : '#00e5ff');
+      ut(o.q.n, x0 + 18, y + 17, 14, o.got ? UIC.sub : UIC.hi, 'left', { w: 700 });
+      ut(o.q.d(o.t), x0 + 18, y + 38, 10.5, UIC.sub, 'left', { w: 500, sh: 0 });
+      qBar(x0 + 270, y + 17, 190, 10, o.v / o.t, o.ok ? '#2ed573' : '#00b8d9');
+      ut(psBig(Math.floor(o.v)) + ' / ' + psBig(o.t), x0 + 365, y + 40, 10.5, UIC.txt, 'center', { w: 600, sh: 0 });
+      qRwDraw(x0 + 484, y + 27, o.rw);
+      if (o.got) qBtn(x0 + w - 88, y + 13, 76, 28, '已领取', '#5d6b7c', false);
+      else if (o.ok) qBtn(x0 + w - 88, y + 13, 76, 28, '领取', '#7dff9a', true, () => qClaimOne(s => qdClaim(o.id, s)));
+      else qBtn(x0 + w - 88, y + 13, 76, 28, '进行中', '#5d6b7c', false);
+    });
+    // 全勤奖励
+    const y = y0 + list.length * pitch + 4, n = list.filter(o => o.got).length, rdy = qdBonusReady();
+    qRowBg(x0, y, w, rh, '#ffd84a');
+    ut('🎁 全勤奖励', x0 + 18, y + 17, 14, '#ffd84a', 'left', { w: 700 });
+    ut('领取全部 ' + list.length + ' 项每日任务奖励后解锁', x0 + 18, y + 38, 10.5, UIC.sub, 'left', { w: 500, sh: 0 });
+    qBar(x0 + 270, y + 17, 190, 10, n / list.length, '#ffd84a');
+    ut(n + ' / ' + list.length, x0 + 365, y + 40, 10.5, UIC.txt, 'center', { w: 600, sh: 0 });
+    qRwDraw(x0 + 484, y + 27, qdBonusRw());
+    if (d.bonus) qBtn(x0 + w - 88, y + 13, 76, 28, '已领取', '#5d6b7c', false);
+    else if (rdy) qBtn(x0 + w - 88, y + 13, 76, 28, '领取', '#ffd84a', true, () => qClaimOne(s => qdClaimBonus(s)));
+    else qBtn(x0 + w - 88, y + 13, 76, 28, '未完成', '#5d6b7c', false);
+  } else {
+    const np = Math.ceil(QA.length / QA_PER), rh = 50, pitch = 54;
+    QST.page = cl(QST.page, 0, np - 1);
+    QA.slice(QST.page * QA_PER, QST.page * QA_PER + QA_PER).forEach((a, i) => {
+      const st = qaState(a), y = y0 + i * pitch, fv = a.f || (v => psBig(Math.floor(v)));
+      qRowBg(x0, y, w, rh, st.done ? '#ffd84a' : st.ok ? '#7dff9a' : '#00e5ff');
+      rpath(x0 + 10, y + 7, 36, 36, 8); ctx.fillStyle = 'rgba(255,255,255,.06)'; ctx.fill();
+      ut(a.ic, x0 + 28, y + 26, 19, '#fff', 'center', { sh: 0 });
+      ut(a.n, x0 + 58, y + 16, 13.5, st.done ? '#ffd84a' : UIC.hi, 'left', { w: 700 });
+      let px = x0 + 58 + uw(a.n, 13.5, 700) + 12;
+      for (let k = 0; k < st.ts.length; k++, px += 11) { ctx.beginPath(); ctx.arc(px, y + 16, 3.6, 0, 7); ctx.fillStyle = k < st.c ? '#ffd84a' : 'rgba(255,255,255,.18)'; ctx.fill(); }
+      ut(st.done ? '全部档位已完成' : a.d(st.t), x0 + 58, y + 36, 10.5, UIC.sub, 'left', { w: 500, sh: 0 });
+      qBar(x0 + 300, y + 16, 180, 9, st.done ? 1 : st.v / st.t, st.done ? '#ffd84a' : st.ok ? '#2ed573' : '#00b8d9');
+      ut(st.done ? '已满' : fv(st.v) + ' / ' + (a.f ? a.f(st.t) : psBig(st.t)), x0 + 390, y + 37, 10.5, UIC.txt, 'center', { w: 600, sh: 0 });
+      if (!st.done) qRwDraw(x0 + 500, y + 25, st.rw);
+      if (st.done) qBtn(x0 + w - 82, y + 11, 70, 28, '已完成', '#5d6b7c', false);
+      else if (st.ok) qBtn(x0 + w - 82, y + 11, 70, 28, '领取', '#7dff9a', true, () => qClaimOne(s => qaClaim(a.id, s)));
+      else qBtn(x0 + w - 82, y + 11, 70, 28, '进行中', '#5d6b7c', false);
+    });
+    const fy = b.y + b.h - 44;
+    qBtn(b.x + b.w / 2 - 110, fy, 62, 24, '◀ 上页', '#7df9ff', true, () => { QST.page = (QST.page - 1 + np) % np; });
+    ut('第 ' + (QST.page + 1) + ' / ' + np + ' 页', b.x + b.w / 2, fy + 12.5, 11.5, UIC.sub, 'center', { w: 600, sh: 0 });
+    qBtn(b.x + b.w / 2 + 48, fy, 62, 24, '下页 ▶', '#7df9ff', true, () => { QST.page = (QST.page + 1) % np; });
+  }
+  ut('[Q] / Esc 关闭 · A / D 切换页签 · W / S 翻页 · Enter 一键领取 · 每日任务按本机日期 0 点刷新', 480, b.y + b.h - 9, 9.5, 'rgba(210,218,232,.5)', 'center', { w: 500, sh: 0 });
   ctx.restore();
 }

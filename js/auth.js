@@ -47,6 +47,7 @@ function resetInputState() {
   if (typeof showChar !== 'undefined') showChar = false;
   if (typeof showCapModal !== 'undefined') showCapModal = false;
   if (typeof showStat !== 'undefined') showStat = false;
+  if (typeof showQuest !== 'undefined') showQuest = false;
 }
 
 function hideLoginModal() {
