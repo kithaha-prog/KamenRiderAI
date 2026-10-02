@@ -34,9 +34,9 @@ async function prep() {
       SC_MAP[ch] = SC_MAP[1];
     }
   }
-  SC = SC_MAP[1] || (await load(SCN)); // 默认/全局兜底
+  SC = SC_MAP[1] || (await loadCrit(SCN)); // 默认/全局兜底
   for (const o of Object.values(SH)) {
-    msg = '加载骑士技能…'; const im = await load(KR + o.f);
+    msg = '加载骑士技能…'; const im = await loadCrit(KR + o.f);
     Object.assign(o, sliceSheet(im, o.c, o.r, o.ref, o.cut || 0));
     if (o.mid) o.fy = o.ch / 2; if (o.w) { const b = bb(o.f[o.ref]); o.s = o.w / (b.x1 - b.x0) }
   }
@@ -165,7 +165,9 @@ async function prep() {
   }
   if (PG.bi) PG.bi = shrinkH(PG.bi, Math.round(PG.h * 1.5));
   if (IM.v) IM.v = shrinkH(toCanvas(IM.v), 810);
-  const bi = await load(KR + 'KR_Malaya_Vehicles.png'); BK = trim(toCanvas(bi)); G = 'title';
+  try { const bi = await loadCrit(KR + 'KR_Malaya_Vehicles.png'); BK = trim(toCanvas(bi)); }
+  catch (e) { miss.push('Kamen Rider Malaya/KR_Malaya_Vehicles.png'); BK = document.createElement('canvas'); BK.width = 64; BK.height = 64; }   // 缺图时用空白占位，不阻断进入游戏
+  G = 'title';
   try { localStorage.mlLoadEst = String(LD.done + 2); } catch (e) {}   // 记下这次实际加载的图片数，下次用来估算进度
 
   // ===== 批量加载 NPC 角色形象（阿公、阿玲、老岩、无相） =====
@@ -201,7 +203,12 @@ async function prep() {
     }
   }
 }
-prep().catch(e => { G = 'err'; msg = '加载出现问题，请确保使用本地服务器(http://)并放置素材。' });
+prep().catch(e => {
+  console.error('[prep 失败]', e);   // F12 → Console 可看到完整错误
+  G = 'err';
+  const why = typeof e === 'string' ? '无法加载：' + e : (e && e.message) || String(e);
+  msg = '加载出现问题（' + why + '）。请确保使用本地服务器(http://)并放置素材，然后刷新重试。';
+});
 
 // ===== 普攻音效（Assets/SoundFX/Sword_Hit.mp3）：4 个音频轮流播，连击时不会互相打断 =====
 const HIT_SND = []; let hitSndI = 0;

@@ -422,6 +422,14 @@ const LD = { done: 0, est: 0, shown: 0, last: 0 };
 try { LD.est = +localStorage.mlLoadEst || 0; } catch (e) {}
 if (!LD.est) LD.est = 170;
 const load = s => new Promise((ok, no) => { const i = new Image(); i.onload = () => { LD.done++; ok(i); }; i.onerror = () => { LD.done++; no(s); }; i.src = encodeURI(s) });
+// 关键素材专用：失败自动重试（首次访问缓存为空，偶发网络抖动 / 超时不会再直接导致整个游戏加载失败）
+// 可选素材仍用 load()（缺了就算了，不会拖慢加载）
+const loadCrit = async (s, n = 3) => {
+  for (let i = 1; ; i++) {
+    try { return await load(s); }
+    catch (e) { if (i >= n) throw e; await new Promise(r => setTimeout(r, 500 * i)); }
+  }
+};
 
 // 透明 PNG：直接裁切，不再需要任何抠底处理
 function toCanvas(im) {
