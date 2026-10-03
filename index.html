@@ -8,6 +8,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>假面骑士 Malaya RPG</title>
   
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <!-- 引入 Supabase JS SDK -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
@@ -225,7 +226,7 @@
     </div>
   </div>
 
-  <!-- 按依赖层级引入脚本（每次更新文件后，把 ?v= 后面的数字改一下，可强制浏览器拉取新版本）-->
+  <!-- 按依赖层级引入脚本 -->
   <script src="js/config.js" onerror="__jsErr(this)"></script>
   <script src="js/equipment.js" onerror="__jsErr(this)"></script>
   <script src="js/power.js" onerror="__jsErr(this)"></script>
@@ -236,7 +237,8 @@
   <script src="js/capstar.js" onerror="__jsErr(this)"></script>
   <script src="js/titles.js" onerror="__jsErr(this)"></script>
   <script src="js/tower.js" onerror="__jsErr(this)"></script>
-  <script src="js/worldboss.js" onerror="__jsErr(this)"></script> <!-- ★ 全服世界BOSS -->
+  <script src="js/worldboss.js" onerror="__jsErr(this)"></script>
+  <script src="js/td.js" onerror="__jsErr(this)"></script>
   <script src="js/ui.js" onerror="__jsErr(this)"></script>
   <script src="js/menu.js" onerror="__jsErr(this)"></script>
   <script src="js/ryuki.js" onerror="__jsErr(this)"></script>
@@ -244,11 +246,13 @@
   <script src="js/blade.js" onerror="__jsErr(this)"></script>
   <script src="js/henshin.js" onerror="__jsErr(this)"></script>
   <script src="js/malaya_henshin.js" onerror="__jsErr(this)"></script>
-  <script src="js/zeztz.js" onerror="__jsErr(this)"></script> <!-- ★ 新增 Zeztz 模块 -->
+  <script src="js/zeztz.js" onerror="__jsErr(this)"></script>
   <script src="js/auth.js" onerror="__jsErr(this)"></script>
-  <script src="js/settings.js" onerror="__jsErr(this)"></script> <!-- ★ 新增：ESC 设置界面 -->
-  <script src="js/coop.js" onerror="__jsErr(this)"></script> <!-- ★ 新增 -->
-  <script src="js/mechanics.js" onerror="__jsErr(this)"></script> <!-- ★ 骑士专属机制 (R 键) -->
+  <script src="js/settings.js" onerror="__jsErr(this)"></script>
+  <script src="js/coop.js" onerror="__jsErr(this)"></script>
+  <script src="js/mechanics.js" onerror="__jsErr(this)"></script>
+  <script src="js/rogue_fx.js" onerror="__jsErr(this)"></script> <!-- ★ 圣物视觉特效（必须在 rogue.js 之前） -->
+  <script src="js/rogue.js" onerror="__jsErr(this)"></script> <!-- ★ 新增：虚幻裂隙 (镜世界 Roguelite 模式) -->
   <script src="js/main.js" onerror="__jsErr(this)"></script>
 </body>
 </html>
