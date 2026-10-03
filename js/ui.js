@@ -2445,7 +2445,7 @@ function qClaimAll() {
   if (qdClaimBonus(sum)) n++;
   for (const a of QA) while (qaClaim(a.id, sum)) n++;
   if (!n) { questToast('没有可领取的奖励', '#ffa502'); return; }
-  save(); qScan(); questToast('🎁 已领取 ' + n + ' 项奖励：' + qRwText(sum), '#7dff9a');
+  save(); qScan(); questToast('🎁 已领取 ' + n + ' 项奖励： ' + qRwText(sum), '#7dff9a');
 }
 
 // ---------- 每帧：日期刷新 / 进度扫描 / 提示 ----------
@@ -2502,14 +2502,92 @@ function drawQuestBtn(x, y) {   // 血条旁的小按钮（战力胶囊右边）
   }
   Object.assign(QB, { x, y, w, h });
 }
+// 奖励提示条（领取任务 / 成就奖励后顶部弹出）
+// 文本约定不变：questToast('🎁 已领取 3 项奖励： 💠 100  💰 390 …')
+//   🎁 → 矢量礼盒图标；💠 钻石 / 💰 🪙 金币 / 📜 卷轴 / 💎 碎晶 → 对应 Assets/Icon 里的贴图（ICO.d / ICO.g / ICO.scr / ICO.mat），
+//   每个奖励做成一枚“胶囊”；贴图没载入到时退回 emoji。
+// 修复：旧版正则里写成了 '\\s'（字面反斜杠），而且 💠💰 这类 emoji 是 2 个 UTF-16 单元，charAt(0) 取不到 → 图标永远走不到，全部退化成文字 emoji。
+const QT_ICON = {
+  '💠': { k: 'd',   col: '#7df9ff' },   // 钻石
+  '💰': { k: 'g',   col: '#ffd84a' },   // 金币
+  '🪙': { k: 'g',   col: '#ffd84a' },
+  '📜': { k: 'scr', col: '#ffa502' },   // 强化卷轴
+  '💎': { k: 'mat', col: '#c79bff' }    // 强化碎晶
+};
+const QT_RE = /(💠|💰|🪙|📜|💎)\s*([\d.,]+(?:\s?[万亿])?)/gu;
+function qtParse(str) {   // → { head, gift, items:[{ch,val}] }
+  str = String(str); const items = []; let first = -1, m;
+  QT_RE.lastIndex = 0;
+  while ((m = QT_RE.exec(str))) { if (first < 0) first = m.index; items.push({ ch: m[1], val: m[2].replace(/\s+/g, ' ') }); }
+  let head = (first < 0 ? str : str.slice(0, first)).trim();
+  const gift = head.startsWith('🎁'); if (gift) head = head.slice(2).trim();
+  return { head, gift, items };
+}
+function qtGift(cx, cy, s, col) {   // 矢量礼盒（s = 边长）
+  ctx.save(); ctx.translate(cx, cy);
+  const w = s, h = s * .78, top = -h / 2 + s * .12;
+  rpath(-w / 2, top, w, h - s * .12, 2); ctx.fillStyle = col + '33'; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 1.3; ctx.stroke();      // 盒身
+  rpath(-w / 2 - 1, top - s * .2, w + 2, s * .24, 2); ctx.fillStyle = col + '66'; ctx.fill(); ctx.stroke();                                         // 盒盖
+  ctx.fillStyle = col; ctx.fillRect(-1, top - s * .2, 2, h + s * .1);                                                                               // 竖丝带
+  ctx.beginPath(); ctx.ellipse(-s * .17, top - s * .3, s * .17, s * .12, -.5, 0, 7); ctx.ellipse(s * .17, top - s * .3, s * .17, s * .12, .5, 0, 7); ctx.stroke();   // 蝴蝶结
+  ctx.restore();
+}
 function drawQuestToast() {
   if (!QST.toast.length) return;
+  const ih = 17, H = 30, FS = 13, DUR = 3.6;
   ctx.save();
   QST.toast.forEach((t, i) => {
-    const w = uw(t.s, 13, 700) + 36, x = 480 - w / 2, y = 96 + i * 34;
-    ctx.globalAlpha = cl(Math.min(t.t / .5, (3.6 - t.t) / .2 + .2), 0, 1);
-    rpath(x, y, w, 26, 8); ctx.fillStyle = 'rgba(8,12,24,.92)'; ctx.fill(); ctx.strokeStyle = t.c; ctx.lineWidth = 1.2; ctx.stroke();
-    ut(t.s, 480, y + 13.5, 13, t.c, 'center', { w: 700 });
+    const { head, gift, items } = qtParse(t.s), age = DUR - t.t;
+    // 先量宽度
+    const gw = gift ? 18 : 0, hw = head ? uw(head, FS, 700) : 0;
+    const chips = items.map(it => {
+      const cfg = QT_ICON[it.ch], ic = ICO[cfg.k], iw = ic ? icoW(ic, ih) : 15, vw = uw(it.val, FS + .5, 800);
+      return { cfg, ic, iw, vw, w: 8 + iw + 5 + vw + 10, val: it.val, ch: it.ch };
+    });
+    const cw = chips.reduce((s, c) => s + c.w, 0) + Math.max(0, chips.length - 1) * 6;
+    const sep = chips.length && (gift || head) ? 12 : 0;
+    const inner = gw + (gw && hw ? 7 : 0) + hw + sep + cw, w = inner + 30;
+    // 入场：下滑 + 轻微放大；退场：淡出
+    const ein = cl(age / .28, 0, 1), eo = 1 - (1 - ein) * (1 - ein), alpha = cl(Math.min(ein * 1.4, t.t / .45), 0, 1);
+    const x = 480 - w / 2, y = 96 + i * (H + 8) - (1 - eo) * 14;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(480, y + H / 2); const sc = .94 + .06 * eo; ctx.scale(sc, sc); ctx.translate(-480, -(y + H / 2));
+    // 底框：深色渐变 + 发光描边
+    ctx.save();
+    ctx.shadowColor = t.c; ctx.shadowBlur = 14 * alpha;
+    rpath(x, y, w, H, 10);
+    const bg = ctx.createLinearGradient(x, y, x, y + H); bg.addColorStop(0, 'rgba(16,22,38,.96)'); bg.addColorStop(1, 'rgba(6,9,18,.96)');
+    ctx.fillStyle = bg; ctx.fill(); ctx.shadowBlur = 0;
+    ctx.strokeStyle = t.c; ctx.globalAlpha = alpha * .85; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.restore();
+    // 入场扫光
+    if (age > .08 && age < .75) {
+      ctx.save(); rpath(x, y, w, H, 10); ctx.clip();
+      const k = (age - .08) / .67, bx = x - 60 + (w + 120) * k, g = ctx.createLinearGradient(bx - 30, 0, bx + 30, 0);
+      g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(.5, 'rgba(255,255,255,.22)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g; ctx.fillRect(bx - 30, y, 60, H); ctx.restore();
+    }
+    // 内容
+    const cy = y + H / 2 + .5;
+    let cx = x + (w - inner) / 2;
+    if (gift) { qtGift(cx + gw / 2, cy, 13, t.c); cx += gw + (hw ? 7 : 0); }
+    if (head) { ut(head, cx, cy, FS, '#e8f4ff', 'left', { w: 700 }); cx += hw; }
+    cx += sep;
+    for (const c of chips) {
+      // 胶囊底
+      rpath(cx, cy - 11, c.w, 22, 11); ctx.fillStyle = c.cfg.col + '24'; ctx.fill();
+      ctx.strokeStyle = c.cfg.col + '88'; ctx.lineWidth = 1; ctx.stroke();
+      const icx = cx + 8 + c.iw / 2;
+      if (c.ic) {   // 图标背后一点柔光，让贴图在深底上更跳
+        const gr = ctx.createRadialGradient(icx, cy, 0, icx, cy, ih * .8); gr.addColorStop(0, c.cfg.col + '55'); gr.addColorStop(1, c.cfg.col + '00');
+        ctx.fillStyle = gr; ctx.fillRect(icx - ih, cy - ih, ih * 2, ih * 2);
+        drawIco(c.ic, icx, cy, ih);
+      } else ut(c.ch, icx, cy, 13, c.cfg.col, 'center', { w: 700 });
+      ut(c.val, cx + 8 + c.iw + 5, cy, FS + .5, c.cfg.col, 'left', { w: 800 });
+      cx += c.w + 6;
+    }
+    ctx.restore();
   });
   ctx.restore();
 }

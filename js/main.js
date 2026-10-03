@@ -211,6 +211,7 @@ function playSwordHit() { const a = HIT_SND[hitSndI++ % HIT_SND.length]; try { a
 
 // ===== 游戏主逻辑帧刷新 =====
 function upd(dt) {
+  if (G === 'td') return tdUpdate(dt);   // ★ 塔防：独立画面，不走下面的战斗 / 基地逻辑
   if (G === 'play' && typeof coopUpdateBattle === 'function') coopUpdateBattle(dt);
 
   if (LV_POP) {
@@ -809,6 +810,8 @@ function draw() {
     ctx.restore(); return;
   }
 
+  if (G === 'td') { tdDraw(); ctx.restore(); return; }   // ★ 塔防
+
   if (G === 'vil' || G === 'room') {
     drawW();
     if (gachaModal) drawGachaModalOverlay();
@@ -1178,6 +1181,7 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
 
   cv.addEventListener('pointerdown', e => {
     const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 960, y = (e.clientY - r.top) / r.height * 540;
+    if (G === 'td') { tdClick(x, y); return; }   // ★ 塔防
     if (gachaModal) return PR.Enter = 1;
     if (showStat) { psClick(x, y); return; }
     if (showQuest) { questClick(x, y); return; }

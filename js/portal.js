@@ -1,9 +1,9 @@
-// ===== 维度传送门：模式选择 / 单人副本 / 双人高难联机 / 世界BOSS =====
+// ===== 维度传送门：模式选择 / 单人副本 / 双人高难联机 / 世界BOSS / 无尽塔 / 骑士防线 / 虚幻裂隙 =====
 const NST = CHAPTERS.reduce((a, c) => a + c.stages.length, 0);
 const POX = 40, POY = 22, POW = 880, POH = 496;
-const PO = { view: 'hub', hub: 0, hp: 0, wb: 0, tw: 1, ret: 'hub', cp: 0, toast: '', tt: 0, hit: [], _lastView: '' };
-const HUB_N = 4;   // 模式数：单人副本 / 双人高难 / 世界BOSS / 无尽塔
-const hubView = i => ['dun', 'coop', 'wb', 'tower'][i] || 'dun';
+const PO = { view: 'hub', hub: 0, hp: 0, wb: 0, tw: 1, td: 0, ret: 'hub', cp: 0, toast: '', tt: 0, hit: [], _lastView: '' };
+const HUB_N = 6;   // 模式数扩充为 6：单人 / 双人 / 世界BOSS / 无尽塔 / 塔防 / 虚幻裂隙(肉鸽)
+const hubView = i => ['dun', 'coop', 'wb', 'tower', 'td', 'rogue'][i] || 'dun';
 let curChapIdx = 0, selStageIdx = 0, stagePage = 0;
 let coopStageSelectIdx = 0; // 选中的双人高难副本索引
 
@@ -84,8 +84,9 @@ function openPortal(ret) {
   COOP_PIN_MODAL.show = false;
   COOP_PIN_MODAL.code = '';
   PO.view = ret ? PO.ret : 'hub';
-  PO.hub = PO.view === 'tower' ? 3 : PO.view === 'wb' ? 2 : PO.view === 'coop' ? 1 : 0; PO.hp = PO.hub;
-  // ★ 打开传送门时自动跳转至最新前沿待挑战层数
+  PO.hub = PO.view === 'rogue' ? 5 : PO.view === 'td' ? 4 : PO.view === 'tower' ? 3 : PO.view === 'wb' ? 2 : PO.view === 'coop' ? 1 : 0;
+  PO.hp = PO.hub;
+  // 打开传送门时自动跳转至最新前沿待挑战层数
   PO.tw = (typeof twFrontier === 'function') ? twFrontier() : 1;
   PO._lastView = '';
   curChapIdx = getHighestChapterIdx(); pickStage(); PO.cp = curChapIdx;
@@ -112,7 +113,7 @@ function pStartStage(idx) {
   if (idx > S.cl) return pToast('该关卡尚未解锁');
   PO.ret = 'dun'; M = 0; begin(idx);
 }
-function pStartWB() { wbStart(PO.wb); }   // 全服世界BOSS：见 worldboss.js
+function pStartWB() { wbStart(PO.wb); }   // 全服世界BOSS
 
 // 输入处理
 function portalUpdate(dt) {
@@ -120,7 +121,7 @@ function portalUpdate(dt) {
   PO.cp += (curChapIdx - PO.cp) * Math.min(1, dt * 12);
   PO.hp += (PO.hub - PO.hp) * Math.min(1, dt * 12);
 
-  // ★ 状态机监测：只要切换进入无尽塔视图，立即自动定位到当前最高待挑战层数
+  // 状态机监测：进入无尽塔视图自动定位到最高待挑战层数
   if (PO.view === 'tower' && PO._lastView !== 'tower') {
     PO.tw = (typeof twFrontier === 'function') ? twFrontier() : 1;
   }
@@ -203,6 +204,15 @@ function portalUpdate(dt) {
   // 3.5 无尽塔
   if (PO.view === 'tower') { towerPortalUpdate(L, R, U, D, OK); return; }
 
+  // 3.6 骑士防线（塔防）
+  if (PO.view === 'td') { towerDefPortalUpdate(L, R, U, D, OK); return; }
+
+  // 3.7 虚幻裂隙 (镜世界肉鸽模式)
+  if (PO.view === 'rogue') {
+    if (typeof roguePortalUpdate === 'function') roguePortalUpdate(L, R, U, D, OK);
+    return;
+  }
+
   // 4. 世界BOSS
   if (U || L) PO.wb = Math.max(0, PO.wb - 1);
   if (D || R) PO.wb = Math.min(WB.length - 1, PO.wb + 1);
@@ -264,7 +274,7 @@ poOffscreen.can = (() => { try { const t = ctx; ctx = t; return true; } catch (e
 
 function poFrame(acc, title) {
   if (!poOffscreen.can) return poFrameRaw(acc, title);
-  const e = poOffscreen({ id: 'frame', v: [acc, title, S.d, S.g, S.lv].join('|') }, 960, 540, () => poFrameRaw(acc, title));
+  const e = poOffscreen({ id: 'frame', v: [acc, title, S.d, S.g, S.lv, (typeof S.mc === 'number' ? S.mc : 0)].join('|') }, 960, 540, () => poFrameRaw(acc, title));
   ctx.drawImage(e.c, 0, 0, 960, 540);
 }
 
@@ -292,6 +302,7 @@ function poFrameRaw(acc, title) {
   txt(title, POX + 26, POY + 25, 17, '#ffffff');
 
   const pills = [
+    { s: `${(S.mc || 0).toLocaleString()} 💠`, c: '#c79bff' }, // 镜晶代币
     { s: S.d.toLocaleString(), ic: ICO.d, c: '#4fe3ff' },
     { s: S.g.toLocaleString() + ' G', ic: ICO.g, c: '#ffd84a' },
     { s: 'Lv.' + S.lv, c: '#7dff9a' }
@@ -327,7 +338,7 @@ function poFooter(acc, hint, main) {
   if (main) pBtn(POX + POW - 26 - 190, y, 190, 34, main.label, { c: main.c, dis: main.dis, sz: 13.5 }, main.f);
 }
 
-// ---------- 1. 首页：三联装模式卡片 ----------
+// ---------- 1. 首页：六联装模式卡片 (包含虚幻裂隙) ----------
 function poHubCard(x, y, w, h, idx, o) {
   const sel = PO.hub === idx, cy0 = sel ? y - 4 : y, ix = x + w / 2, iy = cy0 + 82;
   ctx.save();
@@ -364,7 +375,8 @@ function poHubCard(x, y, w, h, idx, o) {
 }
 
 function drawPoHub() {
-  const HUB_COL = ['#00e5ff', '#2ed573', WB_COL, TOWER.col];
+  const ROGUE_COL = (typeof ROGUE_COL_THEME !== 'undefined') ? ROGUE_COL_THEME : '#9b51e0';
+  const HUB_COL = ['#00e5ff', '#2ed573', WB_COL, TOWER.col, TD_COL, ROGUE_COL];
   poFrame(HUB_COL[PO.hub], '🌌 维度传送门 · 选择出征模式');
   const cw = 262, ch = 340, cy = POY + 68, midY = cy + ch / 2;
 
@@ -406,10 +418,28 @@ function drawPoHub() {
         txt('历史最高', sx, sy, 11, '#9ab'); txt(b ? '第 ' + b + ' 层' : '尚未挑战', sx + sw, sy, 11, '#ffd84a', 'right');
         bar(sx, sy + 14, sw, 7, b % 10 || (b ? 10 : 0), 10, '#a55eea', '#c79bff', 4);
       }
+    },
+    {
+      c: TD_COL, icon: '🛡️', en: 'RIDER DEFENSE', title: '骑士防线',
+      d1: '部署五位假面骑士守卫车道', d2: '升级 · 必杀 · 机车清场 · 首通钻石',
+      status(sx, sy, sw) {
+        const b = tdBest();
+        txt('防线进度', sx, sy, 11, '#9ab'); txt(b + ' / ' + TD_LEVELS, sx + sw, sy, 11, '#ffd84a', 'right');
+        bar(sx, sy + 14, sw, 7, b, TD_LEVELS, '#ff9f43', '#ffd84a', 4);
+      }
+    },
+    {
+      c: ROGUE_COL, icon: '🪞', en: 'PHANTASM RIFT', title: '虚幻裂隙',
+      d1: '12 间随机裂隙 · 圣物构筑 · 纯粹肉鸽', d2: '重置入场 · 战利圣物 · 结算代币「镜晶」',
+      status(sx, sy, sw) {
+        const b = (typeof rogueBestRoom === 'function') ? rogueBestRoom() : 0;
+        txt('探索记录', sx, sy, 11, '#9ab'); txt(b ? `最高第 ${b} / 12 间` : '未曾涉足', sx + sw, sy, 11, '#ffd84a', 'right');
+        bar(sx, sy + 14, sw, 7, b, 12, '#9b51e0', '#e056fd', 4);
+      }
     }
   ];
 
-  const order = [0, 1, 2, 3].filter(i => Math.abs(i - PO.hp) < 2).sort((a, b) => Math.abs(b - PO.hp) - Math.abs(a - PO.hp));
+  const order = [0, 1, 2, 3, 4, 5].filter(i => Math.abs(i - PO.hp) < 2).sort((a, b) => Math.abs(b - PO.hp) - Math.abs(a - PO.hp));
   for (const i of order) {
     const d = i - PO.hp, ad = Math.abs(d), t = Math.min(1, ad);
     const sc = 1 - .26 * t - Math.max(0, ad - 1) * .1;
@@ -434,7 +464,7 @@ function drawPoHub() {
       } else if (al > .2) pHit(cx - cw * sc / 2, midY - ch * sc / 2, cw * sc, ch * sc, () => { PO.hub = i; });
       continue;
     }
-    const key = { id: 'hub' + i + (sel ? 's' : 'n'), v: [S.cl, S.lv, wbLeft(), WB.filter(wbOpen).length, twBest(), typeof COOP !== 'undefined' && COOP.active ? COOP.roomCode : ''].join('|') };
+    const key = { id: 'hub' + i + (sel ? 's' : 'n'), v: [S.cl, S.lv, wbLeft(), WB.filter(wbOpen).length, twBest(), tdBest(), (typeof S.mr === 'number' ? S.mr : 0), typeof COOP !== 'undefined' && COOP.active ? COOP.roomCode : ''].join('|') };
     const e = poOffscreen(key, cw + PAD * 2, ch + PAD * 2, () => {
       const sv = PO.hub; PO.hub = sel ? i : -1;
       try {
@@ -507,15 +537,31 @@ function drawPoCoop() {
       coopStageSelectIdx = (coopStageSelectIdx + 1) % coopList.length;
     });
 
+    // 倍率按关卡读取（进阶关卡 hpx / dmx 各不相同；老关卡仍是 500% / ×3）
+    const cst = ST[curCoopObj.si] || {}, hpPct = Math.round((cst.hpx || 5) * 100), dmN = +(cst.dmx || 3).toFixed(2);
     let chipX = lx + 28;
-    chipX += poBadge(chipX, missionCardY + 70, '500% 领主血量', '#ff6b81') + 6;
-    chipX += poBadge(chipX, missionCardY + 70, '500% 赏金经验', '#ffd84a') + 6;
+    chipX += poBadge(chipX, missionCardY + 70, hpPct + '% 领主血量', '#ff6b81') + 6;
+    chipX += poBadge(chipX, missionCardY + 70, '×' + dmN + ' 怪物攻击', '#ffd84a') + 6;
     poBadge(chipX, missionCardY + 70, '神话必掉', '#a55eea');
 
     const cix = Math.max(0, COOP_STAGES.indexOf(curCoopObj));
     txt(`领主: ${curCoopObj.bn || '强敌'}   |   赏金: +${curCoopObj.g.toLocaleString()} G   |   首通钻石 +${COOP_FIRST_DIAM[cix] || 0}`, lx + 28, missionCardY + 97, 11, '#8fa0b8');
     txt(`每次通关：契约碎片 ×${COOP_SHARD[cix] || 1}   碎晶 ×${COOP_MAT[cix] || 0}   强化卷轴 ×${COOP_SCR[cix] || 0}（可重复刷）`, lx + 28, missionCardY + 115, 11, '#c79bff');
     txt(curCoopObj.desc || '', lx + 28, missionCardY + 133, 10.5, '#708398');
+
+    // 关卡圆点：每关一个，点哪个跳哪个（当前关高亮）
+    {
+      const n = coopList.length, areaW = w - 48, step = Math.min(24, areaW / Math.max(1, n)), x0 = lx + w / 2 - step * (n - 1) / 2, dy = cy + 204;
+      for (let k = 0; k < n; k++) {
+        const dx = x0 + k * step, on = k === coopStageSelectIdx;
+        ctx.save();
+        if (on) { ctx.shadowColor = '#ffd84a'; ctx.shadowBlur = 8; }
+        ctx.beginPath(); ctx.arc(dx, dy, on ? 5 : 3.2, 0, 7);
+        ctx.fillStyle = on ? '#ffd84a' : 'rgba(46, 213, 115, 0.45)'; ctx.fill();
+        ctx.restore();
+        pHit(dx - step / 2, dy - 9, step, 18, () => { coopStageSelectIdx = k; });
+      }
+    }
 
     pBtn(lx + 24, cy + 214, w - 48, 46, '⚡ 生成专属房间码 // CREATE ROOM', { c: '#2ed573', sz: 14.5, cr: 8 }, async () => {
       if (typeof coopCreateRoom === 'function') {
@@ -609,7 +655,7 @@ function drawPoCoop() {
     poBevel(cx + 28, briefY, w - 56, 28, 6);
     ctx.fillStyle = 'rgba(6, 12, 24, 0.9)'; ctx.fill();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.stroke();
-    txt(`战役目标: ${stObj.n} (500% 血量 · 500% 赏金)`, cx + 38, briefY + 14, 11, '#ffd84a');
+    txt(`战役目标: ${stObj.n} (${Math.round((stObj.hpx || 5) * 100)}% 血量 · ×${+(stObj.dmx || 3).toFixed(2)} 攻击)`, cx + 38, briefY + 14, 11, '#ffd84a');
 
     const btnY = briefY + 38;
     if (COOP.isHost) {
@@ -869,7 +915,7 @@ function drawPoWB() {
   const w = WB[PO.wb], open = wbOpen(w), Wd = wbData(), left = wbLeft(), total = WB_DAILY + (Wd.buy | 0), online = wbOnline();
   poFrame(WB_COL, '👹 世界BOSS · 全服共讨');
   WB.forEach((b, i) => poWBRow(b, i, 84 + i * 55));
-  wbFetch(PO.wb);                                        // 自带 6 秒节流；打开页面 / 切换首领时自动刷新
+  wbFetch(PO.wb);
   const g = WBG.s[PO.wb];
 
   const dx = POX + 296, dy = 84, dw = POW - 296 - 24, dh = 354;
@@ -950,7 +996,6 @@ function drawPoWB() {
 // ---------- 入口统一渲染分发 ----------
 function drawPortalModal() {
   PO.hit = [];
-  // ★ 统一拦截：只要渲染无尽塔，若为首次或切入立即定位到前沿挑战层数
   if (PO.view === 'tower' && PO._lastView !== 'tower') {
     PO.tw = (typeof twFrontier === 'function') ? twFrontier() : 1;
     PO._lastView = 'tower';
@@ -962,6 +1007,10 @@ function drawPortalModal() {
   else if (PO.view === 'dun') drawPoDun();
   else if (PO.view === 'coop') drawPoCoop();
   else if (PO.view === 'tower') drawPoTower();
+  else if (PO.view === 'td') drawPoTD();
+  else if (PO.view === 'rogue') {
+    if (typeof drawPoRogue === 'function') drawPoRogue();
+  }
   else drawPoWB();
 
   if (PO.tt > 0) {
