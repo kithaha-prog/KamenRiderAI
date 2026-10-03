@@ -170,8 +170,9 @@ function triggerRyukiTransform() {
 
 function drawP() {
   for (const g of GH) {
-    const sv = { x: P.x, y: P.y, f: P.f, st: P.st, inv: P.inv, land: P.land };
+    const sv = { x: P.x, y: P.y, f: P.f, st: P.st, inv: P.inv, land: P.land, ryuki: P.ryuki, k5: P.k5, bl: P.bl, zeztz: P.zeztz, t: P.t, hit: P.hit };
     P.x = g.x; P.y = g.y; P.f = g.f; P.st = g.st; P.inv = 0; P.land = 0;
+    if (g.rf) { P.ryuki = g.rf.ryuki; P.k5 = g.rf.k5; P.bl = g.rf.bl; P.zeztz = g.rf.zeztz; P.t = g.pt || 0; P.hit = {}; }   // 联机队友的残影用队友自己的形态
     ctx.save(); ctx.globalAlpha = g.t / g.d * .5; ctx.globalCompositeOperation = 'lighter';
     drawP0(); ctx.restore();
     Object.assign(P, sv);
@@ -196,8 +197,8 @@ function drawP0() {
   if (P.st === 'trans_ryuki' && P.trk === 'blade') { drawBladeTransform(x, y, f); return; }
   if (P.st === 'trans_ryuki' && (P.trk === '555' || P.trk === 'ryuki') && typeof henReady === 'function' && henReady()) { drawHenshin(x, y, f); return; }
   if (P.st === 'trans_ryuki' && P.trk === '555') { drawFaizTransform(x, y, f); return; }
-  if (P.st === 'trans_ryuki' && SH.ryukiTrans) { drawRyukiTransform(x, y, f); return; }
   if (P.st === 'trans_ryuki' && P.trk === 'zeztz') { drawZeztzTransform(x, y, f); return; }
+  if (P.st === 'trans_ryuki' && SH.ryukiTrans) { drawRyukiTransform(x, y, f); return; }
   
   // ===== 在 drawP0() 的状态分支中增加对新派生动作的贴图渲染映射 =====
 

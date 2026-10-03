@@ -10,7 +10,7 @@
 // ---------- 平衡参数（想调数值只改这里）----------
 const MECH_CFG = {
   ryuki: { cardEvery: 4, maxCards: 3, autoEvery: 9, assistMul: 2.4, adventMul: 1.3, adventEnd: 4.0, cd: 2 },
-  k555:  { dur: 10, cd: 32, ts: .3, spd: 1.5, cdRegen: .6, atkSpd: .55 },
+  k555:  { dur: 10, cd: 32, ts: .3, spd: 1.5, cdRegen: .6, atkSpd: .55, coopSpd: 1.8, coopAtk: .85 },   // 联机：不能减慢怪物（会让队友错位），改为加强自身移速 / 攻速作补偿
   blade: { hitsPerCard: 3, maxHand: 2, cd: 4 },
   zeztz: { dur: 8, cd: 24, atkMul: 1.35 }
 };
@@ -227,7 +227,7 @@ function updAccel(dt, can) {
     MECH.accel -= dt;
     for (const k in P.cd) if (P.cd[k] > 0) P.cd[k] = Math.max(0, P.cd[k] - dt * C.cdRegen);
     if (P.dcd > 0) P.dcd = Math.max(0, P.dcd - dt * .8);
-    if (P.st === 'atk' || P.st === 'thr') P.t += dt * C.atkSpd;
+    if (P.st === 'atk' || P.st === 'thr') P.t += dt * (mCoop() ? C.coopAtk : C.atkSpd);
     MECH.gt = (MECH.gt || 0) - dt;
     if (MECH.gt <= 0 && (P.vx || P.st === 'atk' || P.st === 'dodge')) {
       MECH.gt = .045; GH.push({ x: P.x, y: P.y, f: P.f, st: P.st, t: .3, d: .3 });
@@ -239,7 +239,6 @@ function updAccel(dt, can) {
       mToast('智脑未授权：需将 555 胶囊升至 5★ 解锁 Accel！', '#ff7675');
     } else if (MECH.accel > 0) {}
     else if (MECH.cd > 0) mToast('Accel 冷却中 ' + MECH.cd.toFixed(0) + 's', '#ffa502');
-    else if (mCoop()) mToast('联机副本中无法使用 Accel（会让队友的时间错位）', '#ffa502');
     else accelStart();
   }
 }
@@ -651,7 +650,7 @@ function mechHUD() {
 
   wrap('formSpd', orig => function () {
     let m = 1;
-    if (G === 'play') { if (MECH.rk === '555' && MECH.accel > 0) m *= MECH_CFG.k555.spd; if (MECH.buff) m *= MECH.buff.spd; }
+    if (G === 'play') { if (MECH.rk === '555' && MECH.accel > 0) m *= mCoop() ? MECH_CFG.k555.coopSpd : MECH_CFG.k555.spd; if (MECH.buff) m *= MECH.buff.spd; }
     return orig.apply(this, arguments) * m;
   });
 

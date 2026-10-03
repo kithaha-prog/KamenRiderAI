@@ -338,6 +338,7 @@ function updZeztzWaves(dt) {
     b.t -= dt;
     b.x += b.vx * dt;
     b.tick -= dt;
+    if (b.vis) continue;   // 联机：队友的能量波只做展示，伤害由发射者结算
 
     if (b.tick <= 0) {
       b.tick = 0.15;

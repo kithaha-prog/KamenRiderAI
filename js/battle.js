@@ -64,7 +64,7 @@ function fin(w) {
   psResult(w);
   const z = ST[cur];
   // ★ 联机：房主裁决胜负并广播给客机
-  if (typeof COOP !== 'undefined' && COOP.active && COOP.inGame && COOP.isHost) coopSend('game_end', { win: w ? 1 : 0, kills, RG });
+  if (typeof COOP !== 'undefined' && COOP.active && COOP.inGame && COOP.isHost) coopSend('game_end', { win: w ? 1 : 0, kills, RG, RGb: Math.round(COOP.RGb || 0) });
 
   if (z.tw) {
     towerFin(w, z);   // 无尽塔结算（tower.js）：首通奖励 / 契约碎片 / 层数记录
@@ -416,6 +416,8 @@ function hurt(e, d, pre) {
     psHit(d, c);
     e.fl = .12; shake = Math.max(shake, 4);
     P.mp = Math.min(P.mm, P.mp + 3);
+    // ★ 客机也要吸血：用客机自己装备的吸血词条（单次最多回 3% 生命上限）
+    if (!P.down) { const ls = affixTotal('ls'); if (ls > 0) P.hp = Math.min(P.mh, P.hp + Math.min(P.mh * .03, Math.max(1, d * ls))); }
     DT.push({ x: e.x, y: e.y - e.h, s: d + (c ? '!' : ''), t: .8, c: c ? '#ff8a2a' : '#ffd84a' });
     coopSend('guest_hurt_m', { id: e.id, dmg: d, c: c ? 1 : 0, f });
     return;
@@ -435,7 +437,9 @@ function hurt(e, d, pre) {
   if (e.hp <= 0 && !e.dead) {
     e.dead = 1; kills++; if (!pre) psKill(e.t === 'boss');
     gain(ET[e.t].xp * .6 * (1 + Math.min(cur, 29) * .3)); 
-    RG += ET[e.t].g * (1 + Math.min(cur, 29) * .3) * (1 + affixTotal('gd')) | 0;   // 金币加成词条
+    const gBase = ET[e.t].g * (1 + Math.min(cur, 29) * .3);
+    RG += gBase * (1 + affixTotal('gd')) | 0;   // 金币加成词条
+    if (mp2) COOP.RGb += gBase;                 // 联机：记录基础金币，客机按自己的词条结算
     if (Math.random() < .35) OR.push({ x: e.x, k: Math.random() < .5 ? 'h' : 'm' });
     dropLoot(e);
     if (e.t === 'boss') fin(1);

@@ -5,7 +5,9 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 let sbClient = null;
 try {
   if (window.supabase) {
-    sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      realtime: { params: { eventsPerSecond: 40 } }   // 联机广播的每秒消息数上限（默认 10，联机战斗不够用）
+    });
   }
 } catch (e) {
   console.error('[Supabase Init Error]', e);

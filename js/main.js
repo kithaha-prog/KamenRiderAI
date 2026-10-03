@@ -454,7 +454,7 @@ function upd(dt) {
   const fr = P.st === 'idle' || P.st === 'run' || P.st === 'air', l = !lk && (K.KeyA || K.ArrowLeft), r = !lk && (K.KeyD || K.ArrowRight), gr = P.y >= GY;
   if (fr) {
     const d = (r ? 1 : 0) - (l ? 1 : 0);
-    let spd = (240 + S.lv * 4) * formSpd();
+    let spd = (240 + S.lv * 4) * formSpd() * (1 + (typeof affixTotal === 'function' ? affixTotal('spd') : 0));   // 移速词条在副本里也生效
     if (P.slow > 0) spd *= .55;
     if (sh && d && !P.exh && P.sta > 0) { spd *= 1.7; P.spr = true }
     P.vx = d * spd;

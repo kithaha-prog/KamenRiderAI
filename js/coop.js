@@ -10,15 +10,16 @@
 
 const COOP_REVIVE_TIME = 10;     // 救援所需持续时间（秒）
 const COOP_REVIVE_RANGE = 130;   // 救援有效距离（px）
-const COOP_TIMEOUT = 15000;      // 队友多久没有任何消息视为掉线（ms）
+const COOP_TIMEOUT = 20000;      // 队友多久没有任何消息视为掉线（ms）
 
 // 渲染队友时需要临时借用的 P 字段
-const COOP_P2_KEYS = ['x', 'y', 'f', 'st', 't', 'inv', 'land', 'vx', 'vy', 'ryuki', 'k5', 'bl', 'trk', 'spr', 'tdur', 'h'];
+const COOP_P2_KEYS = ['x', 'y', 'f', 'st', 't', 'inv', 'land', 'vx', 'vy', 'ryuki', 'k5', 'bl', 'zeztz', 'trk', 'spr', 'tdur', 'h', 'landT', 'hit'];
 
 function coopNewP2() {
   return {
     x: 300, y: 470, vx: 0, vy: 0, f: 1, st: 'trans', t: 0,
-    hp: 100, mh: 100, ryuki: false, k5: false, bl: false, trk: null,
+    hp: 100, mh: 100, ryuki: false, k5: false, bl: false, zeztz: false, trk: null,
+    hit: {}, landT: undefined, dg: null, sh: null, gt: 0, bh: '', ac: 0,
     spr: false, tdur: 0, h: 0, inv: 0,
     down: false, rv: 0, gone: false, kb: false, init: false,
     targetX: 300, targetY: 470
@@ -37,6 +38,10 @@ const COOP = {
   peerConnected: false,
 
   lastSyncT: 0, monT: 0, lastSt: '', lastDown: false, lastRecv: 0,
+  out: [], lastFlush: 0, subscribed: false,   // 发送队列（合并成一包再发，避免超出 Realtime 每秒消息数限制）
+  RGb: 0,               // 房主：本局击杀的「未加成」基础金币（客机据此按自己的金币词条结算）
+  fxQ: [], fxT: 0,      // 待广播的特效队列
+  badTrans: {},         // 队友变身演出绘制失败过的类型（失败后改用站立 + 光效）
   rescueT: 0,           // 我正在救队友的累计进度（秒）
   channeling: false,    // 我此刻是否正在读条救人（锁定移动与出招）
   escT: 0,              // 撤退二次确认计时
@@ -62,6 +67,7 @@ function coopResetBattle() {
   COOP.vote = { me: null, peer: null };
   COOP.rescueT = 0; COOP.channeling = false; COOP.escT = 0;
   COOP.lastSt = ''; COOP.lastDown = false; COOP.lastSyncT = 0; COOP.monT = 0;
+  COOP.RGb = 0; COOP.fxQ = []; COOP.fxT = 0; COOP.badTrans = {};
   COOP.lastRecv = performance.now();
   const keepHp = COOP.P2.mh || 100;
   COOP.P2 = coopNewP2();
@@ -127,6 +133,7 @@ function coopLeaveRoom() {
   }
   COOP.active = false;
   COOP.inGame = false;
+  COOP.out = [];
   COOP.roomCode = '';
   COOP.peerConnected = false;
   COOP.channeling = false;
@@ -140,6 +147,7 @@ function coopLeaveRoom() {
 
 async function coopJoinChannel(code) {
   if (COOP.channel) sbClient.removeChannel(COOP.channel);
+  COOP.subscribed = false; COOP.out = [];
 
   COOP.channel = sbClient.channel(`coop_room_${code}`, {
     config: { broadcast: { ack: false, self: false } }
@@ -147,23 +155,61 @@ async function coopJoinChannel(code) {
 
   COOP.channel
     .on('broadcast', { event: 'coop_msg' }, ({ payload }) => {
-      coopHandleMessage(payload);
+      if (!payload) return;
+      if (payload.type === 'batch') {
+        for (const m of payload.l || []) coopHandleMessage({ type: m.type, data: m.data, fromHost: payload.fromHost });
+      } else coopHandleMessage(payload);
     })
     .subscribe((status) => {
       if (status === 'SUBSCRIBED') {
+        COOP.subscribed = true;
         console.log(`[Co-op] 成功接入联机频道: room_${code}`);
+        coopFlush();   // 订阅完成前排队的消息（如 peer_join）此刻发出
+      } else {
+        COOP.subscribed = false;   // supabase 会自动重连，重连成功后会再进入 SUBSCRIBED
+        console.warn('[Co-op] 频道状态：' + status);
       }
     });
 }
 
+// 网络发送策略（解决「联机一分钟后卡顿、被踢出」）：
+//   Supabase Realtime 对每个客户端有「每秒消息数」上限，超过后消息被丢弃甚至断线，
+//   之前每秒要发几十条（位置 / 怪物 / 特效 / 弹道 / 命中各自一条）。现在：
+//   · 所有消息先进队列，约每 60ms 合并成 1 条 'batch' 发出（每秒 ≤ 约 17 条）
+//   · p_sync / host_monsters_sync 只保留最新一份（旧的丢弃，不会越积越多）
+//   · 房间 / 投票 / 救援 / 胜负等关键消息立即发送（先把队列里的一并带上，顺序不乱）
+const COOP_NOW = { peer_join: 1, room_sync: 1, ready_change: 1, stage_start: 1, room_close: 1, vote: 1, revive_done: 1, game_end: 1 };
+const COOP_LATEST = { p_sync: 1, host_monsters_sync: 1 };
+
 function coopSend(type, data) {
   if (!COOP.channel) return;
-  COOP.channel.send({
-    type: 'broadcast',
-    event: 'coop_msg',
-    payload: { type, data, fromHost: COOP.isHost }
-  });
+  const q = COOP.out;
+  if (COOP_LATEST[type]) {
+    const m = q.find(o => o.type === type);
+    if (m) m.data = data; else q.push({ type, data });
+  } else {
+    q.push({ type, data });
+    if (q.length > 240) q.splice(0, q.length - 240);   // 断线期间防止无限堆积
+  }
+  if (COOP_NOW[type]) coopFlush();
 }
+
+function coopFlush() {
+  if (!COOP.channel || !COOP.subscribed || !COOP.out.length) return;
+  const l = COOP.out; COOP.out = [];
+  COOP.lastFlush = performance.now();
+  try {
+    COOP.channel.send({ type: 'broadcast', event: 'coop_msg', payload: { type: 'batch', l, fromHost: COOP.isHost } });
+  } catch (e) { console.warn('[Co-op] 发送失败', e); }
+}
+
+// 定时发送 + 心跳（不依赖战斗帧循环，结算 / 房间界面也不会被误判掉线）
+setInterval(() => {
+  if (!COOP.active || !COOP.channel) return;
+  const now = performance.now();
+  if (now - (COOP.lastHb || 0) > 1500) { COOP.lastHb = now; COOP.out.push({ type: 'hb', data: {} }); }
+  if (COOP.out.length && now - COOP.lastFlush >= 55) coopFlush();
+}, 25);
 
 // 只打包数值/布尔/字符串字段（弹道、战车等实体的通用序列化）
 function coopPack(o) {
@@ -216,6 +262,11 @@ function coopOnDown() {
   DT.push({ x: P.x, y: P.y - 200, s: '濒死！等待队友救援', t: 1.8, c: '#ff4757' });
 }
 
+// 客机：房主同步来的是「基础金币」，按客机自己装备的金币加成词条换算
+function coopGuestGold(base) {
+  return Math.floor((base || 0) * (1 + (typeof affixTotal === 'function' ? affixTotal('gd') : 0)));
+}
+
 // 房主端：客机击杀怪物后，客机也要拿到经验与掉落
 function coopGuestKill(e) {
   gain(ET[e.t].xp * .6 * (1 + Math.min(cur, 29) * .3));
@@ -256,9 +307,13 @@ function coopHandleMessage({ type, data, fromHost }) {
   // 2. 队友状态（位置 + 动作 + 形态 + 倒地）
   else if (type === 'p_sync') {
     COOP.peerConnected = true;
-    const { x, y, ...rest } = data;
+    const { x, y, hk, lt, ...rest } = data;
     const p2 = COOP.P2;
     Object.assign(p2, rest);
+    // 终结技 / 变身演出会读 P.hit['landed'] 之类的标记与 P.landT，一并还原
+    p2.hit = {};
+    if (hk) for (const k of String(hk).split(',')) if (k) p2.hit[k] = 1;
+    p2.landT = (lt === null || lt === undefined) ? undefined : lt;
     p2.targetX = x; p2.targetY = y;
     if (!p2.init || Math.abs(x - p2.x) > 500) { p2.x = x; p2.y = y; p2.init = true; }
   }
@@ -268,6 +323,16 @@ function coopHandleMessage({ type, data, fromHost }) {
     if (G === 'play') PJ.push(Object.assign({}, data, { h: {}, vis: 1, cs: 1 }));
   } else if (type === 'fx_bike') {
     if (G === 'play') BIKES.push(Object.assign({}, data, { hit: {}, vis: 1, cs: 1 }));
+  } else if (type === 'fx_batch') {
+    // 队友（含房主的怪物）产生的爆炸 / 斩击 / 能量波等特效：只展示，不产生伤害
+    if (G !== 'play' || !data || !data.l) return;
+    for (const o of data.l) {
+      const { _k, ...v } = o;
+      if (_k === 'f') FX.push(Object.assign(v, { vis: 1, cs: 1 }));
+      else if (_k === 'm' && typeof MECH !== 'undefined' && MECH.vis) MECH.vis.push(Object.assign(v, { cs: 1 }));
+      else if (_k === 'b' && typeof BLB !== 'undefined') BLB.push(Object.assign(v, { tk: 99, vis: 1, cs: 1 }));
+      else if (_k === 'z' && typeof Z_WAVES !== 'undefined') Z_WAVES.push(Object.assign(v, { hit: {}, tick: 0, vis: 1, cs: 1 }));
+    }
   }
 
   // 4. 怪物强同步
@@ -288,15 +353,14 @@ function coopHandleMessage({ type, data, fromHost }) {
         DT.push({ x: e.x, y: e.y - e.h, s: Math.round(data.dmg) + (data.c ? '!' : ''), t: .8, c: data.c ? '#ff8a2a' : '#ffd84a' });
       }
       if (data.dead && !e.dead) {
-        e.dead = 1;
-        FX.push({ type: 'boss_death_blast', x: e.x, y: e.y - e.h / 2, t: .6, d: .6, r: e.t === 'boss' ? 220 : 70 });
+        e.dead = 1;   // 死亡爆炸特效由房主 fx_batch 广播过来
         coopGuestKill(e);
       }
     }
   } else if (type === 'host_monsters_sync') {
     if (COOP.isHost || G !== 'play') return;
     kills = data.kills;
-    RG = data.RG;
+    RG = coopGuestGold(data.RGb);
     if (data.bs) bs = 1;
     const alive = new Set();
     for (const m of data.monsters) {
@@ -327,13 +391,24 @@ function coopHandleMessage({ type, data, fromHost }) {
     }
   } else if (type === 'game_end') {
     if (!COOP.isHost && G === 'play') {
-      kills = data.kills; RG = data.RG;
+      kills = data.kills; RG = coopGuestGold(data.RGb);
       fin(data.win ? 1 : 0);
     }
   } else if (type === 'vote') {
     COOP.vote.peer = data.choice || null;
     coopCheckVotes();
   }
+}
+
+// 龙骑 R 键机制：无限龙 / 龙的火球也让队友看到（只同步外观）
+function coopPackDragon() {
+  if (typeof MECH === 'undefined' || !MECH.dragon) return null;
+  const g = MECH.dragon, r = v => Math.round((v || 0) * 100) / 100;
+  return { x: r(g.x), y: r(g.y), rot: r(g.rot), dir: g.dir || 1, al: r(g.al), w: g.w || 230 };
+}
+function coopPackShots() {
+  if (typeof MECH === 'undefined' || !MECH.shots || !MECH.shots.length) return null;
+  return MECH.shots.slice(0, 8).map(s => [Math.round(s.x), Math.round(s.y), Math.round(s.vx || 0), Math.round(s.vy || 0)]);
 }
 
 // ---------- 3. 战斗中帧循环高频同步 ----------
@@ -348,9 +423,14 @@ function coopUpdateBattle(dt) {
   p2.x += (p2.targetX - p2.x) * k;
   p2.y += (p2.targetY - p2.y) * k;
   p2.t += dt;
-  if (p2.st === 'fv' && !(p2.ryuki || p2.k5 || p2.bl)) {   // Malaya 终结技落地冲击波
-    if (p2.t >= 1 && !p2.kb) { p2.kb = true; FX.push({ type: 'malaya_kick_blast', x: p2.x + p2.f * 80, y: p2.y - 80, t: .5, d: .5, r: 160 }); }
-  } else p2.kb = false;
+  // 队友残影（闪避 / 疾跑 / 下砸 / 空中终结技），带上队友自己的骑士形态
+  p2.gt = (p2.gt || 0) - dt;
+  if (!p2.down && p2.gt <= 0 && (p2.st === 'dodge' || p2.spr || (p2.ac && (p2.vx || p2.st === 'atk')) || p2.st === 'diveslam' ||
+      (p2.st === 'fv' && p2.y < GY - 4 && (p2.ryuki || p2.k5 || p2.bl || p2.zeztz)))) {
+    p2.gt = p2.ac ? .045 : .038;
+    GH.push({ x: p2.x, y: p2.y, f: p2.f, st: p2.st, t: p2.ac ? .3 : .32, d: p2.ac ? .3 : .32, pt: p2.t,
+      rf: { ryuki: !!p2.ryuki, k5: !!p2.k5, bl: !!p2.bl, zeztz: !!p2.zeztz } });
+  }
 
   // 2. 客机：怪物位置向房主权威位置平滑靠拢
   if (!COOP.isHost) {
@@ -397,6 +477,21 @@ function coopUpdateBattle(dt) {
   for (const s of PJ) if (!s.vis && !s.cs) { const pk = coopPack(s); s.cs = 1; coopSend('fx_pj', pk); }
   for (const b of BIKES) if (!b.vis && !b.cs) { const pk = coopPack(b); b.cs = 1; coopSend('fx_bike', pk); }
 
+  // 6b. 特效 / 机制视觉 / 能量波：新产生的打包进队列，约 18 次/秒批量广播
+  {
+    const q = COOP.fxQ;
+    for (const f of FX) if (!f.cs && !f.vis) {
+      f.cs = 1;
+      if (!(f.r >= 60 || (f.r >= 40 && f.d >= .3))) continue;   // 小粒子不广播（对方各自本地也会生成）
+      if (q.length < 48) q.push(Object.assign({ _k: 'f' }, coopPack(f)));
+    }
+    if (typeof MECH !== 'undefined' && MECH.vis) for (const v of MECH.vis) if (!v.cs) { v.cs = 1; if (q.length < 60) q.push(Object.assign({ _k: 'm' }, coopPack(v))); }
+    if (typeof BLB !== 'undefined') for (const b of BLB) if (!b.cs && !b.vis) { b.cs = 1; if (q.length < 60) q.push(Object.assign({ _k: 'b' }, coopPack(b))); }
+    if (typeof Z_WAVES !== 'undefined') for (const b of Z_WAVES) if (!b.cs && !b.vis) { b.cs = 1; if (q.length < 60) q.push(Object.assign({ _k: 'z' }, coopPack(b))); }
+    COOP.fxT += dt;
+    if (q.length && COOP.fxT >= 0.06) { COOP.fxT = 0; coopSend('fx_batch', { l: q.splice(0, 24) }); }
+  }
+
   // 7. 向网络广播自身状态（约 18 次/秒；动作/倒地状态变化时立即发）
   COOP.lastSyncT += dt;
   if (P.st !== COOP.lastSt || P.down !== COOP.lastDown || COOP.lastSyncT >= 0.055) {
@@ -406,8 +501,13 @@ function coopUpdateBattle(dt) {
       vx: Math.round(P.vx), vy: Math.round(P.vy),
       f: P.f, st: P.st, t: Math.round(P.t * 1000) / 1000,
       hp: P.hp, mh: P.mh,
-      ryuki: !!P.ryuki, k5: !!P.k5, bl: !!P.bl, trk: P.trk || null,
+      ryuki: !!P.ryuki, k5: !!P.k5, bl: !!P.bl, zeztz: !!P.zeztz, trk: P.trk || null,
       spr: !!P.spr, tdur: P.tdur || 0, h: P.h | 0,
+      lt: (typeof P.landT === 'number') ? Math.round(P.landT * 1000) / 1000 : null,
+      hk: P.hit ? Object.keys(P.hit).filter(k => isNaN(k)).join(',') : '',
+      dg: coopPackDragon(), sh: coopPackShots(),
+      ac: (typeof MECH !== 'undefined' && MECH.accel > 0) ? 1 : 0,
+      bh: (P.bl && typeof MECH !== 'undefined' && MECH.hand) ? MECH.hand.join('') : '',
       inv: P.inv > 0 ? 1 : 0,
       down: !!P.down,
       rv: Math.round(cl(COOP.rescueT / COOP_REVIVE_TIME, 0, 1) * 100) / 100
@@ -417,10 +517,10 @@ function coopUpdateBattle(dt) {
   // 8. 房主：怪物权威位置/血量 + 全队进度
   if (COOP.isHost) {
     COOP.monT += dt;
-    if (COOP.monT >= 0.055) {
+    if (COOP.monT >= 0.1) {
       COOP.monT = 0;
       coopSend('host_monsters_sync', {
-        kills, RG, bs: bs ? 1 : 0,
+        kills, RGb: Math.round(COOP.RGb), bs: bs ? 1 : 0,
         monsters: E.filter(e => !e.dead).map(e => ({
           id: e.id, x: Math.round(e.x), y: Math.round(e.y),
           hp: e.hp, mhp: e.mhp, t: e.t, vi: e.vi
@@ -439,16 +539,19 @@ function drawCoopP2() {
   const x = sn(p2.x - cam), y = sn(p2.y);
   if (x < -220 || x > 1180) return;
 
-  // 变身演出依赖本地全局状态，队友变身期间用站立姿态 + 形态色光效代替
+  // 队友变身：直接用与本机相同的变身演出绘制（p2.t 由 p_sync 校准、本地推进）。
+  // 若某种变身演出依赖本机独有的状态而画不出来，自动退回「站立 + 形态色光效」，不会让游戏崩溃。
   const trans = p2.st === 'trans' || p2.st === 'trans_ryuki';
+  const tkey = p2.st + ':' + (p2.trk || '');
+  const useTrans = trans && !p2.down && !COOP.badTrans[tkey];
   const saved = {};
   for (const k of COOP_P2_KEYS) saved[k] = P[k];
   Object.assign(P, {
     x: p2.x, y: p2.y, f: p2.f,
-    st: (trans || p2.down) ? 'idle' : p2.st,
+    st: (p2.down || (trans && !useTrans)) ? 'idle' : p2.st,
     t: p2.t, inv: 0, land: 0, vx: p2.vx, vy: p2.vy,
-    ryuki: !!p2.ryuki, k5: !!p2.k5, bl: !!p2.bl, trk: p2.trk,
-    spr: !!p2.spr, tdur: p2.tdur, h: p2.h
+    ryuki: !!p2.ryuki, k5: !!p2.k5, bl: !!p2.bl, zeztz: !!p2.zeztz, trk: p2.trk,
+    spr: !!p2.spr, tdur: p2.tdur, h: p2.h, hit: p2.hit || {}, landT: p2.landT
   });
 
   ctx.save();
@@ -458,17 +561,49 @@ function drawCoopP2() {
     if (p2.down) {   // 倒地：横躺 + 半透明
       ctx.translate(x, y); ctx.rotate(-p2.f * Math.PI / 2); ctx.translate(-x, -y);
       ctx.globalAlpha = .8;
-    } else if (trans) {
-      ctx.shadowColor = p2.trk === '555' ? '#ffb400' : p2.trk === 'blade' ? '#3aa0ff' : p2.trk === 'ryuki' ? '#ff4757' : '#00e5ff';
+    } else if (trans && !useTrans) {
+      ctx.shadowColor = p2.trk === '555' ? '#ffb400' : p2.trk === 'blade' ? '#3aa0ff' : p2.trk === 'ryuki' ? '#ff4757' : p2.trk === 'zeztz' ? '#00f2fe' : '#00e5ff';
       ctx.shadowBlur = 22 + 10 * Math.sin(T * 14);
     }
-    drawP0();   // 与本机完全相同的绘制管线 → 普攻/技能/终结技/闪避/疾跑动画全部可见
+    // 变身演出里的全屏闪光 / 暗角只属于变身者自己的屏幕：队友变身时不让它盖住我的画面
+    if (trans) {
+      ctx.fillRect = function (a, b, w, h) {
+        if (w >= 900 && h >= 500) return;
+        return CanvasRenderingContext2D.prototype.fillRect.call(this, a, b, w, h);
+      };
+    }
+    // 终结技落点预警圈（Faiz / Blade / Ryuki / Zeztz）
+    if (p2.st === 'fv' && !p2.down) {
+      if (typeof drawFaizMark === 'function') drawFaizMark();
+      if (typeof drawBladeMark === 'function') drawBladeMark();
+      if (typeof drawRyukiMark === 'function') drawRyukiMark();
+      if (typeof drawZeztzMark === 'function') drawZeztzMark();
+    }
+    drawP0();   // 与本机完全相同的绘制管线 → 变身 / 普攻 / 技能 / 终结技 / 闪避 / 疾跑动画全部可见
   } catch (err) {
-    console.warn('[Co-op] 队友渲染异常', err);
+    if (useTrans) COOP.badTrans[tkey] = 1;
+    console.warn('[Co-op] 队友渲染异常', tkey, err);
   } finally {
+    delete ctx.fillRect;   // 还原为原生 fillRect
     ctx.restore();
     Object.assign(P, saved);
   }
+
+  // Blade：队友环绕的手牌
+  try {
+    if (p2.bl && p2.bh && !p2.down && !trans && typeof bCard === 'function') {
+      for (let i = 0; i < p2.bh.length; i++) {
+        const an = T * 1.8 + i * Math.PI, hx = p2.x - cam + Math.cos(an) * 56, hy = p2.y - 150 + Math.sin(an) * 18 - 8 * Math.sin(T * 3 + i);
+        bCard(sn(hx), sn(hy), 24, 34, p2.bh[i], .95, Math.sin(an) * .25);
+      }
+    }
+  } catch (err) { }
+
+  // 龙骑：队友的无限龙 / 火球
+  try {
+    if (p2.dg && typeof drawDragon === 'function') drawDragon(p2.dg);
+    if (p2.sh && typeof drawBulletR === 'function') for (const q of p2.sh) drawBulletR({ x: q[0], y: q[1], vx: q[2], vy: q[3] });
+  } catch (err) { }
 
   // 头顶名牌与血条
   const tagY = y - 214;
