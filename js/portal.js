@@ -44,13 +44,14 @@ function poBadge(x, y, label, col, bg) {
 // 数据状态
 function wbData() {
   const d = new Date(), day = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
-  if (!S.wb || typeof S.wb !== 'object') S.wb = { day, used: 0, best: {}, kills: {} };
+  if (!S.wb || typeof S.wb !== 'object') S.wb = { day, used: 0, buy: 0, best: {}, kills: {} };
   if (!S.wb.best) S.wb.best = {};
   if (!S.wb.kills) S.wb.kills = {};
-  if (S.wb.day !== day) { S.wb.day = day; S.wb.used = 0; }
+  if (typeof S.wb.buy !== 'number') S.wb.buy = 0;
+  if (S.wb.day !== day) { S.wb.day = day; S.wb.used = 0; S.wb.buy = 0; }
   return S.wb;
 }
-const wbLeft = () => Math.max(0, WB_DAILY - wbData().used);
+const wbLeft = () => Math.max(0, WB_DAILY + (wbData().buy | 0) - wbData().used);
 const wbOpen = w => S.lv >= w.lv;
 
 const chapUnlocked = i => CHAPTERS[i].stages[0] <= S.cl;
@@ -111,14 +112,7 @@ function pStartStage(idx) {
   if (idx > S.cl) return pToast('该关卡尚未解锁');
   PO.ret = 'dun'; M = 0; begin(idx);
 }
-function pStartWB() {
-  const w = WB[PO.wb];
-  if (!wbOpen(w)) return pToast('需要 Lv.' + w.lv + ' 才能挑战该首领');
-  const D = wbData();
-  if (D.used >= WB_DAILY) return pToast('今日讨伐次数已用完，明日重置');
-  D.used++; save();
-  PO.ret = 'wb'; M = 0; begin(w.si);
-}
+function pStartWB() { wbStart(PO.wb); }   // 全服世界BOSS：见 worldboss.js
 
 // 输入处理
 function portalUpdate(dt) {
@@ -396,12 +390,12 @@ function drawPoHub() {
     },
     {
       c: WB_COL, icon: '👹', en: 'WORLD BOSS', title: '世界BOSS',
-      d1: '限时挑战巨型首领 · 伤害结算', d2: '击杀必掉高阶装备与强化卷轴',
+      d1: '全服共讨巨型首领 · 90秒限时', d2: '击杀必掉高阶装备与强化卷轴',
       status(sx, sy, sw) {
         const n = WB.filter(wbOpen).length, left = wbLeft();
         txt('今日剩余讨伐', sx, sy, 11, '#9ab');
-        txt(left + ' / ' + WB_DAILY + ' (已开放 ' + n + ')', sx + sw, sy, 11, left ? '#ffd84a' : '#ff6b6b', 'right');
-        bar(sx, sy + 14, sw, 7, left, WB_DAILY, '#ff4757', '#ff9f43', 4);
+        txt(left + ' / ' + (WB_DAILY + (wbData().buy | 0)) + ' (已开放 ' + n + ')', sx + sw, sy, 11, left ? '#ffd84a' : '#ff6b6b', 'right');
+        bar(sx, sy + 14, sw, 7, left, WB_DAILY + (wbData().buy | 0), '#ff4757', '#ff9f43', 4);
       }
     },
     {
@@ -484,7 +478,7 @@ function drawPoCoop() {
   poFrame('#2ed573', '👥 维度传送门 · 假面骑士双人协同高难副本');
   const inRoom = typeof COOP !== 'undefined' && COOP.active && COOP.roomCode;
   const coopList = (typeof COOP_STAGES !== 'undefined') ? COOP_STAGES : [];
-  const curCoopObj = coopList[coopStageSelectIdx] || coopList[0] || { n: '双人深渊·翡翠巨兽 [试炼]', r: 15, g: 15000, desc: '全怪物 500% 血量' };
+  const curCoopObj = coopList[coopStageSelectIdx] || coopList[0] || { n: '双人深渊·翡翠巨兽 [试炼]', r: 21, g: 4000, desc: '全怪物 500% 血量' };
 
   if (!inRoom) {
     const w = 402, h = 348, cy = POY + 66, lx = POX + 24, rx = POX + POW - 24 - w;
@@ -867,58 +861,90 @@ function poWBRow(w, i, y) {
   ctx.lineWidth = 1.4; ctx.strokeStyle = open ? WB_COL : '#555'; ctx.stroke();
   txt(open ? '👹' : '🔒', x + 28, y + h / 2 + 1, 16, '#fff', 'center', false);
   txt(w.n, x + 56, y + 18, 15, open ? (sel ? '#ffd84a' : '#fff') : '#778');
-  txt(open ? '推荐 Lv.' + w.r + (k ? '  ·  已讨伐 ' + k + ' 次' : '') : 'Lv.' + w.lv + ' 解锁', x + 56, y + 36, 11, open ? '#9fb0c6' : '#667');
+  txt(open ? '推荐 Lv.' + w.r + (WBG.s[i] ? '  ·  全服剩余 ' + wbPct(WBG.s[i]).toFixed(1) + '%' : (k ? '  ·  已击杀 ' + k + ' 次' : '')) : 'Lv.' + w.lv + ' 解锁', x + 56, y + 36, 11, open ? '#9fb0c6' : '#667');
   pHit(x, y, rw, h, () => { PO.wb = i; });
 }
 
 function drawPoWB() {
-  const w = WB[PO.wb], open = wbOpen(w), Wd = wbData(), left = wbLeft();
-  poFrame(WB_COL, '👹 世界BOSS · 限时讨伐');
+  const w = WB[PO.wb], open = wbOpen(w), Wd = wbData(), left = wbLeft(), total = WB_DAILY + (Wd.buy | 0), online = wbOnline();
+  poFrame(WB_COL, '👹 世界BOSS · 全服共讨');
   WB.forEach((b, i) => poWBRow(b, i, 84 + i * 55));
+  wbFetch(PO.wb);                                        // 自带 6 秒节流；打开页面 / 切换首领时自动刷新
+  const g = WBG.s[PO.wb];
 
   const dx = POX + 296, dy = 84, dw = POW - 296 - 24, dh = 354;
   rpath(dx, dy, dw, dh, 16);
-  const g = ctx.createLinearGradient(dx, dy, dx + dw, dy + dh); g.addColorStop(0, 'rgba(255,60,60,.16)'); g.addColorStop(.5, 'rgba(12,16,32,.92)'); g.addColorStop(1, 'rgba(8,10,22,.95)');
-  ctx.fillStyle = g; ctx.fill(); ctx.lineWidth = 1.2; ctx.strokeStyle = WB_COL + '66'; ctx.stroke();
+  const bg = ctx.createLinearGradient(dx, dy, dx + dw, dy + dh); bg.addColorStop(0, 'rgba(255,60,60,.16)'); bg.addColorStop(.5, 'rgba(12,16,32,.92)'); bg.addColorStop(1, 'rgba(8,10,22,.95)');
+  ctx.fillStyle = bg; ctx.fill(); ctx.lineWidth = 1.2; ctx.strokeStyle = WB_COL + '66'; ctx.stroke();
 
-  const fx = dx + 112, fy = dy + 268;
+  // ---- 左：首领立绘 ----
+  const fx = dx + 100, fy = dy + 190;
   ctx.save(); ctx.translate(fx, fy);
-  const aura = ctx.createRadialGradient(0, -6, 6, 0, -6, 110); aura.addColorStop(0, open ? 'rgba(255,60,60,.35)' : 'rgba(120,120,140,.15)'); aura.addColorStop(1, 'rgba(255,60,60,0)');
-  ctx.fillStyle = aura; ctx.beginPath(); ctx.ellipse(0, -6, 110, 30, 0, 0, 7); ctx.fill();
+  const aura = ctx.createRadialGradient(0, -6, 6, 0, -6, 100); aura.addColorStop(0, open ? 'rgba(255,60,60,.35)' : 'rgba(120,120,140,.15)'); aura.addColorStop(1, 'rgba(255,60,60,0)');
+  ctx.fillStyle = aura; ctx.beginPath(); ctx.ellipse(0, -6, 100, 26, 0, 0, 7); ctx.fill();
   const pool = ENS[w.set] && ENS[w.set].boss, im = pool && pool[0];
   if (im && im.width) {
-    const k = Math.min(230 / im.height, 190 / im.width), iw = im.width * k, ih = im.height * k, bob = Math.sin(T * 2) * 3;
+    const k = Math.min(160 / im.height, 168 / im.width), iw = im.width * k, ih = im.height * k, bob = Math.sin(T * 2) * 3;
     ctx.globalAlpha = open ? 1 : .35;
-    if (open) { ctx.shadowColor = WB_COL; ctx.shadowBlur = 18 + 6 * Math.sin(T * 3); }
+    if (open) { ctx.shadowColor = WB_COL; ctx.shadowBlur = 16 + 5 * Math.sin(T * 3); }
     ctx.drawImage(im, -iw / 2, -ih + bob, iw, ih);
-  } else txt('👹', 0, -110, 90, '#fff', 'center', false);
+  } else txt('👹', 0, -80, 80, '#fff', 'center', false);
   ctx.restore();
-  if (!open) txt('🔒', fx, dy + 160, 40, '#fff', 'center', false);
+  if (!open) txt('🔒', fx, dy + 120, 40, '#fff', 'center', false);
 
-  const rx = dx + 236;
-  txt('WORLD BOSS', rx, dy + 24, 11, WB_COL);
-  txt(w.n, rx, dy + 50, 27, '#ffd84a');
-  txt(w.d, rx, dy + 84, 12, '#9fb0c6');
-  const hp = ET.boss.hp * ST[w.si].hm * w.hpx | 0, k = Wd.kills[PO.wb] || 0, best = Wd.best[PO.wb] || 0;
-  const stats = [['推荐等级', 'Lv.' + w.r, poRel(w.r)[1]], ['讨伐时限', w.tl + ' 秒', '#fff'], ['首领生命', poN(hp), '#ff8a95'],
-                 ['满伤害奖励', poN(w.g) + ' G', '#ffd84a'], ['历史最高伤害', best ? poN(best) : '—', '#7df9ff'], ['累计讨伐', k + ' 次', '#7dff9a']];
+  // ---- 右上：名称 / 全服血条 / 数据 ----
+  const rx = dx + 208, rw = dw - 208 - 18;
+  txt('WORLD BOSS · 全服共讨', rx, dy + 22, 11, WB_COL);
+  txt(w.n, rx, dy + 48, 25, '#ffd84a');
+  const hpMax = g ? g.max : wbMaxHp(PO.wb), hpNow = g ? g.hp : hpMax;
+  txt('全服首领生命', rx, dy + 76, 11, '#8a97aa');
+  txt(g ? wbPct(g).toFixed(wbPct(g) < 10 ? 2 : 1) + '%' : '—', rx + rw, dy + 76, 12.5, '#ff8a95', 'right');
+  bar(rx, dy + 85, rw, 14, hpNow, hpMax, '#ff4757', '#ff9f43', 7);
+  txt(g ? poN(hpNow) + ' / ' + poN(hpMax) : (!online ? '需要登录账号并联网' : WBG.err ? '无法连接：' + WBG.err.slice(0, 26) : '同步中…'), rx + rw / 2, dy + 92, 10, '#fff', 'center');
+  txt(g && g.lastKiller ? '上一只首领被「' + g.lastKiller + '」终结' : '这只首领还没有被击杀过', rx, dy + 116, 11, '#9fb0c6');
+
+  const stats = [['推荐等级', 'Lv.' + w.r, poRel(w.r)[1]], ['讨伐时限', w.tl + ' 秒', '#fff'], ['我的累计伤害', g ? poN(g.me) : '—', '#7df9ff']];
   stats.forEach((st, i) => {
-    const sx = rx + (i % 3) * 108, sy = dy + 122 + (i / 3 | 0) * 50;
-    rpath(sx - 6, sy - 14, 102, 42, 8); ctx.fillStyle = 'rgba(255,255,255,.04)'; ctx.fill();
+    const sx = rx + i * 112, sy = dy + 144;
+    rpath(sx - 4, sy - 14, 106, 42, 8); ctx.fillStyle = 'rgba(255,255,255,.04)'; ctx.fill();
     txt(st[0], sx, sy, 11, '#8a97aa'); txt(st[1], sx, sy + 20, 15, st[2]);
   });
-  txt('📜 击杀必掉 Lv.' + w.r + ' 顶级装备 + 强化卷轴 ×5~7', rx, dy + 236, 12, '#c9d4e6');
-  txt('💰 金币 + 💠 钻石（最高 ' + (WB_DIAM[PO.wb] || 30) + '）按伤害占比结算，击杀额外 +50%', rx, dy + 256, 12, '#c9d4e6');
-  txt('⚠ 撤退 / 战败 / 超时同样消耗 1 次机会', rx, dy + 276, 12, '#c9d4e6');
-  txt('今日剩余', rx, dy + 314, 12, '#9ab');
-  for (let i = 0; i < WB_DAILY; i++) {
-    ctx.beginPath(); ctx.arc(rx + 74 + i * 24, dy + 314, 8, 0, 7); ctx.fillStyle = i < left ? WB_COL : 'rgba(255,255,255,.08)'; ctx.fill();
+
+  // ---- 累计伤害 TOP3 ----
+  const ty = dy + 206;
+  txt('🏆 累计伤害 TOP 3', dx + 16, ty, 12, '#ffd84a');
+  txt('本轮首领 · 被击杀后清零', dx + dw - 16, ty, 10.5, '#7a8aa0', 'right');
+  const MEDAL = ['🥇', '🥈', '🥉'], MCOL = ['#ffd84a', '#cfd8e6', '#e0905a'], cw = (dw - 32 - 24) / 3;
+  for (let i = 0; i < 3; i++) {
+    const r = g && g.top && g.top[i], cx = dx + 16 + i * (cw + 12), cy = ty + 14;
+    rpath(cx, cy, cw, 54, 10);
+    ctx.fillStyle = r ? MCOL[i] + '14' : 'rgba(255,255,255,.03)'; ctx.fill();
+    ctx.lineWidth = 1.2; ctx.strokeStyle = r ? MCOL[i] + '88' : 'rgba(255,255,255,.1)'; ctx.stroke();
+    txt(MEDAL[i], cx + 22, cy + 27, 22, '#fff', 'center', false);
+    if (r) {
+      let nm = String(r.nick || '骑士'); if (nm.length > 7) nm = nm.slice(0, 7) + '…';
+      txt(nm, cx + 44, cy + 19, 13, '#fff'); txt(poN(r.dmg), cx + 44, cy + 39, 14, MCOL[i]);
+    } else txt('虚位以待', cx + 44, cy + 27, 12.5, '#5d6b80');
+  }
+
+  txt('💰 金币 + 💠 钻石（最高 ' + (WB_DIAM[PO.wb] || 30) + '）按你造成的伤害折算；最后一击者额外 +50%', dx + 16, dy + 292, 11.5, '#c9d4e6');
+  txt('⚠ 超时 / 战败即结束并结算；撤退不消耗次数，但本次伤害不计入全服', dx + 16, dy + 310, 11.5, '#c9d4e6');
+
+  // ---- 次数 ----
+  txt('今日剩余', dx + 16, dy + 336, 12, '#9ab');
+  const nd = Math.min(total, 10);
+  for (let i = 0; i < nd; i++) {
+    ctx.beginPath(); ctx.arc(dx + 88 + i * 19, dy + 336, 7, 0, 7); ctx.fillStyle = i < left ? WB_COL : 'rgba(255,255,255,.08)'; ctx.fill();
     ctx.lineWidth = 1.2; ctx.strokeStyle = WB_COL + 'aa'; ctx.stroke();
   }
+  txt(left + ' / ' + total, dx + 88 + nd * 19 + 6, dy + 336, 12, left ? '#ffd84a' : '#ff6b6b');
+  const ask = (PO.wbAsk || 0) > T;
+  pBtn(dx + dw - 16 - 190, dy + 322, 190, 28, ask ? '再点一次确认 -' + WB_BUY_COST + ' 💎' : '💎 购买 1 次（' + WB_BUY_COST + ' 钻）', { c: '#4fe3ff', ghost: true, sz: 11.5, cr: 6 }, wbBuyClick);
+
   if (!open) { pPill(dx + dw - 168, dy + 12, 152, 24, 'rgba(255,71,87,.2)', '#ff4757'); txt('🔒 需要 Lv.' + w.lv + ' 解锁', dx + dw - 92, dy + 24, 12, '#ff8a95', 'center'); }
 
-  const dis = !open || left <= 0;
-  poFooter(WB_COL, 'W/S 选择首领   Enter 发起讨伐', { label: !open ? '🔒 等级不足' : left <= 0 ? '今日次数已用完' : '⚔ 发起讨伐 [Enter]', c: WB_COL, dis, f: pStartWB });
+  const dis = !open || !online || left <= 0;
+  poFooter(WB_COL, 'W/S 选择首领   Enter 发起讨伐', { label: !open ? '🔒 等级不足' : !online ? '需登录联网' : left <= 0 ? '次数已用完（可购买）' : '⚔ 发起讨伐 [Enter]', c: WB_COL, dis, f: pStartWB });
 }
 
 // ---------- 入口统一渲染分发 ----------

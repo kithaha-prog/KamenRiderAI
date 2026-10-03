@@ -313,13 +313,7 @@ function upd(dt) {
     }
     if (PR.Enter || PR.Space || PR.KeyR) {
       delete PR.Enter; delete PR.Space; delete PR.KeyR;
-      if (WB_RES.leftTries > 0) {
-        const D = wbData();
-        D.used++; save();
-        begin(cur);
-      } else {
-        toVil('st');
-      }
+      wbRetry();
       return;
     }
     if (PR.KeyC) {
@@ -1216,13 +1210,7 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
       for (const b of WB_HITS) {
         if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
           if (b.id === 'retry') {
-            if (WB_RES.leftTries > 0) {
-              const D = wbData();
-              D.used++; save();
-              begin(cur);
-            } else {
-              toVil('st');
-            }
+            wbRetry();
           } else if (b.id === 'char') {
             showChar = true;
           } else if (b.id === 'base') {

@@ -69,41 +69,35 @@ function fin(w) {
   if (z.tw) {
     towerFin(w, z);   // 无尽塔结算（tower.js）：首通奖励 / 契约碎片 / 层数记录
   } else if (z.wb) {
-    // 世界BOSS伤害占比与金币结算（击杀额外 +50%）
-    const frac = Math.min(1, WBD / Math.max(1, WBM));
-    FG = RG + Math.round(z.g * frac) + (w ? Math.round(z.g * .5) : 0);
-    const W = wbData();
+    // ★ 全服世界BOSS结算：奖励按「本场伤害 / 单场基准血量」折算；最后一击者的 +50% 要等服务器确认后在 wbCommit 里补发
     const i = WB.findIndex(b => b.si === cur);
-    W.best[i] = Math.max(W.best[i] || 0, WBD | 0);
-    if (w) W.kills[i] = (W.kills[i] || 0) + 1;
-    // 世界BOSS钻石：按伤害占比发放，击杀额外 +50%（每日 WB_DAILY 次，是稳定的钻石收入）
-    const wbD = Math.round((WB_DIAM[i] || 30) * frac) + (w ? Math.round((WB_DIAM[i] || 30) * .5) : 0);
+    const retreat = WBR === 'retreat';
+    const dmg = retreat ? 0 : Math.max(0, Math.min(WBD | 0, WB_LOC > 0 ? WB_LOC : (WBD | 0)));
+    const base = wbBaseHp(i);
+    const frac = Math.min(1, dmg / base);
+    const W = wbData();
+    FG = RG + Math.round(z.g * frac);
+    if (retreat) W.used = Math.max(0, (W.used | 0) - 1);          // 撤退不算次数
+    else W.best[i] = Math.max(W.best[i] || 0, dmg);
+    const wbD = Math.round((WB_DIAM[i] || 30) * frac);
     if (wbD > 0) { S.d += wbD; psDia(wbD); }
 
-    // 评级计算
     const dmgPct = Math.min(100, Math.floor(frac * 100));
-    const rank = w ? 'S' : dmgPct >= 70 ? 'A' : dmgPct >= 40 ? 'B' : 'C';
+    const rank = dmgPct >= 100 ? 'S' : dmgPct >= 70 ? 'A' : dmgPct >= 40 ? 'B' : 'C';
     const timeSpent = Math.max(1, Math.round(z.tl - WBT));
 
-    // ★ 构建世界BOSS高级结算数据
     WB_RES = {
-      t: 0,
-      dur: 1.5,
-      win: w,
+      t: 0, dur: 1.5, win: w,
       reason: w ? 'win' : (WBR || 'defeat'),
       bossName: z.bn || '世界首领',
-      damage: WBD,
-      maxHp: WBM,
-      dmgPct: dmgPct,
-      rank: rank,
-      gold: FG,
-      diam: wbD,
-      timeSpent: timeSpent,
-      totalLimit: z.tl,
-      isKill: w,
+      damage: dmg, maxHp: base, dmgPct, rank,
+      gold: FG, diam: wbD, timeSpent, totalLimit: z.tl,
+      isKill: false,                       // 服务器确认是最后一击者后才会变 true
       leftTries: wbLeft(),
-      bestDmg: W.best[i] || WBD
+      bestDmg: W.best[i] || dmg,
+      pending: !retreat && dmg > 0, err: '', msg: '', ask: 0, rem: -1, bossMax: wbMaxHp(i), top: []
     };
+    if (WB_RES.pending) wbCommit(i, dmg, WB_RES);
   } else {
     // 常规关卡结算
     FG = w ? RG + z.g : RG >> 1; // 战败折半保留 50%
@@ -487,10 +481,16 @@ function cancelEP(x0, x1) {
 
 function hurtP(d) {
   if (P.inv > 0 || P.down || P.st === 'trans' || P.st === 'trans_ryuki' || G !== 'play') return;
-  // ★ 伤害按玩家最大生命折算：标准攻击(接触伤害) = 最大生命 × HIT_FRAC（约 8 下致死），
-  //   招式强弱倍率保留，限制在 0.4~2 倍之间，避免首领招式 3~4 下就秒人
-  const ref = 8 * ST[cur].dm;
-  d = Math.max(1, Math.round(P.mh * HIT_FRAC * cl(d / ref, .4, 2)));
+  // ★ 怪物伤害 = 绝对数值，不再按「玩家当前最大生命」折算（血越厚挨得越痛 → 已修复）
+  //   伤害 = 推荐等级期望生命 hpExp(z.r) × HIT_FRAC × 招式强弱(0.4~2) × 进度系数 × 关卡倍率(z.dmx，双人=3)
+  //   · 等级：随关卡推荐等级 r 增长；玩家等级 / 血量越高，实际挨打占比越低，越级挑战则很疼
+  //   · 进度：本关击杀进度 0%→100%，伤害 ×0.9 → ×1.1（世界BOSS等无击杀目标的关取 ×1.0）
+  //   · 关卡：双人 dmx=3；首领/弹幕本身的强弱已体现在招式倍率里
+  //   · 安全线：单次伤害 ≤ 最大生命 × DMG_MAX_FRAC
+  const z = ST[cur], ref = 8 * z.dm;
+  const prog = z.k > 0 ? Math.min(1, (kills || 0) / z.k) : .5;
+  d = hpExp(z.r) * HIT_FRAC * cl(d / ref, .4, 2) * (.9 + .2 * prog) * (z.dmx || 1);
+  d = Math.max(1, Math.round(Math.min(d, P.mh * DMG_MAX_FRAC)));
   d = Math.max(1, Math.round(d * (1 - (P.def || 0))));
   psTaken(d);
   P.hp -= d; P.inv = 1; shake = 10;
@@ -508,12 +508,14 @@ function spawn(t, ox, vi) {
   const vi2 = (vi !== undefined && vi >= 0) ? vi % pool.length : (Math.random() * pool.length | 0);
   const c = pool[vi2], s = o.H / c.height, side = Math.random() < .5 ? -1 : 1;
 
-  // ★ 双人副本专属：全员怪物 500% 血量，攻击力提升 2.2 倍
+  // ★ 双人副本专属：全员怪物 500% 血量；攻击力 3 倍改在 hurtP 里按 z.dmx 统一结算（这里不再重复乘）
   const isCoop = !!z.coop;
   const hpMul = isCoop ? 5.0 : (t === 'boss' && z.hpx ? z.hpx : 1);
-  const dmMul = isCoop ? 2.2 : 1.0;
+  const dmMul = 1.0;
 
-  const hp = Math.max(1, Math.round(o.hp * z.hm * hpMul));
+  const hpFull = Math.max(1, Math.round(o.hp * z.hm * hpMul));
+  // 世界BOSS：以开战时全服剩余血量开打，血条总量显示全服满血
+  const hp = (t === 'boss' && z.wb && WB_LOC > 0) ? Math.min(hpFull, Math.round(WB_LOC)) : hpFull;
   const dm = Math.max(1, Math.round(o.dm * z.dm * dmMul));
 
   let x = ox !== undefined ? ox : P.x + side * (520 + Math.random() * 150);
@@ -521,11 +523,11 @@ function spawn(t, ox, vi) {
 
   E.push({ 
     id: ++uid, t, im: c, vi: vi2, x: cl(x, 60, WW - 60), y: t === 'imp' ? 300 : GY, 
-    hp, mhp: hp, dm, h: o.H, w: c.width * s, s, fl: 0,
+    hp, mhp: (t === 'boss' && z.wb) ? hpFull : hp, dm, h: o.H, w: c.width * s, s, fl: 0,
     cd: t === 'boss' ? 2 : 1.5 + Math.random() * 2, hc: 0, fc: 1, wu: 0, dsh: 0, atk: '', last: '' 
   });
 
-  if (t === 'boss' && z.wb) WBM = hp;
+  if (t === 'boss' && z.wb) WBM = hpFull;
 }
 
 // =====================================================================

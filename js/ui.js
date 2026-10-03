@@ -1760,10 +1760,14 @@ function drawWBSettlement() {
   ctx.restore();
 
   // 提示信息
-  const subTip = isWin 
-    ? '★ 成功破除首领装甲，额外获得 50% 赏金与钻石加成 ★'
-    : '金币与钻石按实际伤害比例发放；撤退、超时或战败均结算战利品';
-  txt(subTip, px + pw / 2, py + 148, 11.5, isWin ? '#7dff9a' : '#ffa502', 'center');
+  const subTip = W.msg ? W.msg
+    : W.pending ? '正在把战果上传到全服榜单…'
+    : W.reason === 'retreat' ? '已撤退：本次伤害不计入全服，也不消耗讨伐次数'
+    : W.err ? '⚠ 战果上传失败（伤害未计入全服）：' + W.err
+    : W.isKill ? '★ 最后一击由你完成！额外获得 50% 赏金与钻石 ★'
+    : isWin ? '首领已倒下，但最后一击被他人抢先；你的伤害已计入全服'
+    : '金币与钻石按伤害折算；你的伤害已计入全服累计榜';
+  txt(subTip, px + pw / 2, py + 148, 11.5, W.isKill ? '#7dff9a' : '#ffa502', 'center');
 
   // 5. 奖励展示卡片网格 (py + 204，收紧间距)
   const cardW = 150, cardH = 70, cardGap = 14;
@@ -1819,19 +1823,19 @@ function drawWBSettlement() {
   ctx.fillStyle = 'rgba(10, 12, 22, 0.9)'; ctx.fill();
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)'; ctx.lineWidth = 1; ctx.stroke();
   
-  txt('今日剩余讨伐次数：' + W.leftTries + ' / ' + WB_DAILY, expX + 16, expY + 10, 11, W.leftTries > 0 ? '#ffd84a' : '#ff6b81');
-  txt('每天 00:00 自动重置挑战配额', expX + expW - 16, expY + 10, 10, '#8fa0b3', 'right');
+  txt('今日剩余讨伐次数：' + W.leftTries + ' / ' + (WB_DAILY + (wbData().buy | 0)), expX + 16, expY + 10, 11, W.leftTries > 0 ? '#ffd84a' : '#ff6b81');
+  txt(W.rem >= 0 ? '全服首领剩余 ' + (W.rem / Math.max(1, W.bossMax) * 100).toFixed(1) + '%' : '每天 00:00 重置配额 · 可花钻石购买', expX + expW - 16, expY + 10, 10, '#8fa0b3', 'right');
 
   // 7. 三大交互操作按钮组 (py + 342)
   const btnY = py + 342, btnH = 46;
-  const canRetry = W.leftTries > 0;
+  const canRetry = !W.pending, hasTry = W.leftTries > 0;
 
   const btnDefs = [
     { id: 'base', text: '返回传送门 [ESC]', w: 150, bg: 'rgba(255,255,255,0.08)', col: '#ccd6e0', border: 'rgba(255,255,255,0.2)' },
     { id: 'char', text: '战备整备 [C]', w: 140, bg: 'rgba(0, 229, 255, 0.15)', col: '#7df9ff', border: '#00e5ff' },
     { 
       id: 'retry', 
-      text: canRetry ? '再次挑战 [Enter/R]' : '已无次数 [Enter]', 
+      text: W.pending ? '结算中…' : hasTry ? '再次挑战 [Enter/R]' : (W.ask ? '确认花费100钻 [Enter]' : '💎100钻购买次数 [Enter]'), 
       w: 190, 
       bg: canRetry ? (isWin ? 'rgba(255, 216, 74, 0.25)' : 'rgba(255, 71, 87, 0.25)') : 'rgba(60,60,70,0.4)', 
       col: canRetry ? (isWin ? '#ffd84a' : '#ff7675') : '#889', 
