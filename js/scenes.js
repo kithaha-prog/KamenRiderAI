@@ -87,6 +87,11 @@ function vupd(dt) {
   P.hp = P.mh; P.mp = P.mm; P.sta = P.stm; P.exh = false;
   for (const k in P.cd) P.cd[k] = 0;
 
+  // 如果身处训练馆室内，启动木桩战斗循环与技能拦截
+  if (G === 'room' && RM && RM.n === '训练馆') {
+    updateTrainingCombat(dt);
+  }
+
   // 展厅检视弹窗开启期间拦截玩家移动与常规交互
   if (HALL_MODAL.show) {
     updateHallModal(dt);
@@ -691,6 +696,14 @@ function drawRoom() {
     ctx.fillStyle = 'rgba(60,255,140,.25)';
     ctx.fillRect(30 - cam, GY - 140, 80, 140);
     txt('← 出口', 70 - cam, GY - 150, 15, '#7dff9a', 'center');
+    if (RM && RM.n === '训练馆') {
+      drawTrainingDummy(); // 渲染全息测试木桩实体与头顶血条/护甲
+      // 渲染场上的技能弹道、战车与爆炸火花
+      if (typeof drawBikes === 'function') drawBikes();
+      if (typeof drawBladeBolts === 'function') drawBladeBolts();
+      if (typeof drawZeztzEnergyWaves === 'function') drawZeztzEnergyWaves();
+      if (typeof drawDenoWaves === 'function') drawDenoWaves();
+    }
     npc(RMN - cam, GY, RM.nc, RM.npc, RM.im);
     return;
   }
@@ -716,6 +729,10 @@ function drawW() {
   drawP();
   drawPlayerHUD(16, 14); drawGoldHUD(); drawMinimapHUD(); 
   drawLocationHUD(rm ? RM.n : '秘密基地');
+  // 仅在训练馆室内展示左上方 DPS 测算与扇形图面板
+  if (G === 'room' && RM && RM.n === '训练馆') {
+    drawDPSMeterHUD();
+  }
 
   if (NR && !M && !HALL_MODAL.show) { 
     txt('[F] ' + NR.t, P.x - cam, P.y - 250, 18, '#ffd84a', 'center'); 
@@ -754,3 +771,586 @@ function hallClick(x, y) {
   }
   return true;
 }
+
+// =====================================================================
+//  训练馆全息测试木桩 & 实时 DPS 伤害统计终端 (Training Dummy & DPS Meter)
+// =====================================================================
+
+// ---------- 1. 伤害统计与分类引擎 ----------
+const DUMMY_STATS = {
+  active: false,
+  startTime: 0,
+  lastHitTime: 0,
+  totalDamage: 0,
+  totalHits: 0,
+  critHits: 0,
+  maxHit: 0,
+  rollingHits: [], // [{ t, d }]
+  bySkill: {
+    atk: 0, // 普攻 / 升龙击 / 空中下砸
+    l: 0,   // 战术技能 [L]
+    e: 0,   // 机车战车 [E]
+    k: 0,   // 终结必杀 [K]
+    r: 0    // 专属特技 [R] (龙骑无限龙/555加速/Blade卡牌/Zeztz超载)
+  },
+
+  reset() {
+    this.active = false;
+    this.startTime = 0;
+    this.lastHitTime = 0;
+    this.totalDamage = 0;
+    this.totalHits = 0;
+    this.critHits = 0;
+    this.maxHit = 0;
+    this.rollingHits = [];
+    this.bySkill = { atk: 0, l: 0, e: 0, k: 0, r: 0 };
+  },
+
+  addHit(dmg, isCrit, skillKey) {
+    const now = performance.now() / 1000;
+    if (!this.active || this.totalHits === 0) {
+      this.active = true;
+      this.startTime = now;
+    }
+    this.lastHitTime = now;
+    this.totalDamage += dmg;
+    this.totalHits++;
+    if (isCrit) this.critHits++;
+    if (dmg > this.maxHit) this.maxHit = dmg;
+
+    const sk = this.bySkill.hasOwnProperty(skillKey) ? skillKey : 'atk';
+    this.bySkill[sk] += dmg;
+    this.rollingHits.push({ t: now, d: dmg });
+  },
+
+  update(now) {
+    // 维护 3.5 秒滑动时间窗
+    while (this.rollingHits.length && now - this.rollingHits[0].t > 3.5) {
+      this.rollingHits.shift();
+    }
+  },
+
+  getDPS(now) {
+    if (!this.active || this.totalDamage <= 0) return { current: 0, average: 0, time: 0 };
+    const combatTime = Math.max(1, (this.lastHitTime || now) - this.startTime);
+    const windowTime = Math.min(3.5, Math.max(0.5, now - this.startTime));
+    const rollingDmg = this.rollingHits.reduce((sum, h) => sum + h.d, 0);
+    const isStale = (now - this.lastHitTime) > 4.0; // 超过 4 秒无命中视为停火
+    const current = isStale ? 0 : Math.round(rollingDmg / windowTime);
+    const average = Math.round(this.totalDamage / combatTime);
+    return { current, average, time: combatTime };
+  }
+};
+
+// 当前伤害来源标记追踪
+window._currentDamageSource = null;
+
+// ---------- 2. 全息木桩实体对象 ----------
+const DUMMY = {
+  isDummy: true,
+  id: 888888,
+  t: 'boss',
+  x: 450,
+  y: GY,
+  w: 70,
+  h: 170,
+  hp: 999999999,
+  mhp: 999999999,
+  dead: false,
+  fl: 0,
+  shakeX: 0,
+  defenseMode: 0, // 0: 0%免伤 (无甲), 1: 30%免伤 (轻甲), 2: 50%免伤 (重装)
+  getDef() {
+    return this.defenseMode === 1 ? 0.3 : this.defenseMode === 2 ? 0.5 : 0;
+  },
+  cycleDef() {
+    this.defenseMode = (this.defenseMode + 1) % 3;
+    const names = ['0% 原生无甲', '30% 战术轻甲', '50% 领主重装'];
+    if (typeof DT !== 'undefined') {
+      DT.push({ x: this.x, y: this.y - this.h - 40, s: `木桩护甲切换: ${names[this.defenseMode]}`, t: 1.2, c: '#ffd84a' });
+    }
+  }
+};
+
+// 技能类型与颜色配置
+const DUMMY_SKILL_CATS = [
+  { id: 'atk', name: '普攻/派生', col: '#00e5ff' },
+  { id: 'l',   name: '战术 [L]',  col: '#ff9f43' },
+  { id: 'e',   name: '战车 [E]',  col: '#ffd84a' },
+  { id: 'k',   name: '必杀 [K]',  col: '#ff4757' },
+  { id: 'r',   name: '特技 [R]',  col: '#a55eea' }
+];
+
+// ---------- 3. 挂钩现有伤害系统（使木桩享受全局受击判定） ----------
+(function hookDummyDamage() {
+  const origHurt = window.hurt;
+  if (typeof origHurt !== 'function') return;
+
+  window.hurt = function(e, d, pre) {
+    if (e && e.isDummy) {
+      // 1. 根据当前伤害源判断技能分类
+      let sk = window._currentDamageSource;
+      if (!sk) {
+        if (P.st === 'fv') sk = 'k';
+        else if (P.st === 'thr') sk = 'l';
+        else if (P.st === 'atk' || P.st === 'uppercut' || P.st === 'diveslam') sk = 'atk';
+        else sk = 'atk';
+      }
+
+      // 2. 模拟计算暴击与护甲减伤
+      const isCrit = pre ? !!pre.c : (Math.random() < P.cr);
+      let actualD = pre ? d : Math.round(d * (0.9 + Math.random() * 0.2) * (isCrit ? 2 : 1));
+      actualD = Math.max(1, Math.round(actualD * (1 - e.getDef())));
+
+      // 3. 记录至木桩统计引擎并生成受击震颤
+      DUMMY_STATS.addHit(actualD, isCrit, sk);
+      e.fl = 0.16;
+      e.shakeX = (Math.random() - 0.5) * 8;
+      shake = Math.max(shake, 4);
+
+      if (typeof playSwordHit === 'function') playSwordHit();
+
+      // 4. 飘字与特效
+      if (typeof DT !== 'undefined') {
+        DT.push({ x: e.x + (Math.random() - 0.5) * 30, y: e.y - e.h - 10, s: actualD + (isCrit ? '!' : ''), t: 0.8, c: isCrit ? '#ff8a2a' : '#ffd84a' });
+      }
+      if (typeof FX !== 'undefined') {
+        FX.push({ type: 'boom', x: e.x, y: e.y - e.h * 0.55, t: 0.2, d: 0.2, r: 45, c: isCrit ? '#ff9f43' : '#00e5ff' });
+      }
+
+      // 保持木桩无限血量，永不阵亡
+      e.hp = e.mhp;
+      return;
+    }
+    return origHurt.apply(this, arguments);
+  };
+})();
+
+// ---------- 4. 训练馆室内战斗帧循环与技能支持 ----------
+function updateTrainingCombat(dt) {
+  // 保持玩家魔力充盈与体力充沛
+  P.mp = P.mm;
+  P.sta = P.stm;
+  P.exh = false;
+  // 缩短技能 CD 方便自由测试
+  for (const k in P.cd) {
+    if (P.cd[k] > 0) P.cd[k] = Math.max(0, P.cd[k] - dt * 2.5);
+  }
+
+  // 确保训练木桩挂载在怪物池 E 中，使 area() 和弹道能自动检索命中
+  if (!E.includes(DUMMY)) {
+    E = [DUMMY];
+  }
+  DUMMY.fl = Math.max(0, DUMMY.fl - dt);
+  DUMMY.shakeX *= 0.8;
+
+  // 更新 DPS 测算引擎时序
+  const now = performance.now() / 1000;
+  DUMMY_STATS.update(now);
+
+  // 快捷键监听：[R] 清空数据（未变身或按住 Ctrl 时），[T] 切换木桩护甲
+  if (PR.KeyT) {
+    DUMMY.cycleDef();
+    delete PR.KeyT;
+  }
+
+  // 1. 玩家输入判定响应 (J/L/E/K 及派生)
+  const gr = P.y >= GY;
+  const fr = (P.st === 'idle' || P.st === 'run' || P.st === 'air');
+
+  if (fr) {
+    if (PR.KeyJ) {
+      delete PR.KeyJ;
+      const isUp = K.KeyW || K.ArrowUp;
+      const isDown = K.KeyS || K.ArrowDown;
+      if (isUp && gr) {
+        P.st = 'uppercut'; P.t = 0; P.h = 0; P.vy = -750; P.vx = P.f * 120;
+        DT.push({ x: P.x, y: P.y - 180, s: 'RISING SLASH!', t: 0.8, c: '#00e5ff' });
+      } else if (!gr && isDown) {
+        P.st = 'diveslam'; P.t = 0; P.h = 0; P.vy = 1250; P.vx = P.f * 450;
+        DT.push({ x: P.x, y: P.y - 180, s: 'DIVE SLAM!', t: 0.8, c: '#ffd84a' });
+      } else {
+        P.st = 'atk'; P.t = 0; P.h = 0;
+        if (!gr) P.vy = Math.min(P.vy * 0.4, 60);
+      }
+    } else if (PR.KeyL) {
+      delete PR.KeyL;
+      P.st = 'thr'; P.t = 0; P.h = 0;
+      if (!gr) P.vy = Math.min(P.vy * 0.5, 60);
+    } else if (PR.KeyE) {
+      delete PR.KeyE;
+      window._currentDamageSource = 'e';
+      if (typeof spawnBike === 'function') spawnBike();
+      window._currentDamageSource = null;
+    } else if (PR.KeyK) {
+      delete PR.KeyK;
+      P.st = 'fv'; P.t = 0; P.hit = {}; P.h = 0; delete P.landT;
+      if (P.ryuki && typeof playRyukiFV === 'function') playRyukiFV();
+    }
+  }
+
+  // 2. 招式推进与判定
+  P.t += dt;
+  if (P.st === 'atk') {
+    const i = P.t * 14 | 0;
+    const a = P.x + P.f * 10, b = P.x + P.f * (typeof ATK_REACH !== 'undefined' ? ATK_REACH : 220);
+    window._currentDamageSource = 'atk';
+    for (const q of [2, 4]) {
+      if (i >= q && !(P.h >> q & 1)) {
+        P.h |= 1 << q;
+        if (q === 2 && typeof playSwordHit === 'function') playSwordHit();
+        area(Math.min(a, b), Math.max(a, b), P.atk * (q === 2 ? 1.2 : 1));
+      }
+    }
+    window._currentDamageSource = null;
+    if (P.t > 0.5) P.st = (P.y < GY) ? 'air' : 'idle';
+  } else if (P.st === 'uppercut') {
+    if (!P.h && P.t >= 0.08) {
+      P.h = 1;
+      window._currentDamageSource = 'atk';
+      if (typeof knockupEnemies === 'function') knockupEnemies(Math.min(P.x, P.x + P.f * 180), Math.max(P.x, P.x + P.f * 180), P.atk * 1.5);
+      window._currentDamageSource = null;
+    }
+    if (P.t > 0.42) P.st = P.y < GY ? 'air' : 'idle';
+  } else if (P.st === 'diveslam') {
+    window._currentDamageSource = 'atk';
+    if (typeof slamDownEnemies === 'function') slamDownEnemies(P.x - 70, P.x + 70, P.atk * 1.2);
+    window._currentDamageSource = null;
+    if (P.y >= GY) {
+      P.y = GY; P.vy = 0; P.st = 'idle';
+      window._currentDamageSource = 'atk';
+      area(P.x - 220, P.x + 220, P.atk * 2.2);
+      window._currentDamageSource = null;
+      FX.push({ type: 'boom', x: P.x, y: GY - 20, t: 0.5, d: 0.5, r: 240, c: '#ffd84a' });
+    }
+  } else if (P.st === 'thr') {
+    const fireT = (P.bl && typeof BLADE_L !== 'undefined') ? BLADE_L.fireT : (P.dn && typeof DENO_L !== 'undefined') ? DENO_L.fireT : 0.12;
+    if (P.t >= fireT && !P.h) {
+      P.h = 1;
+      window._currentDamageSource = 'l';
+      if (P.zeztz && typeof fireZeztzWave === 'function') fireZeztzWave();
+      else if (P.dn && typeof fireDeno === 'function') fireDeno();
+      else if (P.bl && typeof fireBlade === 'function') fireBlade();
+      else if (P.k5 && typeof fireFaiz === 'function') fireFaiz();
+      else if (P.ryuki && typeof fireRyukiGun === 'function') fireRyukiGun();
+      else if (typeof PJ !== 'undefined') PJ.push({ x: P.x + P.f * 60, y: P.y - 100, vx: P.f * 800, f: P.f, t: 1.1, h: {}, skill: 'l' });
+      window._currentDamageSource = null;
+    }
+    const durT = (P.bl && typeof BLADE_L !== 'undefined') ? BLADE_L.dur : (P.dn && typeof DENO_L !== 'undefined') ? DENO_L.dur : 0.3;
+    if (P.t > durT) P.st = (P.y < GY) ? 'air' : 'idle';
+  } else if (P.st === 'fv') {
+    window._currentDamageSource = 'k';
+    if (P.zeztz && typeof updZeztzFV === 'function') updZeztzFV(dt);
+    else if (P.dn && typeof updDenoFV === 'function') updDenoFV(dt);
+    else if (P.ryuki && typeof updRyukiFV === 'function') updRyukiFV(dt);
+    else if (P.k5 && typeof updFaizFV === 'function') updFaizFV(dt);
+    else if (P.bl && typeof updBladeFV === 'function') updBladeFV(dt);
+    else {
+      if (P.t >= 1.0 && !P.h) {
+        P.h = 1; shake = 18;
+        area(P.x - 320, P.x + 320, P.atk * 3);
+        FX.push({ type: 'boom', x: P.x + P.f * 80, y: P.y - 80, t: 0.5, d: 0.5, r: 200, c: '#00e5ff' });
+      }
+      if (P.t > 1.5) { P.st = (P.y < GY) ? 'air' : 'idle'; }
+    }
+    window._currentDamageSource = null;
+  }
+
+  // 3. 更新弹道与附属战斗实体
+  if (typeof updZeztzWaves === 'function') updZeztzWaves(dt);
+  if (typeof updDenoWaves === 'function') updDenoWaves(dt);
+  if (typeof updBladeBolts === 'function') updBladeBolts(dt);
+  if (typeof updBikes === 'function') {
+    window._currentDamageSource = 'e';
+    updBikes(dt);
+    window._currentDamageSource = null;
+  }
+  if (typeof updBattleFx === 'function') updBattleFx(dt);
+
+  // 普通飞行弹道碰撞判定
+  for (const s of PJ) {
+    s.x += s.vx * dt; if (s.vy) s.y += s.vy * dt; s.t -= dt;
+    if (s.vis) continue;
+    const hit = (Math.abs(DUMMY.x - s.x) < DUMMY.w / 2 + 35 && Math.abs(DUMMY.y - DUMMY.h * 0.5 - s.y) < DUMMY.h * 0.5 + 25);
+    if (hit && !s.h[DUMMY.id]) {
+      s.h[DUMMY.id] = 1;
+      window._currentDamageSource = s.skill || 'l';
+      hurt(DUMMY, P.atk * (s.b5 ? 1.5 : s.rb ? 1.8 : 1.6));
+      window._currentDamageSource = null;
+      FX.push({ type: 'boom', x: s.x, y: s.y, t: 0.2, d: 0.2, r: 40, c: '#ffd84a' });
+    }
+  }
+  PJ = PJ.filter(s => s.t > 0);
+
+  // 4. 更新专属 [R] 键特技机制
+  if (typeof mechUpdate === 'function') {
+    window._currentDamageSource = 'r';
+    mechUpdate(dt);
+    window._currentDamageSource = null;
+  }
+}
+
+// ---------- 5. 绘制全息测试木桩实体 ----------
+function drawTrainingDummy() {
+  const x = sn(DUMMY.x - cam) + DUMMY.shakeX;
+  const y = sn(DUMMY.y);
+
+  ctx.save();
+  // 1. 地面八角高科技聚能投影底盘
+  const baseW = 96, baseH = 20;
+  ctx.save();
+  poBevel(x - baseW / 2, y - 6, baseW, baseH, 6);
+  ctx.fillStyle = '#0a1020'; ctx.fill();
+  ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 1.6; ctx.stroke();
+
+  // 底盘地面全息环
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.strokeStyle = (DUMMY.fl > 0) ? '#ffd84a' : '#00e5ff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(x, y + 2, 54, 14, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  // 2. 垂直全息扫描光束
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const beamGrad = ctx.createLinearGradient(x, y - DUMMY.h, x, y);
+  beamGrad.addColorStop(0, 'rgba(0, 229, 255, 0)');
+  beamGrad.addColorStop(0.7, 'rgba(0, 229, 255, 0.12)');
+  beamGrad.addColorStop(1, 'rgba(0, 229, 255, 0.35)');
+  ctx.fillStyle = beamGrad;
+  ctx.fillRect(x - DUMMY.w / 2 - 10, y - DUMMY.h - 10, DUMMY.w + 20, DUMMY.h + 10);
+
+  // 全息水平干涉条纹
+  for (let ly = y - DUMMY.h; ly < y; ly += 8) {
+    ctx.fillStyle = 'rgba(125, 249, 255, 0.08)';
+    ctx.fillRect(x - DUMMY.w / 2 - 8, ly, DUMMY.w + 16, 1.5);
+  }
+  ctx.restore();
+
+  // 3. 绘制赛博训练假人机甲身躯 (矢量透明晶格 + 核心反应堆)
+  ctx.save();
+  if (DUMMY.fl > 0) ctx.filter = 'brightness(2.2)';
+
+  const col = (DUMMY.fl > 0) ? '#ffd84a' : '#00e5ff';
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 1.8;
+  ctx.fillStyle = 'rgba(10, 24, 48, 0.75)';
+
+  // 头部
+  poBevel(x - 16, y - DUMMY.h + 8, 32, 28, 6);
+  ctx.fill(); ctx.stroke();
+  // 面罩单晶发光横线
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x - 10, y - DUMMY.h + 20, 20, 3);
+
+  // 躯干重装甲
+  poBevel(x - 28, y - DUMMY.h + 40, 56, 62, 8);
+  ctx.fillStyle = 'rgba(12, 28, 56, 0.85)'; ctx.fill(); ctx.stroke();
+
+  // 胸口聚能反应堆
+  ctx.save();
+  ctx.beginPath(); ctx.arc(x, y - DUMMY.h + 70, 10, 0, Math.PI * 2);
+  ctx.fillStyle = (DUMMY.fl > 0) ? '#ff4757' : '#00e5ff';
+  ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 14;
+  ctx.fill();
+  ctx.restore();
+
+  // 双臂装甲架
+  poBevel(x - 38, y - DUMMY.h + 46, 8, 50, 3); ctx.stroke();
+  poBevel(x + 30, y - DUMMY.h + 46, 8, 50, 3); ctx.stroke();
+
+  // 腿部支架
+  poBevel(x - 22, y - DUMMY.h + 106, 16, 58, 4); ctx.stroke();
+  poBevel(x + 6, y - DUMMY.h + 106, 16, 58, 4); ctx.stroke();
+  ctx.restore();
+
+  // 4. 头顶状态与无限血条展示
+  const tagY = y - DUMMY.h - 18;
+  txt('【 全息机甲测试木桩 · DUMMY 】', x, tagY - 18, 12, '#7df9ff', 'center');
+
+  // 护甲免伤状态徽章
+  const defNames = ['0% 原生无甲', '30% 战术轻甲', '50% 领主重装'];
+  const defCols = ['#7dff9a', '#ffd84a', '#ff4757'];
+  txt(`[ 护甲: ${defNames[DUMMY.defenseMode]} ]`, x, tagY - 3, 10.5, defCols[DUMMY.defenseMode], 'center');
+
+  // 无限血量条
+  const barW = 100, barH = 7;
+  rpath(x - barW / 2, tagY + 8, barW, barH, 3);
+  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fill();
+  rpath(x - barW / 2, tagY + 8, barW, barH, 3);
+  ctx.fillStyle = '#00e5ff'; ctx.fill();
+  ctx.strokeStyle = '#ffffff88'; ctx.lineWidth = 1; ctx.stroke();
+  txt('∞ / ∞', x, tagY + 11.5, 9, '#ffffff', 'center', false);
+
+  ctx.restore();
+}
+
+// ---------- 6. 绘制左上角 DPS 伤害测算与扇形图终端面板 ----------
+const DPS_HUD_LAYOUT = { x: 16, y: 94, w: 300, h: 242 };
+
+function drawDPSMeterHUD() {
+  const L = DPS_HUD_LAYOUT;
+  const now = performance.now() / 1000;
+  const dps = DUMMY_STATS.getDPS(now);
+
+  ctx.save();
+  // 1. 主面板科技底座（切角香槟金包边）
+  hudPanel(L.x, L.y, L.w, L.h, '#00e5ff', 10);
+
+  // 2. 顶栏标题与快捷按钮
+  ut('// REAL-TIME COMBAT TELEMETRY', L.x + 14, L.y + 13, 9, '#7f8da3', 'left', { w: 700, sp: 1.2, sh: 0 });
+  ut('伤害测算终端', L.x + 14, L.y + 28, 14, '#ffffff', 'left', { w: 700 });
+
+  // 护甲切换小按钮
+  const defNames = ['无甲0%', '轻甲30%', '重装50%'];
+  const defColors = ['#7dff9a', '#ffd84a', '#ff4757'];
+  const defBtnW = 66, defBtnH = 20, defBtnX = L.x + L.w - 128, defBtnY = L.y + 16;
+  rpath(defBtnX, defBtnY, defBtnW, defBtnH, 4);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.06)'; ctx.fill();
+  ctx.strokeStyle = defColors[DUMMY.defenseMode]; ctx.lineWidth = 1; ctx.stroke();
+  ut(defNames[DUMMY.defenseMode], defBtnX + defBtnW / 2, defBtnY + defBtnH / 2, 9.5, defColors[DUMMY.defenseMode], 'center', { w: 700, sh: 0 });
+
+  // 清空数据小按钮
+  const resetBtnW = 46, resetBtnH = 20, resetBtnX = L.x + L.w - 56, resetBtnY = L.y + 16;
+  rpath(resetBtnX, resetBtnY, resetBtnW, resetBtnH, 4);
+  ctx.fillStyle = 'rgba(255, 71, 87, 0.16)'; ctx.fill();
+  ctx.strokeStyle = '#ff4757'; ctx.lineWidth = 1; ctx.stroke();
+  ut('清空[R]', resetBtnX + resetBtnW / 2, resetBtnY + resetBtnH / 2, 9.5, '#ff7675', 'center', { w: 700, sh: 0 });
+
+  // 3. 核心秒伤与总伤害指标卡 (左右分列)
+  const cardY = L.y + 42, cardH = 50, cardW = (L.w - 36) / 2;
+
+  // 左卡：实时秒伤 (DPS)
+  rpath(L.x + 14, cardY, cardW, cardH, 6);
+  ctx.fillStyle = 'rgba(0, 229, 255, 0.08)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(0, 229, 255, 0.35)'; ctx.lineWidth = 1; ctx.stroke();
+  ut('实时秒伤 (DPS)', L.x + 22, cardY + 12, 9, '#7df9ff', 'left', { w: 600 });
+  const dpsStr = dps.current > 0 ? dps.current.toLocaleString() : '0';
+  ut(dpsStr, L.x + 22, cardY + 28, 16, '#00e5ff', 'left', { w: 700 });
+  ut(`全场均伤: ${dps.average.toLocaleString()}/s`, L.x + 22, cardY + 42, 8.5, '#8fa0b5', 'left', { w: 500 });
+
+  // 右卡：累计总伤与战斗耗时
+  rpath(L.x + 22 + cardW, cardY, cardW, cardH, 6);
+  ctx.fillStyle = 'rgba(255, 216, 74, 0.06)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 216, 74, 0.3)'; ctx.lineWidth = 1; ctx.stroke();
+  ut('累计总伤害', L.x + 30 + cardW, cardY + 12, 9, '#ffd84a', 'left', { w: 600 });
+  const totalStr = DUMMY_STATS.totalDamage >= 1e6 
+    ? (DUMMY_STATS.totalDamage / 1e4).toFixed(1) + '万' 
+    : DUMMY_STATS.totalDamage.toLocaleString();
+  ut(totalStr, L.x + 30 + cardW, cardY + 28, 15, '#ffd84a', 'left', { w: 700 });
+  const sec = Math.floor(dps.time);
+  const timeStr = `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
+  ut(`耗时: ${timeStr} | 命中: ${DUMMY_STATS.totalHits}`, L.x + 30 + cardW, cardY + 42, 8.5, '#8fa0b5', 'left', { w: 500 });
+
+  // 4. 暴击率与单次极值行
+  const critY = L.y + 100;
+  const actualCr = DUMMY_STATS.totalHits > 0 
+    ? (DUMMY_STATS.critHits / DUMMY_STATS.totalHits * 100).toFixed(1) + '%' 
+    : '0.0%';
+  const panelCr = (P.cr * 100).toFixed(1) + '%';
+  ut(`暴击分布: ${DUMMY_STATS.critHits}/${DUMMY_STATS.totalHits} (${actualCr})`, L.x + 14, critY, 9.5, '#7dff9a', 'left', { w: 600 });
+  const maxHitStr = DUMMY_STATS.maxHit > 0 ? DUMMY_STATS.maxHit.toLocaleString() : '0';
+  ut(`最大单击: ${maxHitStr}`, L.x + L.w - 14, critY, 9.5, '#ffa502', 'right', { w: 600 });
+
+  // 分割虚线
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(L.x + 14, critY + 10); ctx.lineTo(L.x + L.w - 14, critY + 10);
+  ctx.stroke();
+
+  // 5. 技能伤害占比环形扇形图 (Doughnut Chart) 与右侧图例列表
+  const chartY = critY + 68;
+  const pieCx = L.x + 48, pieCy = chartY;
+  const outerR = 34, innerR = 18;
+  const totalD = DUMMY_STATS.totalDamage;
+
+  if (totalD <= 0) {
+    // 未出手时的待机空心圆环
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.lineWidth = outerR - innerR;
+    ctx.beginPath(); ctx.arc(pieCx, pieCy, (outerR + innerR) / 2, 0, Math.PI * 2); ctx.stroke();
+    ut('待命中', pieCx, pieCy, 8.5, '#6a788c', 'center', { w: 600, sh: 0 });
+    ctx.restore();
+  } else {
+    // 绘制各技能占比扇区
+    let curAngle = -Math.PI / 2;
+    DUMMY_SKILL_CATS.forEach(cat => {
+      const dmg = DUMMY_STATS.bySkill[cat.id] || 0;
+      if (dmg <= 0) return;
+      const sliceAngle = (dmg / totalD) * Math.PI * 2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(pieCx, pieCy, outerR, curAngle, curAngle + sliceAngle);
+      ctx.arc(pieCx, pieCy, innerR, curAngle + sliceAngle, curAngle, true);
+      ctx.closePath();
+      ctx.fillStyle = cat.col;
+      ctx.shadowColor = cat.col; ctx.shadowBlur = 4;
+      ctx.fill();
+      ctx.restore();
+      curAngle += sliceAngle;
+    });
+    // 圆环中心小字
+    ut('技能', pieCx, pieCy - 4, 8, '#8fa0b5', 'center', { w: 600, sh: 0 });
+    ut('占比', pieCx, pieCy + 5, 8, '#ffffff', 'center', { w: 700, sh: 0 });
+  }
+
+  // 右侧各技能占比数据行 (5 项紧凑排布)
+  const legendX = L.x + 94;
+  DUMMY_SKILL_CATS.forEach((cat, idx) => {
+    const ly = chartY - 32 + idx * 15;
+    const dmg = DUMMY_STATS.bySkill[cat.id] || 0;
+    const pctStr = totalD > 0 ? (dmg / totalD * 100).toFixed(1) + '%' : '0.0%';
+
+    // 颜色图标块
+    rpath(legendX, ly - 4, 6, 6, 1.5);
+    ctx.fillStyle = cat.col; ctx.fill();
+
+    // 技能名称
+    ut(cat.name, legendX + 11, ly, 9.5, '#cbd5e1', 'left', { w: 600 });
+
+    // 百分比
+    ut(pctStr, legendX + 90, ly, 9.5, cat.col, 'right', { w: 700 });
+
+    // 具体伤害数值
+    const dmgStr = dmg >= 1e4 ? (dmg / 1e4).toFixed(1) + '万' : (dmg > 0 ? dmg.toLocaleString() : '0');
+    ut(dmgStr, L.x + L.w - 14, ly, 9, '#8fa0b5', 'right', { w: 500 });
+  });
+
+  // 6. 底部提示
+  ut('[R] 清空数据 · [T] 切换木桩护甲 · [F] 交互/离开', L.x + L.w / 2, L.y + L.h - 8, 8.5, '#6a788c', 'center', { w: 500, sh: 0 });
+
+  ctx.restore();
+}
+
+// ---------- 7. 点击交互监听（重置与护甲切换） ----------
+(function hookDummyClick() {
+  const canvasEl = document.getElementById('c');
+  if (!canvasEl) return;
+
+  canvasEl.addEventListener('pointerdown', e => {
+    if (typeof G === 'undefined' || G !== 'room' || !RM || RM.n !== '训练馆') return;
+    const rect = canvasEl.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width * 960;
+    const y = (e.clientY - rect.top) / rect.height * 540;
+
+    const L = DPS_HUD_LAYOUT;
+    // 点击清空数据按钮
+    const resetBtnX = L.x + L.w - 56, resetBtnY = L.y + 16;
+    if (x >= resetBtnX && x <= resetBtnX + 46 && y >= resetBtnY && y <= resetBtnY + 20) {
+      DUMMY_STATS.reset();
+      if (typeof DT !== 'undefined') {
+        DT.push({ x: P.x, y: P.y - 180, s: 'DPS 测算数据已重置！', t: 1.0, c: '#7dff9a' });
+      }
+      return;
+    }
+    // 点击切换护甲按钮
+    const defBtnX = L.x + L.w - 128, defBtnY = L.y + 16;
+    if (x >= defBtnX && x <= defBtnX + 66 && y >= defBtnY && y <= defBtnY + 20) {
+      DUMMY.cycleDef();
+      return;
+    }
+  });
+})();
