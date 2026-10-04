@@ -13,12 +13,12 @@ const COOP_REVIVE_RANGE = 130;   // 救援有效距离（px）
 const COOP_TIMEOUT = 20000;      // 队友多久没有任何消息视为掉线（ms）
 
 // 渲染队友时需要临时借用的 P 字段
-const COOP_P2_KEYS = ['x', 'y', 'f', 'st', 't', 'inv', 'land', 'vx', 'vy', 'ryuki', 'k5', 'bl', 'zeztz', 'trk', 'spr', 'tdur', 'h', 'landT', 'hit'];
+const COOP_P2_KEYS = ['x', 'y', 'f', 'st', 't', 'inv', 'land', 'vx', 'vy', 'ryuki', 'k5', 'bl', 'zeztz', 'dn', 'trk', 'spr', 'tdur', 'h', 'landT', 'hit'];
 
 function coopNewP2() {
   return {
     x: 300, y: 470, vx: 0, vy: 0, f: 1, st: 'trans', t: 0,
-    hp: 100, mh: 100, ryuki: false, k5: false, bl: false, zeztz: false, trk: null,
+    hp: 100, mh: 100, ryuki: false, k5: false, bl: false, zeztz: false, dn: false, trk: null,
     hit: {}, landT: undefined, dg: null, sh: null, gt: 0, bh: '', ac: 0,
     spr: false, tdur: 0, h: 0, inv: 0,
     down: false, rv: 0, gone: false, kb: false, init: false,
@@ -554,10 +554,10 @@ function coopUpdateBattle(dt) {
   // 队友残影（闪避 / 疾跑 / 下砸 / 空中终结技），带上队友自己的骑士形态
   p2.gt = (p2.gt || 0) - dt;
   if (!p2.down && p2.gt <= 0 && (p2.st === 'dodge' || p2.spr || (p2.ac && (p2.vx || p2.st === 'atk')) || p2.st === 'diveslam' ||
-      (p2.st === 'fv' && p2.y < GY - 4 && (p2.ryuki || p2.k5 || p2.bl || p2.zeztz)))) {
+      (p2.st === 'fv' && p2.y < GY - 4 && (p2.ryuki || p2.k5 || p2.bl || p2.zeztz || p2.dn)))) {
     p2.gt = p2.ac ? .045 : .038;
     GH.push({ x: p2.x, y: p2.y, f: p2.f, st: p2.st, t: p2.ac ? .3 : .32, d: p2.ac ? .3 : .32, pt: p2.t,
-      rf: { ryuki: !!p2.ryuki, k5: !!p2.k5, bl: !!p2.bl, zeztz: !!p2.zeztz } });
+      rf: { ryuki: !!p2.ryuki, k5: !!p2.k5, bl: !!p2.bl, zeztz: !!p2.zeztz, dn: !!p2.dn } });
   }
 
   // 2. 客机：怪物位置向房主权威位置平滑靠拢
@@ -630,7 +630,7 @@ function coopUpdateBattle(dt) {
       f: P.f, st: P.st, t: Math.round(P.t * 1000) / 1000,
       hp: P.hp, mh: P.mh,
       atk: P.atk, // ★ 同步当前攻击力用于核算总伤害
-      ryuki: !!P.ryuki, k5: !!P.k5, bl: !!P.bl, zeztz: !!P.zeztz, trk: P.trk || null,
+      ryuki: !!P.ryuki, k5: !!P.k5, bl: !!P.bl, zeztz: !!P.zeztz, dn: !!P.dn, trk: P.trk || null,
       spr: !!P.spr, tdur: P.tdur || 0, h: P.h | 0,
       lt: (typeof P.landT === 'number') ? Math.round(P.landT * 1000) / 1000 : null,
       hk: P.hit ? Object.keys(P.hit).filter(k => isNaN(k)).join(',') : '',
@@ -679,7 +679,7 @@ function drawCoopP2() {
     x: p2.x, y: p2.y, f: p2.f,
     st: (p2.down || (trans && !useTrans)) ? 'idle' : p2.st,
     t: p2.t, inv: 0, land: 0, vx: p2.vx, vy: p2.vy,
-    ryuki: !!p2.ryuki, k5: !!p2.k5, bl: !!p2.bl, zeztz: !!p2.zeztz, trk: p2.trk,
+    ryuki: !!p2.ryuki, k5: !!p2.k5, bl: !!p2.bl, zeztz: !!p2.zeztz, dn: !!p2.dn, trk: p2.trk,
     spr: !!p2.spr, tdur: p2.tdur, h: p2.h, hit: p2.hit || {}, landT: p2.landT
   });
 
@@ -691,7 +691,7 @@ function drawCoopP2() {
       ctx.translate(x, y); ctx.rotate(-p2.f * Math.PI / 2); ctx.translate(-x, -y);
       ctx.globalAlpha = .8;
     } else if (trans && !useTrans) {
-      ctx.shadowColor = p2.trk === '555' ? '#ffb400' : p2.trk === 'blade' ? '#3aa0ff' : p2.trk === 'ryuki' ? '#ff4757' : p2.trk === 'zeztz' ? '#00f2fe' : '#00e5ff';
+      ctx.shadowColor = p2.trk === '555' ? '#ffb400' : p2.trk === 'blade' ? '#3aa0ff' : p2.trk === 'ryuki' ? '#ff4757' : p2.trk === 'zeztz' ? '#00f2fe' : p2.trk === 'deno' ? '#ff3b30' : '#00e5ff';
       ctx.shadowBlur = 22 + 10 * Math.sin(T * 14);
     }
     // 变身演出里的全屏闪光 / 暗角只属于变身者自己的屏幕：队友变身时不让它盖住我的画面
@@ -707,6 +707,7 @@ function drawCoopP2() {
       if (typeof drawBladeMark === 'function') drawBladeMark();
       if (typeof drawRyukiMark === 'function') drawRyukiMark();
       if (typeof drawZeztzMark === 'function') drawZeztzMark();
+      if (typeof drawDenoMark === 'function') drawDenoMark();
     }
     drawP0();   // 与本机完全相同的绘制管线 → 变身 / 普攻 / 技能 / 终结技 / 闪避 / 疾跑动画全部可见
   } catch (err) {

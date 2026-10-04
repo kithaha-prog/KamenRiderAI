@@ -4,12 +4,12 @@ const DODGE_CD = 0.7, SHIFT_HOLD = .2; // ★ 闪避 CD 从 1.2s 缩短至 0.7s�
 const P = {
   x: 300, y: GY, vx: 0, vy: 0, f: 1, hp: 100, mh: 100, mp: 100, mm: 100, atk: 14, cr: .05, def: 0,
   st: 'trans', t: 0, inv: 0, land: 0, cd: { e: 0, k: 0, l: 0, p: 0 },
-  maxCd: { e: 7, k: 16, l: 2, p: 5 }, h: 0, hit: {}, ryuki: false, k5: false, bl: false, zeztz: false, trk: null,
+  maxCd: { e: 7, k: 16, l: 2, p: 5 }, h: 0, hit: {}, ryuki: false, k5: false, bl: false, zeztz: false, dn: false, trk: null,
   sta: 100, stm: 100, dcd: 0, exh: false, spr: false, shDown: false, shT: 0, gt: 0, sreg: 0, slow: 0, psn: 0, down: false
 };
 
 function curRiderKey() {
-  return P.ryuki ? 'ryuki' : P.k5 ? '555' : P.bl ? 'blade' : P.zeztz ? 'zeztz' : 'malaya';
+  return P.ryuki ? 'ryuki' : P.k5 ? '555' : P.bl ? 'blade' : P.zeztz ? 'zeztz' : P.dn ? 'deno' : 'malaya';
 }
 
 function getSkillCD(key) {
@@ -63,13 +63,14 @@ function formCap() {
   return P.ryuki ? CAPSULES.find(c => c.id === 'ryuki') 
        : P.k5 ? CAPSULES.find(c => c.id === '555') 
        : P.bl ? CAPSULES.find(c => c.id === 'blade')
-       : P.zeztz ? CAPSULES.find(c => c.id === 'zeztz') : null;
+       : P.zeztz ? CAPSULES.find(c => c.id === 'zeztz')
+       : P.dn ? CAPSULES.find(c => c.id === 'deno') : null;
 }
-function inForm() { return P.ryuki || P.k5 || P.bl || P.zeztz; }
-function formCol() { return P.ryuki ? '#ff4757' : P.k5 ? '#ffb400' : P.bl ? '#3aa0ff' : P.zeztz ? '#00f2fe' : '#00e5ff'; }
-function clearForms() { P.ryuki = false; P.k5 = false; P.bl = false; P.zeztz = false; }
-function lSkillName() { return P.k5 ? '手枪' : P.bl ? '召雷' : P.zeztz ? '拳压' : '飞剑'; }
-function formName() { return P.ryuki ? 'KAMEN RIDER RYUKI' : P.k5 ? 'KAMEN RIDER 555' : P.bl ? 'KAMEN RIDER BLADE' : P.zeztz ? 'KAMEN RIDER ZEZTZ' : 'KAMEN RIDER MALAYA'; }
+function inForm() { return P.ryuki || P.k5 || P.bl || P.zeztz || P.dn; }
+function formCol() { return P.ryuki ? '#ff4757' : P.k5 ? '#ffb400' : P.bl ? '#3aa0ff' : P.zeztz ? '#00f2fe' : P.dn ? '#ff3b30' : '#00e5ff'; }
+function clearForms() { P.ryuki = false; P.k5 = false; P.bl = false; P.zeztz = false; P.dn = false; }
+function lSkillName() { return P.k5 ? '手枪' : P.bl ? '召雷' : P.zeztz ? '拳压' : P.dn ? '斩击波' : '飞剑'; }
+function formName() { return P.ryuki ? 'KAMEN RIDER RYUKI' : P.k5 ? 'KAMEN RIDER 555' : P.bl ? 'KAMEN RIDER BLADE' : P.zeztz ? 'KAMEN RIDER ZEZTZ' : P.dn ? 'KAMEN RIDER DEN-O' : 'KAMEN RIDER MALAYA'; }
 function formSpd() { const c = formCap(); return c ? (c.spdMul || 1) : 1; }
 function capShort() { const c = CAPSULES.find(c => c.id === S.eqCap); return c ? c.short : ''; }
 
@@ -147,22 +148,23 @@ function triggerRyukiTransform() {
     return;
   }
   
-  if (P.ryuki || P.k5 || P.bl || P.zeztz) {
-    P.ryuki = false; P.k5 = false; P.bl = false; P.zeztz = false; P.inv = 0.5; P.st = 'idle'; calc(); shake = 8;
+  if (P.ryuki || P.k5 || P.bl || P.zeztz || P.dn) {
+    P.ryuki = false; P.k5 = false; P.bl = false; P.zeztz = false; P.dn = false; P.inv = 0.5; P.st = 'idle'; calc(); shake = 8;
     P.cd.p = getSkillCD('p'); P.maxCd.p = P.cd.p;
     DT.push({ x: P.x, y: P.y - 180, s: '解除变身 · 恢复原生装甲', t: 1.4, c: '#00e5ff' });
-  } else if (S.eqCap === 'ryuki' || S.eqCap === '555' || S.eqCap === 'blade' || S.eqCap === 'zeztz') {
+  } else if (S.eqCap === 'ryuki' || S.eqCap === '555' || S.eqCap === 'blade' || S.eqCap === 'zeztz' || S.eqCap === 'deno') {
     if (P.st !== 'trans_ryuki') {
-      const is5 = S.eqCap === '555', isB = S.eqCap === 'blade', isZ = S.eqCap === 'zeztz';
+      const is5 = S.eqCap === '555', isB = S.eqCap === 'blade', isZ = S.eqCap === 'zeztz', isD = S.eqCap === 'deno';
       P.st = 'trans_ryuki'; P.trk = S.eqCap; P.t = 0; P.inv = 2.5; P.hit = {};
       P.cd.p = getSkillCD('p'); P.maxCd.p = P.cd.p;
-      P.tdur = isZ ? zeztzTransDur() : isB ? bladeTransDur() : is5 ? faizTransDur() : ryukiTransDur();
-      if (isZ) playZeztzHenshin();
+      P.tdur = isD ? denoTransDur() : isZ ? zeztzTransDur() : isB ? bladeTransDur() : is5 ? faizTransDur() : ryukiTransDur();
+      if (isD) playDenoHenshin();
+      else if (isZ) playZeztzHenshin();
       else if (isB) playBladeHenshin(); 
       else if (is5) playFaizHenshin(); 
       else playRyukiHenshin();
       
-      DT.push({ x: P.x, y: P.y - 180, s: isZ ? 'IMPACT ZEZTZ!' : isB ? '变身！' : is5 ? 'STANDING BY…' : 'KAMEN RIDE: RYUKI!', t: 1.5, c: isZ ? '#00f2fe' : isB ? '#3aa0ff' : is5 ? '#ffb400' : '#ff4757' });
+      DT.push({ x: P.x, y: P.y - 180, s: isD ? 'DEN-O · 変身！' : isZ ? 'IMPACT ZEZTZ!' : isB ? '变身！' : is5 ? 'STANDING BY…' : 'KAMEN RIDE: RYUKI!', t: 1.5, c: isD ? '#ff3b30' : isZ ? '#00f2fe' : isB ? '#3aa0ff' : is5 ? '#ffb400' : '#ff4757' });
     }
   } else {
     DT.push({ x: P.x, y: P.y - 180, s: '尚未装备变身胶囊！按 [N] 键查看契约终端', t: 1.4, c: '#ffd84a' });
@@ -171,9 +173,9 @@ function triggerRyukiTransform() {
 
 function drawP() {
   for (const g of GH) {
-    const sv = { x: P.x, y: P.y, f: P.f, st: P.st, inv: P.inv, land: P.land, ryuki: P.ryuki, k5: P.k5, bl: P.bl, zeztz: P.zeztz, t: P.t, hit: P.hit };
+    const sv = { x: P.x, y: P.y, f: P.f, st: P.st, inv: P.inv, land: P.land, ryuki: P.ryuki, k5: P.k5, bl: P.bl, zeztz: P.zeztz, dn: P.dn, t: P.t, hit: P.hit };
     P.x = g.x; P.y = g.y; P.f = g.f; P.st = g.st; P.inv = 0; P.land = 0;
-    if (g.rf) { P.ryuki = g.rf.ryuki; P.k5 = g.rf.k5; P.bl = g.rf.bl; P.zeztz = g.rf.zeztz; P.t = g.pt || 0; P.hit = {}; }   // 联机队友的残影用队友自己的形态
+    if (g.rf) { P.ryuki = g.rf.ryuki; P.k5 = g.rf.k5; P.bl = g.rf.bl; P.zeztz = g.rf.zeztz; P.dn = !!g.rf.dn; P.t = g.pt || 0; P.hit = {}; }   // 联机队友的残影用队友自己的形态
     ctx.save(); ctx.globalAlpha = g.t / g.d * .5; ctx.globalCompositeOperation = 'lighter';
     drawP0(); ctx.restore();
     Object.assign(P, sv);
@@ -196,6 +198,7 @@ function drawP0() {
     return;
   }
   if (P.st === 'trans_ryuki' && P.trk === 'blade') { drawBladeTransform(x, y, f); return; }
+  if (P.st === 'trans_ryuki' && P.trk === 'deno') { drawDenoTransform(x, y, f); return; }
   if (P.st === 'trans_ryuki' && (P.trk === '555' || P.trk === 'ryuki') && typeof henReady === 'function' && henReady()) { drawHenshin(x, y, f); return; }
   if (P.st === 'trans_ryuki' && P.trk === '555') { drawFaizTransform(x, y, f); return; }
   if (P.st === 'trans_ryuki' && P.trk === 'zeztz') { drawZeztzTransform(x, y, f); return; }
@@ -244,6 +247,7 @@ function drawP0() {
     else if (P.k5 && okS(SH5.run)) dr(SH5.run, (T * 20 | 0) % SH5.run.f.length, x, y, f, 1.0);
     else if (P.bl && okS(SH6.run)) drBR((T * 20 | 0) % SH6.run.f.length, x, y, f);
     else if (P.zeztz && okS(SHZ.run)) dr(SHZ.run, (T * 20 | 0) % SHZ.run.f.length, x, y, f, 1.0);
+    else if (P.dn && okS(SHD.run)) drDR((T * 20 | 0) % SHD.run.f.length, x, y, f);
     else dr(SH.run, (T * 20 | 0) % 12, x, y, f, 1.0);
     ctx.restore();
     return;
@@ -259,6 +263,7 @@ function drawP0() {
   if (P.bl) { drawBlade(x, y, f); return; }
   if (P.ryuki) { drawRyuki(x, y, f); return; }
   if (P.zeztz) { drawZeztz(x, y, f); return; }
+  if (P.dn) { drawDeno(x, y, f); return; }
 
   let S, i, lift = 0;
   switch (P.st) {

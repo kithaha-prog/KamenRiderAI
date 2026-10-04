@@ -518,7 +518,7 @@ function drawCharPanel() {
   // 顶部信息条
   techPanel(lx + 10, ly + 10, lw - 20, 62, fcol, 8, 'rgba(12,20,38,.78)');
   txt('假面骑士 MALAYA', lx + 20, ly + 24, 14, '#ffd84a');
-  txt(P.ryuki ? '★ 龙骑契约形态' : P.k5 ? '★ 555 智脑形态' : P.bl ? '★ Blade 黑桃形态' : '原生基础形态', lx + 150, ly + 24, 11, P.ryuki ? '#ff7675' : P.k5 ? '#ffd166' : P.bl ? '#7fd0ff' : '#7df9ff');
+  txt(P.ryuki ? '★ 龙骑契约形态' : P.k5 ? '★ 555 智脑形态' : P.bl ? '★ Blade 黑桃形态' : P.dn ? '★ DenO 电车形态' : '原生基础形态', lx + 150, ly + 24, 11, P.ryuki ? '#ff7675' : P.k5 ? '#ffd166' : P.bl ? '#7fd0ff' : P.dn ? '#ff7a6b' : '#7df9ff');
   txt('Lv.' + S.lv + ' / 500', lx + 20, ly + 42, 12, '#fff');
   curT('💰 ' + fmtN(S.g) + ' G', lx + 110, ly + 42, 12, '#ffd84a', 'left', txt, true);
   {   // 第二行按实际宽度顺排：数字再长也不会叠在一起
@@ -542,6 +542,7 @@ function drawCharPanel() {
   if (P.ryuki && SH.ryukiTrans && SH.ryukiTrans.f[15]) drCenter(SH.ryukiTrans, 15, cx, pcy - 2, K);
   else if (P.k5 && okS(SH5.trans)) drCenter(SH5.trans, 8, cx, pcy - 2, K);
   else if (P.bl && okS(SH6.atk)) drCenter(SH6.atk, 12, cx, pcy - 2, K);
+  else if (P.dn && okS(SHD.atk)) drCenter(SHD.atk, 12, cx, pcy - 2, K);
   else if (SH.atk && SH.atk.f[12]) drCenter(SH.atk, 12, cx, pcy - 2, K);
   ctx.restore();
 
@@ -1079,7 +1080,7 @@ function drawCapsuleModal0() {
       ctx.lineWidth = 1.2;
       ctx.stroke();
 
-      const sym = c.id === 'ryuki' ? '龍' : (c.id === '555' ? 'Φ' : (c.id === 'blade' ? '♠' : c.rider[0]));
+      const sym = c.id === 'ryuki' ? '龍' : (c.id === '555' ? 'Φ' : (c.id === 'blade' ? '♠' : c.id === 'deno' ? '電' : c.rider[0]));
       if (EQI.ryuki_cap) {
         ctx.save(); if (!isOwned) ctx.globalAlpha = .38;
         fitIco(EQI.ryuki_cap, iconX + iconSize / 2, iconY + iconSize / 2 - 1, 32); ctx.restore();
@@ -1366,7 +1367,7 @@ function drawSkillBarHUD() {
       ctx.drawImage(iconImg, x + 2, y + 2, sz - 4, sz - 4);
       ctx.restore();
     } else {
-      const fallbackSym = { atk: '⚔', l: P.k5 ? '🔫' : P.bl ? '⚡' : '🗡', e: '🏍', k: '💥', p: '✦' }[sk.key];
+      const fallbackSym = { atk: '⚔', l: P.k5 ? '🔫' : P.bl ? '⚡' : P.dn ? '⚔' : '🗡', e: '🏍', k: '💥', p: '✦' }[sk.key];
       txt(fallbackSym, x + sz / 2, y + sz / 2 - 2, 18, canUse ? '#fff' : '#678', 'center');
     }
 
@@ -2177,7 +2178,7 @@ function psDur(s) {
   return h > 0 ? h + ' 小时 ' + m + ' 分' : m > 0 ? m + ' 分 ' + (s % 60) + ' 秒' : s + ' 秒';
 }
 const PS_TITLES = [[0, '见习骑士'], [50, '正式骑士'], [300, '资深战士'], [1000, '王牌骑士'], [3000, '传说骑士'], [10000, '大红花守护者']];
-const PS_FORM = { malaya: 'Malaya', ryuki: '龙骑', '555': '555', blade: 'Blade' };
+const PS_FORM = { malaya: 'Malaya', ryuki: '龙骑', '555': '555', blade: 'Blade', deno: 'DenO' };
 
 // ---- 档案数据源：自己（实时）/ 排行榜上的其他骑士（leaderboard.profile）----
 function psSelfView() {
@@ -2368,7 +2369,7 @@ const QD_POOL = [
   { id: 'up', n: '锻造时间', d: t => '强化装备 ' + t + ' 次', get: p => p.up, tg: lv => lv < 20 ? 1 : 2, x: { m: 6 } },
   { id: 'dis', n: '废物利用', d: t => '分解 ' + t + ' 件装备', get: p => p.dis, tg: () => 3, x: { m: 8 } },
   { id: 'gold', n: '赏金猎人', d: t => '累计获得 ' + psBig(t) + ' 金币', get: p => p.gE, tg: lv => Math.round((500 + lv * 80) / 100) * 100, x: {} },
-  { id: 'form', n: '形态磨合', d: t => '以变身形态战斗 ' + t + ' 秒', get: p => (p.formT.ryuki || 0) + (p.formT['555'] || 0) + (p.formT.blade || 0), tg: () => 120, x: {}, need: () => S.caps.length > 0 }
+  { id: 'form', n: '形态磨合', d: t => '以变身形态战斗 ' + t + ' 秒', get: p => (p.formT.ryuki || 0) + (p.formT['555'] || 0) + (p.formT.blade || 0) + (p.formT.deno || 0), tg: () => 120, x: {}, need: () => S.caps.length > 0 }
 ];
 const QD_BY = {}; for (const q of QD_POOL) QD_BY[q.id] = q;
 const QD_N = 4;

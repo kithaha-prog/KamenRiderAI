@@ -35,7 +35,8 @@ const SKILL_CDS = {
   ryuki:  { l: 2.0, e: 7.0, k: 20.0, p: 5.0 },  // 龙骑：火球射速快，终结技毁灭级伤害 (CD较长)
   '555':  { l: 1.5, e: 6.0, k: 16.0, p: 6.0 },  // 555：光子手枪极速连射，战车机动加速
   blade:  { l: 3.0, e: 7.5, k: 18.0, p: 5.0 },   // Blade：召雷全屏贯穿 (CD稍长)，雷电音速踢
-  zeztz:  { l: 2.0, e: 6.5, k: 17.0, p: 5.0 } // ★ Zeztz: 拳压冲击波快速施法，终结技毁灭打击
+  zeztz:  { l: 2.0, e: 6.5, k: 17.0, p: 5.0 }, // ★ Zeztz: 拳压冲击波快速施法，终结技毁灭打击
+  deno:   { l: 2.2, e: 7.0, k: 17.0, p: 5.0 }  // ★ DenO: 斩击波中速连发，电王剑俯冲斩
 };
 
 // Malaya 原生动作
@@ -424,6 +425,22 @@ const CAPSULES = [
     finisher: 'FINAL IMPACT · 旋涡重炮 (旋涡蓄力后连续突进冲拳与大爆炸)',
     trait: '机械聚能 · 拳压冲击波 · 连续重拳必杀',
     atkMul: 1.28, crAdd: .12, spdMul: 1.12
+  },
+  {
+    id: 'deno',
+    name: '假面骑士 DenO',
+    short: 'DenO',
+    slotName: 'DenO 电车胶囊',
+    rider: 'DENO',
+    tier: 4, // 传说
+    c: '#ff3b30',
+    tag: '时之列车',
+    desc: '腰缠 Den-O 腰带、驾驭时间列车的红色战士，手持电王剑，以胶片之环与车票之力斩开时间。',
+    buff: '攻击力 +27%，暴击率 +11%，移速 +10%',
+    skill: 'L · 斩击波（挥出贯穿光刃，电王剑随之飞出）',
+    finisher: 'ORE NO HISSATSU WAZA · 电王剑俯冲斩 (蓄力跃起→空中旋转斩→45°俯冲→大爆炸)',
+    trait: '电王剑 · 斩击波 · 俯冲必杀',
+    atkMul: 1.27, crAdd: .11, spdMul: 1.10
   }
 ];
 

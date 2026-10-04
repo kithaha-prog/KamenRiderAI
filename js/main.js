@@ -141,6 +141,7 @@ async function prep() {
   try { const g = await load(FAIZ + 'KR_555_Gun.png'); GUN5 = trim(toCanvas(g)); } catch (e) { miss.push('Kamen Rider 555/KR_555_Gun.png'); }
   try { const b = await load(FAIZ + 'KR_555_Bullet.png'); BUL5 = trim(toCanvas(b)); } catch (e) { miss.push('Kamen Rider 555/KR_555_Bullet.png'); }
   await loadBladeAssets();
+  if (typeof loadDenoAssets === 'function') await loadDenoAssets();
   if (typeof loadZeztzAssets === 'function') await loadZeztzAssets();
 
   for (let n = 1; n <= 10; n++) {
@@ -321,20 +322,22 @@ function upd(dt) {
   if (P.st !== 'trans_ryuki') { 
     stopFaizHenshin(); stopRyukiHenshin(); stopBladeHenshin(); 
     if (typeof stopZeztzHenshin === 'function') stopZeztzHenshin();
+    if (typeof stopDenoHenshin === 'function') stopDenoHenshin();
   }
   if (P.st !== 'fv') { stopAllRyukiFVSounds(); }
 
   if (P.st === 'trans_ryuki') {
     P.vx = 0; P.t += dt; P.inv = 1;
-    const is5 = P.trk === '555', isB = P.trk === 'blade', isZ = P.trk === 'zeztz';
-    if (isZ && typeof zeztzSyncT === 'function') { P.t = zeztzSyncT(P.t); updZeztzTrans(dt); }
+    const is5 = P.trk === '555', isB = P.trk === 'blade', isZ = P.trk === 'zeztz', isD = P.trk === 'deno';
+    if (isD && typeof denoSyncT === 'function') { P.t = denoSyncT(P.t); updDenoTrans(); }
+    else if (isZ && typeof zeztzSyncT === 'function') { P.t = zeztzSyncT(P.t); updZeztzTrans(dt); }
     else if (isB) { P.t = bladeSyncT(P.t); updBladeTrans(); }
-    else if (!is5 && !isB && !isZ) updHenshin(dt);
+    else if (!is5 && !isB && !isZ && !isD) updHenshin(dt);
     else updHenshin(dt);
 
     const tdur = P.tdur || 16 * 0.12;
     if (P.t > tdur) {
-      P.st = 'idle'; P.k5 = is5; P.bl = isB; P.zeztz = isZ; P.ryuki = !is5 && !isB && !isZ; P.inv = .6; calc();
+      P.st = 'idle'; P.k5 = is5; P.bl = isB; P.zeztz = isZ; P.dn = isD; P.ryuki = !is5 && !isB && !isZ && !isD; P.inv = .6; calc();
     }
     return;
   }
@@ -512,6 +515,7 @@ function upd(dt) {
     if ((PR.Space || PR.KeyW || PR.ArrowUp) && gr) {
       P.vy = -700;
       P.st = 'air';
+      P.jt = T;   // 起跳时刻：用于「上 + 攻击」的升龙击宽限窗口
     }
 
     // ===== 1. 在按键触发区域替换原本的 PR.KeyJ 判定 =====
@@ -519,8 +523,10 @@ function upd(dt) {
       const isUp = K.KeyW || K.ArrowUp;
       const isDown = K.KeyS || K.ArrowDown;
       const gr = P.y >= GY;
+      // 摇杆 / W 往上推会立刻起跳，所以起跳后 0.35s 内仍在上升时按攻击，同样算「上 + 攻击」
+      const upOk = isUp && (gr || (P.vy < 0 && T - (P.jt || -9) < .35));
 
-      if (gr && isUp) {
+      if (upOk) {
         // 【派生 1：升龙击 Rising Slash】地面按 W + J
         P.st = 'uppercut';
         P.t = 0;
@@ -581,7 +587,7 @@ function upd(dt) {
   // ★ 力竭解除阈值：从 30% 提高到 40%[cite: 43]
   if (P.exh && P.sta >= P.stm * .4) P.exh = false;
 
-  if ((P.st === 'dodge' || P.spr || (P.st === 'fv' && P.ryuki && P.t >= RYUKI_FV.dive && P.y < GY) || (P.st === 'fv' && P.k5 && P.t >= FAIZ_FV.dive && P.y < GY) || (P.st === 'fv' && P.bl && P.t >= BLADE_FV.dive && P.y < GY)) && P.gt <= 0) {
+  if ((P.st === 'dodge' || P.spr || (P.st === 'fv' && P.ryuki && P.t >= RYUKI_FV.dive && P.y < GY) || (P.st === 'fv' && P.k5 && P.t >= FAIZ_FV.dive && P.y < GY) || (P.st === 'fv' && P.bl && P.t >= BLADE_FV.dive && P.y < GY) || (P.st === 'fv' && P.dn && P.t >= DENO_FV.dive && P.y < GY)) && P.gt <= 0) {
     P.gt = .038;
     GH.push({ x: P.x, y: P.y, f: P.f, st: P.st, t: .32, d: .32 });
   }
@@ -657,20 +663,23 @@ function upd(dt) {
   }
   else if (P.st === 'thr') {
     if (P.y >= GY) P.vx = 0;
-    if (P.t >= (P.bl ? BLADE_L.fireT : .12) && !P.h) {
+    if (P.t >= (P.bl ? BLADE_L.fireT : P.dn ? DENO_L.fireT : .12) && !P.h) {
       P.h = 1;
       if (P.zeztz && typeof fireZeztzWave === 'function') fireZeztzWave();
+      else if (P.dn && typeof fireDeno === 'function') fireDeno();
       else if (P.bl) fireBlade();
       else if (P.k5) fireFaiz();
       else if (P.ryuki) fireRyukiGun();
       else PJ.push({ x: P.x + P.f * 60, y: P.y - 100, vx: P.f * 800, f: P.f, t: 1.1, h: {} });
     }
-    if (P.t > (P.bl ? BLADE_L.dur : .3)) P.st = (P.y < GY) ? 'air' : 'idle';
+    if (P.t > (P.bl ? BLADE_L.dur : P.dn ? DENO_L.dur : .3)) P.st = (P.y < GY) ? 'air' : 'idle';
   }
   else if (P.st === 'fv') {
     P.inv = 1;
     if (P.zeztz && typeof updZeztzFV === 'function') {
       updZeztzFV(dt);
+    } else if (P.dn && typeof updDenoFV === 'function') {
+      updDenoFV(dt);
     } else if (P.ryuki) {
       updRyukiFV(dt);
     } else if (P.k5) {
@@ -714,8 +723,9 @@ function upd(dt) {
   }
 
   if (typeof updZeztzWaves === 'function') updZeztzWaves(dt);
+  if (typeof updDenoWaves === 'function') updDenoWaves(dt);
 
-  const applyGravity = P.st !== 'dash' && P.st !== 'dodge' && !(P.st === 'fv' && (P.ryuki || P.k5 || P.bl || P.zeztz));
+  const applyGravity = P.st !== 'dash' && P.st !== 'dodge' && !(P.st === 'fv' && (P.ryuki || P.k5 || P.bl || P.zeztz || P.dn));
   if (applyGravity) {
     const gMul = (P.st === 'atk' || P.st === 'thr') ? 0.65 : 1.0;
     P.vy += 1900 * gMul * dt;
@@ -915,6 +925,7 @@ function draw() {
 
   drawFaizMark();
   drawBladeMark();
+  if (typeof drawDenoMark === 'function') drawDenoMark();
   drawRyukiMark();
   if (typeof drawZeztzMark === 'function') drawZeztzMark();
   drawBikes();
@@ -922,6 +933,7 @@ function draw() {
   if (typeof drawZeztzEnergyWaves === 'function') drawZeztzEnergyWaves();
   if (typeof drawCoopP2 === 'function') drawCoopP2();
   drawBladeBolts();
+  if (typeof drawDenoWaves === 'function') drawDenoWaves();
 
   for (const f of FX) {
     const p = f.t / f.d;
@@ -1097,7 +1109,7 @@ addEventListener('keydown', e => {
   const ui = document.createElement('div'); ui.id = 'tc';
   const jz = document.createElement('div'); jz.id = 'joyz';
   const jh = document.createElement('div'); jh.id = 'joyh'; jh.innerHTML = '<i>◀</i><i>▶</i>';
-  const jr = document.createElement('div'); jr.id = 'joy'; jr.innerHTML = '<i class=\"a l\">◀</i><i class=\"a r\">▶</i><i class=\"a u\">▲</i><b></b>';
+  const jr = document.createElement('div'); jr.id = 'joy'; jr.innerHTML = '<i class=\"a l\">◀</i><i class=\"a r\">▶</i><i class=\"a u\">▲</i><i class=\"a d\">▼</i><b></b>';
   ui.appendChild(jz); ui.appendChild(jh); ui.appendChild(jr);
 
   let moreOpen = false;
@@ -1248,18 +1260,18 @@ addEventListener('keydown', e => {
   if (TOUCH) document.body.appendChild(ui);
 
   // ===== 手游摇杆优化版：全局事件接管 + 防误触防中断 =====
-  const knob = jr.querySelector('b'), arL = jr.querySelector('.l'), arR = jr.querySelector('.r'), arU = jr.querySelector('.u');
-  let jid = null, ox = 0, oy = 0, JR = 60, jl = false, jrt = false, ju = false;
+  const knob = jr.querySelector('b'), arL = jr.querySelector('.l'), arR = jr.querySelector('.r'), arU = jr.querySelector('.u'), arD = jr.querySelector('.d');
+  let jid = null, ox = 0, oy = 0, JR = 60, jl = false, jrt = false, ju = false, jd = false;
   
   const joyOk = () => !M && !showChar && !showCapModal && !showStat && !showQuest && !gachaModal && (G === 'vil' || G === 'room' || (G === 'play' && P.st !== 'trans'));
 
   const joyStop = () => {
     const id = jid;
-    jid = null; jl = false; jrt = false; ju = false;
+    jid = null; jl = false; jrt = false; ju = false; jd = false;
     try { if (id !== null) jz.releasePointerCapture(id); } catch (_) { }
     jr.classList.remove('show');
-    K['KeyA'] = 0; K['KeyD'] = 0; K['Space'] = 0;
-    [arL, arR, arU].forEach(a => a.classList.remove('on'));
+    K['KeyA'] = 0; K['KeyD'] = 0; K['Space'] = 0; K['KeyW'] = 0; K['KeyS'] = 0;
+    [arL, arR, arU, arD].forEach(a => a && a.classList.remove('on'));
     if (knob) knob.style.transform = '';
   };
 
@@ -1291,14 +1303,17 @@ addEventListener('keydown', e => {
     const l = dx < -deadZone;
     const r = dx > deadZone;
     const u = dy < -JR * 0.55;
+    const dn = dy > JR * 0.55 && G === 'play';   // 下：空中 + 攻击 = 下砸（只在战斗里生效，避免干扰菜单）
 
     if (l !== jl) { l ? press('KeyA') : rel('KeyA'); jl = l; }
     if (r !== jrt) { r ? press('KeyD') : rel('KeyD'); jrt = r; }
-    if (u !== ju) { u ? press('Space') : rel('Space'); ju = u; }
+    if (u !== ju) { if (u) { press('Space'); if (G === 'play') press('KeyW') } else { rel('Space'); rel('KeyW') } ju = u; }
+    if (dn !== jd) { dn ? press('KeyS') : rel('KeyS'); jd = dn; }
 
     arL.classList.toggle('on', l); 
     arR.classList.toggle('on', r); 
     arU.classList.toggle('on', u);
+    if (arD) arD.classList.toggle('on', dn);
   };
 
   const hudTap = e => {

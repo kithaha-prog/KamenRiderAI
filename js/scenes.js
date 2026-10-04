@@ -12,7 +12,8 @@ RM = BD[0];
 
 // ===== 展厅专属配置 =====
 const HALL_ROOM = { isHall: true, n: '形态展厅', npc: '陈列控制台' };
-const HALL_W = 1600;
+// 展厅宽度随骑士数量自动扩展：第 n 个展台在 320 + n*260，最后一个展台右侧再留 320 的余量（以后新增胶囊不用再改）
+const HALL_W = Math.max(1600, 320 + (typeof CAPSULES !== 'undefined' ? CAPSULES.length : 5) * 260 + 320);
 const HALL_ENTRANCE_X = 220; // 位于基地左侧 (阿公 x:500 的左方)
 
 const HALL_MODAL = {
@@ -51,7 +52,7 @@ function getHallRiderList() {
         trait: c.trait,
         skill: c.skill,
         finisher: c.finisher,
-        rSkill: c.id === 'ryuki' ? 'R · 无限龙助战与喷火' : c.id === '555' ? 'R · Accel 10秒全场加速' : c.id === 'blade' ? 'R · 卡牌合成二合一联合技' : 'R · Overdrive 高能超载'
+        rSkill: c.id === 'ryuki' ? 'R · 无限龙助战与喷火' : c.id === '555' ? 'R · Accel 10秒全场加速' : c.id === 'blade' ? 'R · 卡牌合成二合一联合技' : c.id === 'deno' ? '—' : 'R · Overdrive 高能超载'
       });
     });
   }
@@ -324,6 +325,8 @@ function drawPedestalArmor(id, x, y, f) {
       if (okS(SH6.atk)) drB(SH6.atk, BLADE_AX.atk, 12, x, y, f * BLADE_IDLE_FLIP);
     } else if (id === 'zeztz') {
       if (okS(SHZ.atk)) dr(SHZ.atk, 0, x, y, f, 1.0);
+    } else if (id === 'deno') {
+      if (okS(SHD.atk)) dr(SHD.atk, 12, x, y, f * DENO_FLIP.atk, 1.0);
     }
   } catch (e) {}
 }
@@ -602,6 +605,12 @@ function drawHoloChamber(riderId, cx, cy, isAnim, animT) {
       else if (loopT < 1.4) dr(SHZ.fv, 8, cx, cy, 1, 1.0);
       else if (loopT < 1.9) dr(SHZ.fv, 14, cx, cy, 1, 1.0);
       else dr(SHZ.fv, 18, cx, cy, 1, 1.0);
+    } else if (riderId === 'deno' && okS(SHD.fv)) {
+      const fl = DENO_FLIP.fv;
+      if (loopT < 0.7) dr(SHD.fv, 4, cx, cy, fl, 1.0);
+      else if (loopT < 1.3) dr(SHD.fv, 8, cx, cy - 30, fl, 1.0);
+      else if (loopT < 1.8) dr(SHD.fv, 11, cx, cy - 10, fl, 1.0);
+      else dr(SHD.fv, 15, cx, cy, fl, 1.0);
     }
     ctx.restore();
 

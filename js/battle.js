@@ -88,6 +88,7 @@ function begin(k) {
   if (typeof stopFaizHenshin === 'function') stopFaizHenshin();
   if (typeof stopRyukiHenshin === 'function') stopRyukiHenshin();
   if (typeof stopBladeHenshin === 'function') stopBladeHenshin();
+  if (typeof stopDenoHenshin === 'function') stopDenoHenshin();
 
   const transDur = typeof malayaTransDur === 'function' ? malayaTransDur() : 4.69;
   Object.assign(P, { 
