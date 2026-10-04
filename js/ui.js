@@ -1687,6 +1687,115 @@ function drawWinSettlement() {
   ctx.restore();
 }
 
+// ===== 战败结算 UI（暗红科技面板，对齐 680x430 统一规格） =====
+let LOSE_HITS = [];
+
+function drawLoseSettlement() {
+  if (!LOSE_RES) return;
+  LOSE_HITS = [];
+  const W = LOSE_RES;
+  const t = W.t;
+  const p = Math.min(1, t / 0.8);
+
+  ctx.save();
+  // 1. 背景暗化（偏红）
+  ctx.fillStyle = 'rgba(12, 4, 8, 0.90)';
+  ctx.fillRect(0, 0, 960, 540);
+
+  // 2. 主面板弹性入场
+  const sc = t < 0.25 ? 0.8 + 0.2 * Math.sin((t / 0.25) * Math.PI * 0.5) : 1;
+  const pw = 680, ph = 430, px = (960 - pw) / 2, py = 55;
+  ctx.translate(px + pw / 2, py + ph / 2);
+  ctx.scale(sc, sc);
+  ctx.translate(-(px + pw / 2), -(py + ph / 2));
+
+  rpath(px, py, pw, ph, 18);
+  const bgGrad = ctx.createLinearGradient(px, py, px, py + ph);
+  bgGrad.addColorStop(0, '#1c0e14');
+  bgGrad.addColorStop(1, '#08050c');
+  ctx.fillStyle = bgGrad; ctx.fill();
+  ctx.strokeStyle = '#ff4757'; ctx.lineWidth = 2; ctx.stroke();
+
+  const hg = ctx.createLinearGradient(px + 40, py, px + pw - 40, py);
+  hg.addColorStop(0, 'rgba(255, 71, 87, 0)');
+  hg.addColorStop(0.5, 'rgba(255, 71, 87, 0.25)');
+  hg.addColorStop(1, 'rgba(255, 71, 87, 0)');
+  ctx.fillStyle = hg; ctx.fillRect(px + 40, py + 2, pw - 80, 50);
+
+  // 3. 标题与关卡名
+  txt('DEFEAT · 战役溃败', px + pw / 2, py + 30, 25, '#ff4757', 'center');
+  txt(W.stageName || '', px + pw / 2, py + 66, 14, '#a2b4cb', 'center');
+
+  // 4. 击杀进度条
+  const barX = px + 45, barW = pw - 90, barY = py + 100;
+  const pct = cl((W.killPercent || 0) / 100, 0, 1) * p;
+  txt('击败敌人', barX, barY - 12, 12, '#8fa0b3');
+  txt((W.kills | 0) + ' / ' + (W.targetKills | 0) + '  (' + (W.killPercent | 0) + '%)', barX + barW, barY - 12, 12, '#ffb3b8', 'right');
+  rpath(barX, barY, barW, 14, 7);
+  ctx.fillStyle = 'rgba(6, 10, 20, 0.9)'; ctx.fill();
+  if (pct > 0) {
+    rpath(barX, barY, Math.max(14, barW * pct), 14, 7);
+    ctx.fillStyle = '#ff4757'; ctx.fill();
+  }
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)'; ctx.lineWidth = 1;
+  rpath(barX, barY, barW, 14, 7); ctx.stroke();
+
+  // 5. 数据卡片
+  const mm = Math.floor((W.time || 0) / 60), ss = Math.floor((W.time || 0) % 60);
+  const cards = [
+    { title: '保留金币', val: '+' + Math.round((W.gold || 0) * p).toLocaleString(), icon: ICO.g, col: '#ffd84a' },
+    { title: '战败损失', val: '-' + Math.round((W.lostGold || 0) * p).toLocaleString(), sym: '💔', col: '#ff7675' },
+    { title: '战斗时长', val: (mm ? mm + '分' : '') + ss + '秒', sym: '⏱', col: '#7df9ff' }
+  ];
+  const cardW = 180, cardH = 70, cardGap = 14;
+  const totalCardsW = cards.length * cardW + (cards.length - 1) * cardGap;
+  const cardX0 = px + (pw - totalCardsW) / 2, cardY = py + 142;
+  cards.forEach((cd, idx) => {
+    const cx = cardX0 + idx * (cardW + cardGap);
+    rpath(cx, cardY, cardW, cardH, 10);
+    ctx.fillStyle = 'rgba(12, 18, 36, 0.85)'; ctx.fill();
+    ctx.strokeStyle = cd.col + '55'; ctx.lineWidth = 1.2; ctx.stroke();
+    if (cd.icon) drawIco(cd.icon, cx + 26, cardY + cardH / 2, 28);
+    else txt(cd.sym, cx + 26, cardY + cardH / 2, 22, cd.col, 'center');
+    txt(cd.title, cx + 48, cardY + 22, 11, '#8fa0b3');
+    txt(cd.val, cx + 48, cardY + 46, 15, cd.col);
+  });
+
+  // 6. 提示语（自动换行，最多两行）
+  const tip = '💡 ' + (W.tip || '');
+  const maxChars = 40;
+  const lines = [tip.slice(0, maxChars)];
+  if (tip.length > maxChars) lines.push(tip.slice(maxChars, maxChars * 2));
+  lines.forEach((ln, i) => txt(ln, px + pw / 2, py + 252 + i * 20, 12.5, '#ffd84a', 'center'));
+
+  // 7. 按钮组
+  const btnY = py + 342, btnH = 46;
+  const btnDefs = [
+    { id: 'base', text: '返回大厅 [ESC]', w: 140, bg: 'rgba(255,255,255,0.08)', col: '#ccd6e0', border: 'rgba(255,255,255,0.2)' },
+    { id: 'char', text: '战备整备 [C]', w: 140, bg: 'rgba(0, 229, 255, 0.15)', col: '#7df9ff', border: '#00e5ff' },
+    { id: 'retry', text: '再次挑战 [Enter/R]', w: 190, bg: 'rgba(255, 71, 87, 0.25)', col: '#ff7675', border: '#ff4757', main: true }
+  ];
+  const totalBtnW = btnDefs.reduce((a, b) => a + b.w, 0) + 24;
+  let curBx = px + (pw - totalBtnW) / 2;
+  btnDefs.forEach(b => {
+    rpath(curBx, btnY, b.w, btnH, 10);
+    ctx.fillStyle = b.bg; ctx.fill();
+    ctx.strokeStyle = b.border; ctx.lineWidth = b.main ? 2 : 1.2; ctx.stroke();
+    if (b.main) {
+      ctx.save();
+      ctx.shadowColor = b.col; ctx.shadowBlur = 10 + 4 * Math.sin(T * 6);
+      txt(b.text, curBx + b.w / 2, btnY + btnH / 2, 14, '#ffffff', 'center');
+      ctx.restore();
+    } else {
+      txt(b.text, curBx + b.w / 2, btnY + btnH / 2, 13, b.col, 'center');
+    }
+    LOSE_HITS.push({ id: b.id, x: curBx, y: btnY, w: b.w, h: btnH });
+    curBx += b.w + 12;
+  });
+
+  ctx.restore();
+}
+
 // ===== 世界BOSS 高级结算 UI（暗炎赤金科技面板，对齐 680x430 统一规格） =====
 let WB_HITS = [];
 
