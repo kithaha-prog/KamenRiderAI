@@ -8,7 +8,7 @@
 //   · 胜负：房主裁决并广播（game_end）
 //   · 结算：再次挑战 / 下一关需要双方投票一致（vote）
 
-const COOP_REVIVE_TIME = 10;     // 救援所需持续时间（秒）
+const COOP_REVIVE_TIME = 5;     // 救援所需持续时间（秒）
 const COOP_REVIVE_RANGE = 130;   // 救援有效距离（px）
 const COOP_TIMEOUT = 20000;      // 队友多久没有任何消息视为掉线（ms）
 

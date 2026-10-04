@@ -207,12 +207,41 @@ prep().catch(e => {
 // ===== 普攻音效 =====
 const HIT_SND = []; let hitSndI = 0;
 (function () { for (let i = 0; i < 4; i++) { const a = new Audio(); a.preload = 'auto'; a.volume = .6; a.src = encodeURI(A + 'SoundFX/Sword_Hit.mp3'); HIT_SND.push(a) } })();
-function playSwordHit() { const a = HIT_SND[hitSndI++ % HIT_SND.length]; try { a.currentTime = 0; const p = a.play(); if (p && p.catch) p.catch(() => { }) } catch (e) { } }
+function playSwordHit() { 
+  const a = HIT_SND[hitSndI++ % HIT_SND.length]; 
+  try { 
+    a.currentTime = 0; 
+    a.playbackRate = 1.0; // 恢复常速
+    const p = a.play(); 
+    if (p && p.catch) p.catch(() => { });
+  } catch (e) { } 
+}
+
+// ★ 专属招架音效：1.55 倍高频升调，呈现清脆的金属反弹声
+function playParryHit() {
+  const a = HIT_SND[hitSndI++ % HIT_SND.length];
+  try {
+    a.currentTime = 0;
+    a.playbackRate = 1.55;
+    if ('preservesPitch' in a) a.preservesPitch = false;
+    if ('mozPreservesPitch' in a) a.mozPreservesPitch = false;
+    if ('webkitPreservesPitch' in a) a.webkitPreservesPitch = false;
+    const p = a.play();
+    if (p && p.catch) p.catch(() => { });
+  } catch (e) { }
+}
 
 // ===== 游戏主逻辑帧刷新 =====
 function upd(dt) {
-  if (G === 'td') return tdUpdate(dt);   // ★ 塔防：独立画面，不走下面的战斗 / 基地逻辑
-  if (G === 'play' && typeof coopUpdateBattle === 'function') coopUpdateBattle(dt);
+  if (G === 'td') return tdUpdate(dt); //
+  if (G === 'play' && typeof coopUpdateBattle === 'function') coopUpdateBattle(dt); //
+
+  // ★ 顿帧判定：若处于招架顿帧期，冻结实体更新，仅保留微弱震屏
+  if (typeof HITSTOP !== 'undefined' && HITSTOP > 0) {
+    HITSTOP -= dt;
+    shake = Math.max(0, shake - 25 * dt);
+    return;
+  }
 
   if (LV_POP) {
     LV_POP.t += dt;
@@ -831,9 +860,20 @@ function draw() {
   for (const o of OR) { ctx.fillStyle = o.k === 'h' ? '#ff4a5a' : '#4ab0ff'; ctx.beginPath(); ctx.arc(o.x - cam, GY - 14 + Math.sin(T * 5) * 3, 9, 0, 7); ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke() }
   for (const e of E) drawDashWarn(e);
   for (const e of E) {
-    ctx.save(); ctx.translate(sn(e.x - cam), sn(e.y)); ctx.scale(e.fc * e.s, e.s); if (e.fl > 0) ctx.filter = 'brightness(2.5)'; else if (e.wu > 0 && (T * 16 | 0) % 2) ctx.filter = 'brightness(1.8) saturate(1.7)'; ctx.drawImage(e.im, -e.im.width / 2, -e.im.height); ctx.restore();
+    ctx.save(); 
+    ctx.translate(sn(e.x - cam), sn(e.y)); 
+    ctx.scale(e.fc * e.s, e.s); 
+    if (e.fl > 0) ctx.filter = 'brightness(2.5)'; 
+    else if (e.wu > 0 && (T * 16 | 0) % 2) ctx.filter = 'brightness(1.8) saturate(1.7)'; 
+    ctx.drawImage(e.im, -e.im.width / 2, -e.im.height); 
+    ctx.restore();
+
     if (e.wu > 0) txt('!', e.x - cam, e.y - e.h - 26 - Math.abs(Math.sin(T * 10)) * 6, e.t === 'boss' ? 34 : 24, '#ff3838', 'center');
-    if (e.t !== 'boss') drawEnemyBar(e)
+    
+    // ★ 若怪兽处于眩晕状态，头顶旋转展示 💫 指示
+    if (e.stun > 0) txt('💫', e.x - cam, e.y - e.h - 18, 22, '#ffd84a', 'center');
+
+    if (e.t !== 'boss') drawEnemyBar(e);
   }
   drawHZ();
   drawEP();
@@ -863,6 +903,32 @@ function draw() {
       ctx.beginPath(); ctx.arc(f.x - cam, f.y, (1 - p) * f.r, 0, Math.PI * 2);
       ctx.strokeStyle = `rgba(0, 229, 255, ${p})`; ctx.lineWidth = 6 * p;
       ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 18; ctx.stroke();
+    } else if (f.type === 'parry_spark') {
+      // ★ 完美招架：金色金属十字星芒与外扩光环
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const cx = f.x - cam, cy = f.y, r = f.r * (1 - p * 0.3);
+
+      // 外扩金色冲击环
+      ctx.strokeStyle = '#ffd84a'; ctx.lineWidth = 4 * p + 1;
+      ctx.shadowColor = '#fff3a0'; ctx.shadowBlur = 16;
+      ctx.beginPath(); ctx.arc(cx, cy, r * (1 - p * 0.7), 0, Math.PI * 2); ctx.stroke();
+
+      // 十字高能斩芒
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3 * p + 1;
+      ctx.beginPath();
+      ctx.moveTo(cx - r * 1.3, cy); ctx.lineTo(cx + r * 1.3, cy);
+      ctx.moveTo(cx, cy - r * 1.3); ctx.lineTo(cx, cy + r * 1.3);
+      ctx.stroke();
+
+      // 迸射火星粒子
+      for (let i = 0; i < 8; i++) {
+        const ang = i * Math.PI / 4 + (1 - p) * 1.5;
+        const dist = (1 - p) * r * 1.1;
+        ctx.fillStyle = i % 2 === 0 ? '#ffd84a' : '#ffffff';
+        ctx.fillRect(cx + Math.cos(ang) * dist - 3, cy + Math.sin(ang) * dist - 3, 6, 6);
+      }
+      ctx.restore();
     } else if (f.type === 'boom' || f.type === 'boss_death_blast') {
       if (expImg) {
         ctx.globalCompositeOperation = 'lighter';
@@ -938,6 +1004,17 @@ let last = performance.now();
 addEventListener('keydown', e => { if (!K[e.code]) PR[e.code] = 1; K[e.code] = 1; if (/Space|Arrow/.test(e.code)) e.preventDefault() });
 addEventListener('keyup', e => K[e.code] = 0);
 addEventListener('blur', () => { for (const k in K) K[k] = 0 });
+addEventListener('keydown', e => { 
+  if (!K[e.code]) {
+    PR[e.code] = 1;
+    // ★ 弹反为专属出刀招架机制，仅普攻 J 键有效
+    if (e.code === 'KeyJ') {
+      P.lastParryT = T;
+    }
+  }
+  K[e.code] = 1; 
+  if (/Space|Arrow/.test(e.code)) e.preventDefault();
+});
 
 (function () {
   const MAP = [
@@ -953,7 +1030,16 @@ addEventListener('blur', () => { for (const k in K) K[k] = 0 });
     return _txt(s, ...a);
   };
 
-  const press = c => { if (!K[c]) PR[c] = 1; K[c] = 1 }, rel = c => { K[c] = 0 };
+  const press = c => { 
+    if (!K[c]) {
+      PR[c] = 1;
+      if (c === 'KeyJ') {
+        P.lastParryT = T;
+      }
+    }
+    K[c] = 1;
+  };
+  
   let lastEsc = 0;
 
   const R0 = 'max(3vmin, env(safe-area-inset-right, 0px))', B0 = 'max(3vmin, env(safe-area-inset-bottom, 0px))', L0 = 'max(2vmin, env(safe-area-inset-left, 0px))';

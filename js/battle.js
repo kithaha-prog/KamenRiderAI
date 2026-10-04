@@ -1,3 +1,85 @@
+// ===== 完美招架 (Parry) & 全局顿帧 (Hit-stop) =====
+let HITSTOP = 0; // 全局顿帧倒计时（秒）
+
+// 招架窗口判定：仅限主动出刀普攻 J（受击前 0.12s 按下，或斩击起手 0.12s 内）
+// 彻底排除 Shift 闪避，杜绝撞怪白嫖
+function isParryWindow() {
+  const byInputTime = (typeof P.lastParryT === 'number') && (T - P.lastParryT <= 0.12) && (T - P.lastParryT >= 0);
+  const byStateTime = (P.st === 'atk' || P.st === 'uppercut') && P.t <= 0.12;
+  return byInputTime || byStateTime;
+}
+
+// 核心招架触发函数：必须由【冲撞中的怪兽】或【无法抵消的重型投射物】触发
+function tryParry(attacker, projectile) {
+  // 1. 检验招架输入窗口
+  if (!isParryWindow()) return false;
+
+  // 2. 严格检验受击源：
+  //    - 肉搏必须是处于冲刺/俯冲/冲锋状态下的怪兽
+  //    - 投射物必须是无法被普通斩断的重型弹幕
+  const isChargingMonster = attacker && (attacker.dsh > 0 || attacker.atk === 'charge' || attacker.atk === 'swoop');
+  const isHeavyProjectile = projectile && (projectile.unblockable || projectile.tex === 'meteor' || projectile.tex === 'wave_ground' || projectile.pool || projectile.low || projectile.g);
+
+  if (!isChargingMonster && !isHeavyProjectile) {
+    return false; // 普通散步碰撞或常规轻型子弹不触发弹反
+  }
+
+  // 3. 消耗招架输入，赋予 0.4s 安全保护盾，避免连段暴毙
+  P.lastParryT = -999;
+  P.inv = Math.max(P.inv, 0.4);
+
+  // 4. 触发 0.3 秒全局微顿帧与强震屏
+  HITSTOP = 0.3;
+  shake = 22;
+
+  // 5. 播放清脆的高频金属打铁音
+  if (typeof playParryHit === 'function') playParryHit();
+
+  // 6. 金色星芒特效与文字提示
+  const sparkX = P.x + P.f * 50, sparkY = P.y - 90;
+  FX.push({ type: 'parry_spark', x: sparkX, y: sparkY, t: 0.45, d: 0.45, r: 140, c: '#ffd84a' });
+  FX.push({ type: 'boom', x: sparkX, y: sparkY, t: 0.3, d: 0.3, r: 70, c: '#ffffff' });
+  DT.push({ x: P.x, y: P.y - 200, s: 'PERFECT PARRY!!', t: 1.2, c: '#ffd84a' });
+
+  // 7. 若弹反的是投射物，反噬掉头并炸碎周围重型弹幕
+  if (projectile) {
+    const revVx = -projectile.vx * 1.6 || -P.f * 800;
+    const revVy = (projectile.vy ? -projectile.vy : 0) * 1.2;
+    PJ.push({
+      x: projectile.x, y: projectile.y,
+      vx: revVx, vy: revVy,
+      f: Math.sign(revVx),
+      t: 1.5,
+      h: {},
+      parryReflect: 1,
+      dmg: P.atk * 2.5
+    });
+    FX.push({ type: 'boom', x: projectile.x, y: projectile.y, t: 0.25, d: 0.25, r: 60, c: '#ffd84a' });
+  }
+
+  // 8. 强行打断冲锋怪兽，施加失衡硬直（眩晕 1.5 秒）并震退
+  for (const e of E) {
+    if (e.dead) continue;
+    const isTarget = (e === attacker) || (Math.abs(e.x - P.x) < 220 && Math.abs(e.y - P.y) < 170);
+    if (isTarget) {
+      e.stun = 1.5;
+      e.fl = 0.35;
+      e.dsh = 0; // 强行逼停冲刺
+      e.wu = 0;
+      e.cd = Math.max(e.cd, 2.0); // 技能重进冷却
+      e.x += P.f * 40; // 击退
+      DT.push({ x: e.x, y: e.y - e.h - 10, s: 'STAGGER! 击破硬直', t: 1.2, c: '#ffd84a' });
+    }
+  }
+
+  // 9. 正前方 260px 范围顺劈反击 250% 伤害
+  const xLeft = Math.min(P.x - 20, P.x + P.f * 260);
+  const xRight = Math.max(P.x - 20, P.x + P.f * 260);
+  area(xLeft, xRight, P.atk * 2.5);
+
+  return true;
+}
+
 let stageT = 0;      // 本关耗时（秒）
 let WIN_RES = null;  // 结算数据与动画状态机
 let LOSE_RES = null; // 战败结算数据与动效状态
@@ -479,14 +561,15 @@ function cancelEP(x0, x1) {
   }
 }
 
-function hurtP(d) {
-  if (P.inv > 0 || P.down || P.st === 'trans' || P.st === 'trans_ryuki' || G !== 'play') return;
-  // ★ 怪物伤害 = 绝对数值，不再按「玩家当前最大生命」折算（血越厚挨得越痛 → 已修复）
-  //   伤害 = 推荐等级期望生命 hpExp(z.r) × HIT_FRAC × 招式强弱(0.4~2) × 进度系数 × 关卡倍率(z.dmx，双人=3)
-  //   · 等级：随关卡推荐等级 r 增长；玩家等级 / 血量越高，实际挨打占比越低，越级挑战则很疼
-  //   · 进度：本关击杀进度 0%→100%，伤害 ×0.9 → ×1.1（世界BOSS等无击杀目标的关取 ×1.0）
-  //   · 关卡：双人 dmx=3；首领/弹幕本身的强弱已体现在招式倍率里
-  //   · 安全线：单次伤害 ≤ 最大生命 × DMG_MAX_FRAC
+function hurtP(d, attacker, projectile) {
+  if (P.down || P.st === 'trans' || P.st === 'trans_ryuki' || G !== 'play') return;
+
+  // ★ 仅当符合冲撞或重型弹幕条件且出刀招架成功时，执行弹反免伤
+  if (tryParry(attacker, projectile)) return;
+
+  if (P.inv > 0) return; // 闪避或无敌状态下正常免伤，不产生弹反反击
+
+  // 原有正常扣血伤害结算公式不变...
   const z = ST[cur], ref = 8 * z.dm;
   const prog = z.k > 0 ? Math.min(1, (kills || 0) / z.k) : .5;
   d = hpExp(z.r) * HIT_FRAC * cl(d / ref, .4, 2) * (.9 + .2 * prog) * (z.dmx || 1);
@@ -497,7 +580,6 @@ function hurtP(d) {
   DT.push({ x: P.x, y: P.y - 180, s: '-' + d, t: .8, c: '#ff6a6a' });
   if (P.hp <= 0) {
     P.hp = 0;
-    // ★ 联机：不立即失败，进入濒死等待救援；双方都倒下才失败（由房主裁决）
     if (typeof coopBattleOn === 'function' && coopBattleOn()) coopOnDown(); else fin(0);
   }
 }
@@ -524,7 +606,8 @@ function spawn(t, ox, vi) {
   E.push({ 
     id: ++uid, t, im: c, vi: vi2, x: cl(x, 60, WW - 60), y: t === 'imp' ? 300 : GY, 
     hp, mhp: (t === 'boss' && z.wb) ? hpFull : hp, dm, h: o.H, w: c.width * s, s, fl: 0,
-    cd: t === 'boss' ? 2 : 1.5 + Math.random() * 2, hc: 0, fc: 1, wu: 0, dsh: 0, atk: '', last: '' 
+    cd: t === 'boss' ? 2 : 1.5 + Math.random() * 2, hc: 0, fc: 1, wu: 0, dsh: 0, atk: '', last: '',
+    stun: 0 // ★ 新增眩晕计时器
   });
 
   if (t === 'boss' && z.wb) WBM = hpFull;
@@ -686,6 +769,15 @@ function startAtk(e) {
 
 function updEnemy(e, dt) {
   if (e.dead) return;
+
+  // ★ 眩晕状态：停止一切位移与出招
+  if (e.stun > 0) {
+    e.stun -= dt;
+    e.fl = Math.max(e.fl, 0.08);
+    e.dsh = 0; e.wu = 0;
+    return;
+  }
+
   const o = ET[e.t], d = P.x - e.x, ad = Math.abs(d);
   e.fl -= dt; e.cd -= dt; e.hc -= dt;
 
@@ -718,8 +810,12 @@ function updEnemy(e, dt) {
     if (e.cd <= 0 && ad < 720) startAtk(e);
   }
 
-  if (Math.abs(P.x - e.x) < e.w / 2 + 25 && e.y > P.y - 150 && e.y - e.h < P.y && e.hc <= 0 && P.inv <= 0) {
-    e.hc = .8; hurtP(e.dm);
+  const isCharging = (e.dsh > 0 || e.atk === 'charge' || e.atk === 'swoop');
+  if (Math.abs(P.x - e.x) < e.w / 2 + 25 && e.y > P.y - 150 && e.y - e.h < P.y && e.hc <= 0) {
+    if (P.inv <= 0 || (isCharging && isParryWindow())) {
+      e.hc = .8;
+      hurtP(e.dm, e, null);
+    }
   }
 }
 
@@ -806,8 +902,11 @@ function updBattleFx(dt) {
     if (p.y > GY + 20 || p.y < -260 || p.x < -100 || p.x > WW + 100) { p.t = 0; continue }
 
     const hit = p.low ? (Math.abs(P.x - p.x) < 34 && P.y > GY - 50) : (Math.hypot(p.x - P.x, p.y - (P.y - 80)) < p.r + 30);
-    if (hit && P.inv <= 0) {
-      hurtP(p.dm); p.t = 0;
+    // 只有无法斩断的重型弹幕，才允许在受击前出刀弹反；普通弹幕被正常闪避躲过或被刀光直接砍碎
+    const isHeavy = (p.unblockable || p.tex === 'meteor' || p.tex === 'wave_ground' || p.pool || p.low || p.g);
+    if (hit && (P.inv <= 0 || (isHeavy && isParryWindow()))) {
+      hurtP(p.dm, null, p);
+      p.t = 0;
       if (p.slow) P.slow = 1.8;
       if (p.psn) P.psn = 4;
     }
