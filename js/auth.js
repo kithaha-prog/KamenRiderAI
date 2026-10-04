@@ -57,21 +57,37 @@ function hideLoginModal() {
   overlay.classList.remove('show');
 }
 
-// ---------- 云存档核心接口 ----------
+// ---------- 云存档核心接口（带版本号的冲突检测）----------
+// 数据库表 player_saves 需要有 rev 列（只需在 Supabase SQL Editor 执行一次）：
+//   alter table player_saves add column if not exists rev integer not null default 0;
+//
+// 规则：
+//   · cloudRev = 本机上次与云端对齐时的版本号。null 表示还没成功读过云端 → 一律不上传，
+//     这样断网 / 读取失败时，本机的旧档不会把云端的新档覆盖掉。
+//   · 上传时必须带上 cloudRev：只有云端版本号没变才写入成功（并 +1）。
+//     如果别的设备已经改过云端，写入会被拒绝 → 进入 resolveCloudConflict() 让玩家 / 程序决定用哪份。
+let cloudRev = null;
+let cloudSyncing = false;     // 正在上传，避免重叠
+let cloudResolving = false;   // 正在处理冲突，避免重复弹窗
+
+const isCloudUser = u => !!(u && u.id && !String(u.id).startsWith('local_guest'));
+
+// 进度比较：先比等级，再比经验。>0 表示 a 比 b 进度更高
+const progCmp = (a, b) => ((a.lv | 0) - (b.lv | 0)) || ((a.xp | 0) - (b.xp | 0));
 
 // 1. 从云端拉取存档
-async function loadCloudSave(user) {
-  if (!sbClient || !user || !user.id || user.id.startsWith('local_guest')) return false;
+async function loadCloudSave(user, retried) {
+  if (!sbClient || !isCloudUser(user)) return false;
   try {
     const { data, error } = await sbClient
       .from('player_saves')
-      .select('save_data')
+      .select('save_data,rev')
       .eq('user_id', user.id)
       .maybeSingle();
 
     if (error) {
       console.warn('[Cloud Save] 读取云存档出错:', error.message);
-      return false;
+      return false;   // cloudRev 保持 null → 本次不会上传，避免旧档覆盖云端
     }
 
     if (data && data.save_data && typeof data.save_data === 'object' && Object.keys(data.save_data).length > 0) {
@@ -84,51 +100,123 @@ async function loadCloudSave(user) {
       if (!S.cs || typeof S.cs !== 'object') S.cs = {};          // 胶囊星级
       if (typeof S.csh !== 'number') S.csh = 0;                  // 契约碎片
       if (!S.tw || typeof S.tw !== 'object') S.tw = { best: 0 }; // 无尽塔进度
-      
+
       if (typeof migrateEquip === 'function') migrateEquip();   // 云端旧装备同样要按新倍率迁移
+      cloudRev = data.rev | 0;
       try { localStorage.malaya = JSON.stringify(S); } catch (e) {}
       if (typeof calc === 'function') calc();
-      console.log('[Cloud Save] ✅ 成功拉取云端存档！金币:', S.g, '等级:', S.lv);
-      return true;
-    } else {
-      // 云端尚无存档，立即把当前初始数据上传备份
-      console.log('[Cloud Save] 云端无存档，建立首份档案…');
-      await forceSyncCloudSave();
+      console.log('[Cloud Save] ✅ 成功拉取云端存档！金币:', S.g, '等级:', S.lv, '版本:', cloudRev);
       return true;
     }
+
+    // 云端尚无存档：把当前初始数据建成首份档案
+    console.log('[Cloud Save] 云端无存档，建立首份档案…');
+    const now = new Date().toISOString();
+    let err2;
+    if (data) {
+      // 行已存在但内容为空：按版本号更新
+      ({ error: err2 } = await sbClient.from('player_saves')
+        .update({ save_data: S, rev: (data.rev | 0) + 1, updated_at: now })
+        .eq('user_id', user.id).eq('rev', data.rev | 0));
+      if (!err2) cloudRev = (data.rev | 0) + 1;
+    } else {
+      // 用 insert 而不是 upsert：两台设备同时首次建档时，后到的不会把先到的覆盖掉
+      ({ error: err2 } = await sbClient.from('player_saves')
+        .insert({ user_id: user.id, save_data: S, rev: 0, updated_at: now }));
+      if (!err2) cloudRev = 0;
+      else if (err2.code === '23505' && !retried) return loadCloudSave(user, true);   // 别的设备刚建好 → 重新读取
+    }
+    if (err2) { console.warn('[Cloud Save] 建档失败:', err2.message); return false; }
+    return true;
   } catch (e) {
     console.error('[Cloud Save Error]', e);
     return false;
   }
 }
 
-// 2. 强制立即向 Supabase 同步当前进度
+// 2. 强制立即向 Supabase 同步当前进度（返回 true = 已成功写入云端）
 async function forceSyncCloudSave() {
-  if (!sbClient || !currentAuthUser || !currentAuthUser.id || currentAuthUser.id.startsWith('local_guest')) return;
+  if (!sbClient || !isCloudUser(currentAuthUser)) return false;
+  if (window.__noSave) return false;                       // 注销 / 切换账号 / 载入云档重启中：不再上传
+  if (cloudRev === null || cloudSyncing || cloudResolving) return false;
+
+  cloudSyncing = true;
+  let ok = false, conflict = false;
   try {
-    const { error } = await sbClient
+    const next = cloudRev + 1;
+    const { data, error } = await sbClient
       .from('player_saves')
-      .upsert({
-        user_id: currentAuthUser.id,
-        save_data: S,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'user_id' });
+      .update({ save_data: S, rev: next, updated_at: new Date().toISOString() })
+      .eq('user_id', currentAuthUser.id)
+      .eq('rev', cloudRev)          // ★ 只有云端版本没变才允许写入
+      .select('rev');
 
     if (error) {
       console.warn('[Cloud Save] 存档上传失败:', error.message);
+    } else if (!data || !data.length) {
+      conflict = true;              // 0 行被更新 = 别的设备已经改过云端
     } else {
-      console.log('[Cloud Save] ☁️ 进度已成功同步至 Supabase！');
+      cloudRev = next;
+      ok = true;
+      console.log('[Cloud Save] ☁️ 进度已成功同步至 Supabase！版本:', cloudRev);
       if (typeof lbSubmit === 'function') lbSubmit();   // 顺带更新排行榜（战力没变会自动跳过）
       if (typeof cloudHintShow === 'function') cloudHintShow();   // 右下角灰色半透明“已备份”
     }
   } catch (e) {
     console.error('[Cloud Save Upload Error]', e);
+  } finally {
+    cloudSyncing = false;
+  }
+  if (conflict) await resolveCloudConflict();
+  return ok;
+}
+
+// 载入云端存档并重启页面（用于冲突时采用云端进度）
+function reloadWithCloud(cloudData) {
+  window.__noSave = true;           // 阻止 ui.js 在刷新前把内存里的旧档写回 localStorage、也阻止再上传
+  if (cloudSyncTimer) { clearTimeout(cloudSyncTimer); cloudSyncTimer = null; }
+  try { localStorage.malaya = JSON.stringify(cloudData); } catch (e) {}
+  location.reload();
+}
+
+// 冲突处理：云端存档已被其他设备更新
+async function resolveCloudConflict() {
+  if (cloudResolving || !sbClient || !isCloudUser(currentAuthUser)) return;
+  cloudResolving = true;
+  try {
+    const { data, error } = await sbClient
+      .from('player_saves')
+      .select('save_data,rev')
+      .eq('user_id', currentAuthUser.id)
+      .maybeSingle();
+    if (error || !data || !data.save_data) { cloudResolving = false; return; }
+
+    const cloud = data.save_data, c = progCmp(cloud, S);
+    const info = '云端：Lv.' + (cloud.lv | 0) + '　本机：Lv.' + (S.lv | 0);
+
+    if (c > 0) {
+      // 云端进度更高 → 采用云端（不会让旧设备覆盖新进度）
+      alert('检测到其他设备上有更新的存档（' + info + '）。\n将载入云端存档。');
+      reloadWithCloud(cloud);
+      return;   // 页面即将刷新，cloudResolving 保持 true
+    }
+    // 本机进度更高或相同 → 让玩家选
+    if (confirm('云端存档已被其他设备更新（' + info + '）。\n\n确定 = 用本机进度覆盖云端\n取消 = 载入云端存档')) {
+      cloudRev = data.rev | 0;      // 对齐到云端当前版本，再传一次
+      cloudResolving = false;
+      await forceSyncCloudSave();
+    } else {
+      reloadWithCloud(cloud);
+    }
+  } catch (e) {
+    console.error('[Cloud Save Conflict Error]', e);
+    cloudResolving = false;
   }
 }
 
 // 3. 游戏内防抖上传（每次数据变更 1.2 秒后静默上传）
 function queueCloudSync() {
-  if (!sbClient || !currentAuthUser || !currentAuthUser.id || currentAuthUser.id.startsWith('local_guest')) return;
+  if (!sbClient || !isCloudUser(currentAuthUser) || window.__noSave) return;
   if (cloudSyncTimer) clearTimeout(cloudSyncTimer);
   cloudSyncTimer = setTimeout(() => {
     forceSyncCloudSave();
@@ -137,9 +225,21 @@ function queueCloudSync() {
 
 // 4. 退出/刷新页面前尝试紧急上传
 window.addEventListener('beforeunload', () => {
-  if (currentAuthUser && !currentAuthUser.id.startsWith('local_guest')) {
+  if (isCloudUser(currentAuthUser)) {
     forceSyncCloudSave();
   }
+});
+
+// 5. 切回这个标签页 / App 时，主动检查云端有没有被别的设备更新（战斗中不打断）
+document.addEventListener('visibilitychange', async () => {
+  if (document.hidden || window.__noSave) return;
+  if (cloudRev === null || cloudSyncing || cloudResolving) return;
+  if (!sbClient || !isCloudUser(currentAuthUser)) return;
+  if (typeof G !== 'undefined' && G === 'play') return;
+  try {
+    const { data } = await sbClient.from('player_saves').select('rev').eq('user_id', currentAuthUser.id).maybeSingle();
+    if (data && (data.rev | 0) > cloudRev) await resolveCloudConflict();
+  } catch (e) {}
 });
 
 // ---------- 认证与登录流程 ----------
@@ -160,6 +260,7 @@ async function enterGameWithUser(user, isGuest = false) {
     }
   }
   currentAuthUser = user;
+  cloudRev = null;   // 换账号 / 重新进入：必须重新读取云端后才允许上传
   setAuthStatus('正在读取个人终端档案…', false);
 
   // 拉取云端数据覆盖当前游戏

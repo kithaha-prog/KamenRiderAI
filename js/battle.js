@@ -66,6 +66,7 @@ function tryParry(attacker, projectile) {
   P.inv = Math.max(P.inv, 0.4);
 
   HITSTOP = 0.3;
+  if (typeof CAMERA !== 'undefined') CAMERA.onParry(P.x, P.y);
   if (typeof coopSend === 'function' && typeof COOP !== 'undefined' && COOP.active && COOP.inGame) coopSend('hitstop', { d: 0.3 });   // 联机：全队一起顿帧
   shake = 22;
 
@@ -191,6 +192,7 @@ function begin(k) {
 }
 
 function fin(w) {
+  if (typeof DYNAMIC_BGM !== 'undefined') DYNAMIC_BGM.onGameEnd(w);
   if (G !== 'play') return;
   G = w ? 'win' : 'over'; FD = 0;
   psResult(w);
@@ -473,6 +475,10 @@ function hurt(e, d, pre) {
     if (mp2) COOP.RGb += gBase;
     if (Math.random() < .35) OR.push({ x: e.x, k: Math.random() < .5 ? 'h' : 'm' });
     dropLoot(e);
+    if (e.t === 'boss') {
+      if (typeof CAMERA !== 'undefined') CAMERA.triggerMangaKill(e);
+      fin(1);
+    }
     if (e.t === 'boss') fin(1);
     FX.push({ type: 'boss_death_blast', x: e.x, y: e.y - e.h / 2, t: .6, d: .6, r: e.t === 'boss' ? 220 : 70 });
   }

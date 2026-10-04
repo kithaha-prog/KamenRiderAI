@@ -296,6 +296,8 @@ function playParryHit() {
 
 // ===== 游戏主逻辑帧刷新 =====
 function upd(dt) {
+  if (typeof CAMERA !== 'undefined') CAMERA.update(dt);
+  if (typeof DYNAMIC_BGM !== 'undefined') DYNAMIC_BGM.updateBattleState();
   if (G === 'td') return tdUpdate(dt); //
   if (G === 'play' && typeof coopUpdateBattle === 'function') coopUpdateBattle(dt); //
 
@@ -939,6 +941,8 @@ function draw() {
   }
 
   ctx.save();
+  // ★ 应用视口平滑缩放变换（以屏幕中心进行）
+  if (typeof CAMERA !== 'undefined') CAMERA.apply(ctx);
   if (shake > 0) ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake);
   bg();
 
@@ -1035,6 +1039,9 @@ function draw() {
 
   for (const d of DT) txt(d.s, d.x - cam, d.y - (1 - d.t) * 40, String(d.s).length > 4 ? 22 : 18, d.c, 'center');
   ctx.restore();
+
+  // ★ 渲染弹反速度线与黑白高反差漫画终结剪影（不受 UI 遮挡影响）
+  if (typeof CAMERA !== 'undefined') CAMERA.drawOverlay(ctx);
 
   // 在 draw() 函数中找到 drawSkillBarHUD() 和 drawInfoHUD() 附近：
   drawPlayerHUD(16, 14); 
