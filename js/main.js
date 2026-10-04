@@ -87,7 +87,26 @@ async function prep() {
     ['pool_acid', 'Pool_Acid'],
     ['vortex', 'Vortex_Hole'],
     ['warn', 'Warn_Decal'],
-    ['explosion', 'Hit_Explosion']
+    ['explosion', 'Hit_Explosion'],
+    ['ch1_crystal', 'Bullet_Emerald_Crystal'], // 绿晶刺
+    ['ch1_rubble',  'Bullet_Concrete_Rebar'],  // 钢筋混凝土块
+    ['ch1_guardrail','Bullet_Road_Guardrail'], // 防撞护栏
+    ['ch1_pillar_fall', 'Bullet_Bridge_Pillar'], // 坠落桥墩
+    ['ch1_girder',     'Bullet_Steel_Girder'],   // 工字钢
+    ['ch1_signal_orb', 'Bullet_Signal_Orb'],     // 信号灯琥珀光球
+    ['ch1_root',       'Blast_Root_Spike'],      // 地根突刺
+    ['ch1_laser',      'Laser_Signal_Red'],      // 红灯死光
+    // ===== 第二章 =====
+    ['ch2_ember',       'Bullet_Ember_Feather'],  // 炎羽
+    ['ch2_ember_bomb',  'Bullet_Ember_Bomb'],     // 坠火炎弹
+    ['ch2_fire_pool',   'Pool_Fire'],             // 火池
+    ['ch2_magma_ball',  'Bullet_Magma_Ball'],     // 岩浆球
+    ['ch2_lava_pool',   'Pool_Lava'],             // 岩浆池
+    ['ch2_geyser',      'Blast_Lava_Geyser'],     // 岩浆喷泉
+    ['ch2_fire_slash',  'Bullet_Fire_Slash'],     // 炎狱斩火刃
+    ['ch2_lava_meteor', 'Bullet_Lava_Meteor'],    // 熔岩陨块
+    ['ch2_chain',       'Laser_Chain_Whip'],      // 锁链鞭
+    ['ch2_fire_pillar', 'Pillar_Fire']            // 狱火喷柱
   ];
   for (const [key, base] of efList) {
     const tryList = [
@@ -459,7 +478,8 @@ function upd(dt) {
   const sh = K.ShiftLeft || K.ShiftRight;
   const shPress = PR.ShiftLeft || PR.ShiftRight;
 
-  if (shPress && P.dcd <= 0 && !P.exh && P.sta > 10 && /^(idle|run|air|atk|thr)$/.test(P.st)) {
+  const DODGE_COST = 28; // ★ 闪避体力消耗：由 12 点提升至 28 点
+  if (shPress && P.dcd <= 0 && !P.exh && P.sta >= DODGE_COST && /^(idle|run|air|atk|thr)$/.test(P.st)) {
     const dd = ((K.KeyD || K.ArrowRight) ? 1 : 0) - ((K.KeyA || K.ArrowLeft) ? 1 : 0);
     P.f = dd || P.f;
     P.st = 'dodge';
@@ -469,8 +489,13 @@ function upd(dt) {
     P.vy = 0;
     P.vx = P.f * 1200; // 初速爆发
     P.h = 0;
-    P.sta = Math.max(0, P.sta - 12);
-    cancelEP(P.x - 70, P.x + 70); // 起步消弹
+    P.sta = Math.max(0, P.sta - DODGE_COST);
+    P.sreg = 1.0; // ★ 闪避后冻结回能 1.0 秒，不再边翻滚边秒回体力
+    if (P.sta <= 0 && !P.exh) {
+      P.exh = true;
+      DT.push({ x: P.x, y: P.y - 180, s: '能量耗尽！', t: .9, c: '#ff8a4a' });
+    }
+    cancelEP(P.x - 70, P.x + 70); // 起步消弹[cite: 43]
   }
   P.spr = false;
 
@@ -542,17 +567,19 @@ function upd(dt) {
   }
 
   if (P.spr) {
-    P.sta = Math.max(0, P.sta - 30 * dt);
-    P.sreg = .8;
+    P.sta = Math.max(0, P.sta - 48 * dt); // ★ 奔跑消耗：由 30 点/秒 增加至 48 点/秒[cite: 43]
+    P.sreg = 1.2;                         // ★ 奔跑时重置回体延迟为 1.2 秒 (原 0.8s)[cite: 43]
     if (P.sta <= 0 && !P.exh) {
       P.exh = true;
       DT.push({ x: P.x, y: P.y - 180, s: '能量耗尽！', t: .9, c: '#ff8a4a' });
     }
   } else {
     P.sreg -= dt;
-    if (P.sreg <= 0) P.sta = Math.min(P.stm, P.sta + (P.exh ? 14 : 26) * dt);
+    // ★ 回复速度：常规恢复由 26/s 降至 15/s；力竭状态由 14/s 降至 8/s[cite: 43]
+    if (P.sreg <= 0) P.sta = Math.min(P.stm, P.sta + (P.exh ? 8 : 15) * dt);
   }
-  if (P.exh && P.sta >= P.stm * .3) P.exh = false;
+  // ★ 力竭解除阈值：从 30% 提高到 40%[cite: 43]
+  if (P.exh && P.sta >= P.stm * .4) P.exh = false;
 
   if ((P.st === 'dodge' || P.spr || (P.st === 'fv' && P.ryuki && P.t >= RYUKI_FV.dive && P.y < GY) || (P.st === 'fv' && P.k5 && P.t >= FAIZ_FV.dive && P.y < GY) || (P.st === 'fv' && P.bl && P.t >= BLADE_FV.dive && P.y < GY)) && P.gt <= 0) {
     P.gt = .038;
@@ -860,6 +887,7 @@ function draw() {
   for (const o of OR) { ctx.fillStyle = o.k === 'h' ? '#ff4a5a' : '#4ab0ff'; ctx.beginPath(); ctx.arc(o.x - cam, GY - 14 + Math.sin(T * 5) * 3, 9, 0, 7); ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke() }
   for (const e of E) drawDashWarn(e);
   for (const e of E) {
+    if (typeof drawEnemyAura === 'function') drawEnemyAura(e, 0);   // ★ 怪物身后光效
     ctx.save(); 
     ctx.translate(sn(e.x - cam), sn(e.y)); 
     ctx.scale(e.fc * e.s, e.s); 
@@ -867,6 +895,7 @@ function draw() {
     else if (e.wu > 0 && (T * 16 | 0) % 2) ctx.filter = 'brightness(1.8) saturate(1.7)'; 
     ctx.drawImage(e.im, -e.im.width / 2, -e.im.height); 
     ctx.restore();
+    if (typeof drawEnemyAura === 'function') drawEnemyAura(e, 1);   // ★ 怪物身前光效
 
     if (e.wu > 0) txt('!', e.x - cam, e.y - e.h - 26 - Math.abs(Math.sin(T * 10)) * 6, e.t === 'boss' ? 34 : 24, '#ff3838', 'center');
     
@@ -1039,6 +1068,7 @@ addEventListener('keydown', e => {
     }
     K[c] = 1;
   };
+  const rel = c => { K[c] = 0; };   // ★ 修复：之前缺失，导致松手时抛 ReferenceError，按键卡死
   
   let lastEsc = 0;
 
@@ -1075,7 +1105,11 @@ addEventListener('keydown', e => {
   const tcWarn = o => {
     if (G !== 'play' && o.id !== 'p') return;
     const cdLeft = k => (P.cd[k] || 0), f1 = v => v.toFixed(1) + 's';
-    if (o.id === 'dg') { if (P.exh) warn(o, '能量耗尽！', '#ff8a4a'); else if (P.dcd > 0) warn(o, '闪避冷却中 ' + f1(P.dcd)); }
+    if (o.id === 'dg') { 
+      if (P.exh) warn(o, '能量耗尽！', '#ff8a4a'); 
+      else if (P.dcd > 0) warn(o, '闪避冷却中 ' + f1(P.dcd));
+      else if (P.sta < 28) warn(o, '体力不足！', '#ff8a4a'); // ★ 增加体力不足提示
+    }
     else if (o.id === 'p') { if (cdLeft('p') > 0) warn(o, '变身冷却中 ' + f1(cdLeft('p'))); }
     else if (o.id === 'l' || o.id === 'e' || o.id === 'k') {
       if (cdLeft(o.id) > 0) warn(o, o.tEl.textContent + '冷却中 ' + f1(cdLeft(o.id)));
@@ -1174,7 +1208,7 @@ addEventListener('keydown', e => {
   function closeMore() { mp.classList.remove('show'); moreOpen = false }
 
   const overlayOn = () => ['auth-overlay', 'set-overlay'].some(id => { const e = document.getElementById(id); return e && e.classList.contains('show') });
-  const tcPopup = () => !!(M || showChar || showCapModal || showStat || showQuest || gachaModal || overlayOn() || P.st === 'trans' || P.st === 'trans_ryuki');
+  const tcPopup = () => !!(M || showChar || showCapModal || showStat || showQuest || gachaModal || overlayOn() || P.st === 'trans' || P.st === 'trans_ryuki' || (typeof HALL_MODAL !== 'undefined' && HALL_MODAL.show));
   window.tcHidden = () => tcPopup();
   const setCd = (o, r) => { const v = r > 0 ? `conic-gradient(rgba(0,0,0,.62) ${(Math.min(1, r) * 360).toFixed(1)}deg, transparent 0)` : ''; if (o.cdv !== v) { o.cdv = v; o.cdEl.style.background = v } };
   const setT = (o, t) => { if (o.tEl.textContent !== t) o.tEl.textContent = t };
@@ -1213,30 +1247,60 @@ addEventListener('keydown', e => {
 
   if (TOUCH) document.body.appendChild(ui);
 
+  // ===== 手游摇杆优化版：全局事件接管 + 防误触防中断 =====
   const knob = jr.querySelector('b'), arL = jr.querySelector('.l'), arR = jr.querySelector('.r'), arU = jr.querySelector('.u');
   let jid = null, ox = 0, oy = 0, JR = 60, jl = false, jrt = false, ju = false;
+  
   const joyOk = () => !M && !showChar && !showCapModal && !showStat && !showQuest && !gachaModal && (G === 'vil' || G === 'room' || (G === 'play' && P.st !== 'trans'));
+
   const joyStop = () => {
-    if (jid !== null) { try { jz.releasePointerCapture(jid) } catch (_) { } }
-    jid = null; jr.classList.remove('show'); rel('KeyA'); rel('KeyD'); rel('Space');
-    jl = jrt = ju = false; [arL, arR, arU].forEach(a => a.classList.remove('on'));
+    const id = jid;
+    jid = null; jl = false; jrt = false; ju = false;
+    try { if (id !== null) jz.releasePointerCapture(id); } catch (_) { }
+    jr.classList.remove('show');
+    K['KeyA'] = 0; K['KeyD'] = 0; K['Space'] = 0;
+    [arL, arR, arU].forEach(a => a.classList.remove('on'));
+    if (knob) knob.style.transform = '';
   };
+
   const joyMove = e => {
+    if (jid === null || e.pointerId !== jid) return;
+    
     let dx = e.clientX - ox, dy = e.clientY - oy, d = Math.hypot(dx, dy);
-    if (d > JR) {
-      const k = (d - JR) / d; ox += dx * k; oy += dy * k;
-      ox = cl(ox, JR + 4, innerWidth - JR - 4); oy = cl(oy, JR + 4, innerHeight - JR - 4);
-      jr.style.left = ox + 'px'; jr.style.top = oy + 'px';
-      dx = e.clientX - ox; dy = e.clientY - oy; d = Math.hypot(dx, dy);
+    
+    // 如果拉得太远，圆心适度平滑跟随，但保留充足的死区支撑，绝不轻易断触
+    if (d > JR * 1.5) {
+      const k = (d - JR * 1.5) / d;
+      ox += dx * k;
+      oy += dy * k;
+      ox = cl(ox, JR + 4, innerWidth - JR - 4);
+      oy = cl(oy, JR + 4, innerHeight - JR - 4);
+      jr.style.left = ox + 'px';
+      jr.style.top = oy + 'px';
+      dx = e.clientX - ox;
+      dy = e.clientY - oy;
+      d = Math.hypot(dx, dy);
     }
+    
+    // 摇杆球头位移限制在半径 JR 范围内
     const kk = d > JR ? JR / d : 1;
-    knob.style.transform = 'translate(' + dx * kk + 'px,' + dy * kk + 'px)';
-    const dz = JR * .3, l = dx < -dz, r = dx > dz, u = dy < -JR * .6;
-    if (l !== jl) { l ? press('KeyA') : rel('KeyA'); jl = l }
-    if (r !== jrt) { r ? press('KeyD') : rel('KeyD'); jrt = r }
-    if (u !== ju) { u ? press('Space') : rel('Space'); ju = u }
-    arL.classList.toggle('on', l); arR.classList.toggle('on', r); arU.classList.toggle('on', u);
+    knob.style.transform = 'translate(' + (dx * kk) + 'px,' + (dy * kk) + 'px)';
+    
+    // 灵敏死区判定（死区设为 12px，轻松推动即可持续行走）
+    const deadZone = 12;
+    const l = dx < -deadZone;
+    const r = dx > deadZone;
+    const u = dy < -JR * 0.55;
+
+    if (l !== jl) { l ? press('KeyA') : rel('KeyA'); jl = l; }
+    if (r !== jrt) { r ? press('KeyD') : rel('KeyD'); jrt = r; }
+    if (u !== ju) { u ? press('Space') : rel('Space'); ju = u; }
+
+    arL.classList.toggle('on', l); 
+    arR.classList.toggle('on', r); 
+    arU.classList.toggle('on', u);
   };
+
   const hudTap = e => {
     const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 960, y = (e.clientY - r.top) / r.height * 540;
     if (!psCanOpen()) return false;
@@ -1245,19 +1309,37 @@ addEventListener('keydown', e => {
     if (psBadgeHit(x, y)) { LB.tab = 0; psOpen(); return true; }
     return false;
   };
+
+  // 1. 触摸按下：在左半屏生成摇杆
   jz.addEventListener('pointerdown', e => {
     if (jid !== null || !joyOk()) return;
     if (hudTap(e)) { e.preventDefault(); return; }
-    e.preventDefault(); jid = e.pointerId; jz.setPointerCapture(jid);
-    jr.classList.add('show'); JR = jr.offsetWidth / 2 || 60;
-    ox = cl(e.clientX, JR + 4, innerWidth - JR - 4); oy = cl(e.clientY, JR + 4, innerHeight - JR - 4);
-    jr.style.left = ox + 'px'; jr.style.top = oy + 'px'; knob.style.transform = '';
-    joyMove(e);
-  });
-  jz.addEventListener('pointermove', e => { if (e.pointerId === jid) joyMove(e) });
-  const joyEnd = e => { if (e.pointerId === jid) joyStop() };
-  jz.addEventListener('pointerup', joyEnd); jz.addEventListener('pointercancel', joyEnd); jz.addEventListener('lostpointercapture', joyEnd);
-  addEventListener('blur', joyStop);
+    e.preventDefault(); 
+    
+    jid = e.pointerId;
+    try { jz.setPointerCapture(jid); } catch (_) { }
+
+    jr.classList.add('show'); 
+    JR = 60; // 稳定基准半径
+    ox = cl(e.clientX, JR + 4, innerWidth - JR - 4); 
+    oy = cl(e.clientY, JR + 4, innerHeight - JR - 4);
+    
+    jr.style.left = ox + 'px'; 
+    jr.style.top = oy + 'px'; 
+    knob.style.transform = '';
+  }, { passive: false });
+
+  // 2. 将 move、up、cancel 全局托管至 window，即使滑出左半区也能无缝响应与正常松开
+  window.addEventListener('pointermove', joyMove, { passive: false });
+  
+  const handleJoyEnd = e => { 
+    if (e.pointerId === jid) joyStop(); 
+  };
+  window.addEventListener('pointerup', handleJoyEnd);
+  window.addEventListener('pointercancel', handleJoyEnd);
+  window.addEventListener('blur', joyStop);
+
+  // 3. 状态守卫循环
   setInterval(() => {
     const ok = joyOk();
     jz.classList.toggle('on', ok);
@@ -1267,7 +1349,14 @@ addEventListener('keydown', e => {
 
   cv.addEventListener('pointerdown', e => {
     const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 960, y = (e.clientY - r.top) / r.height * 540;
-    if (G === 'td') { tdClick(x, y); return; }   // ★ 塔防
+    if (G === 'td') { tdClick(x, y); return; }   // ★ 塔防[cite: 33]
+    
+    // ★ 展厅检视弹窗点击优先响应
+    if (typeof HALL_MODAL !== 'undefined' && HALL_MODAL.show) {
+      if (typeof hallClick === 'function') hallClick(x, y);
+      return;
+    }
+    
     if (gachaModal) return PR.Enter = 1;
     if (showStat) { psClick(x, y); return; }
     if (showQuest) { questClick(x, y); return; }

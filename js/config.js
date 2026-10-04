@@ -147,9 +147,9 @@ const SHZ = {
 
 // 敌人基础属性
 const ET = {
-  imp: { hp: 30, H: 70, sp: 120, xp: 10, g: 8, dm: 8, col: '#4cd0ff' },
-  wd: { hp: 90, H: 140, sp: 70, xp: 30, g: 20, dm: 10, col: '#c9a0ff' },
-  boss: { hp: 800, H: 340, sp: 55, xp: 0, g: 0, dm: 22, col: '#55dd66' }
+  imp:  { hp: 30,  H: 95,  sp: 125, xp: 10, g: 8,  dm: 8,  col: '#4cd0ff' },
+  wd:   { hp: 90,  H: 165, sp: 75,  xp: 30, g: 20, dm: 10, col: '#c9a0ff' },
+  boss: { hp: 800, H: 380, sp: 55,  xp: 0,  g: 0,  dm: 22, col: '#55dd66' }
 };
 
 // ===== 20 个章节主题定义 =====
@@ -327,8 +327,18 @@ ST.forEach(z => {
 // imp=飞行小怪  wd=远程精英  boss=首领；名称对应 battle.js 里的 ATKS
 const THEME = ['', '翡翠', '烈焰', '苍雷', '寒霜', '瘟毒', '机械', '虚空', '圣辉', '星骸', '终焉'];
 const ATK_SET = {
-  1: { imp: ['swoop', 'aim'],          wd: ['fan', 'lob', 'aim'],                boss: ['fan', 'lob', 'charge', 'slam'] },
-  2: { imp: ['aim', 'swoop'],          wd: ['lobPool', 'fan', 'pillar'],         boss: ['pillars', 'lobPool', 'ring', 'slam', 'rain'] },
+  // ★ 第 1 章完全独立专属招式：小龙晶刺、废墟兽碎石沥青、断桥机神护栏与塌方
+  1: { 
+    imp: ['ch1_crystal_shot', 'ch1_shard_fan', 'swoop'],                                   // 翡翠晶龙
+    wd:  ['ch1_rubble_lob', 'ch1_road_fissure', 'ch1_root_spike'],                         // 碎岩兽
+    boss:['ch1_bridge_slam', 'ch1_traffic_laser', 'ch1_pillar_rain', 'ch1_girder_throw', 'ch1_signal_cycle', 'charge'] // 红绿灯机神
+  },
+  // ★ 第 2 章专属：熔岩炎蝠 / 黑曜熔喉兽 / 炎狱魔尊
+  2: {
+    imp: ['ch2_ember_feather', 'ch2_ember_bomb', 'swoop'],
+    wd:  ['ch2_magma_spit', 'ch2_lava_geyser', 'ch2_sac_burst'],
+    boss:['ch2_hellfire_slash', 'ch2_flame_wing', 'ch2_chain_lash', 'ch2_meteor_rain', 'ch2_hellfire_pillars', 'charge']
+  },
   3: { imp: ['zap', 'swoop'],          wd: ['pillar', 'burst', 'wave'],          boss: ['pillars', 'beam', 'charge', 'wave', 'ring'] },
   4: { imp: ['aim', 'zap'],            wd: ['rain', 'fan', 'wave'],              boss: ['rain', 'ring', 'slam', 'pillars', 'homing'] },
   5: { imp: ['aim', 'swoop'],          wd: ['lobPool', 'wave', 'homing'],        boss: ['lobPool', 'rain', 'ring', 'summon', 'pillars'] },
@@ -341,11 +351,12 @@ const ATK_SET = {
 };
 
 // 天赋配置
+// 天赋配置文案
 const TL = [
-  ['攻击强化', '伤害 +5%'],
-  ['生命强化', '最大生命 +6%'],
+  ['攻击强化', '伤害 +10%'],
+  ['生命强化', '最大生命 +10%'],
   ['魔力强化', '最大魔力 +6%'],
-  ['会心一击', '暴击率 +2%（暴击×2）']
+  ['会心一击', '暴击率 +0.25%（暴击×2）']
 ];
 
 // ===== 变身胶囊注册中心（仅保留拥有实际美术与动作素材的骑士） =====

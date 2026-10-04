@@ -1280,9 +1280,9 @@ function openCapsuleGachaSettlement(id, isNew = true) {
 }
 function openRyukiGachaSettlement(isNew = true) { openCapsuleGachaSettlement('ryuki', isNew) }   // 兼容旧调用
 
-// 铁匠铺研磨价格：随等级递增（等级越高，每级涨得越多）
-// 公式 80 × (Lv+1) × (1 + Lv/10)，取整到 10：Lv0=80  Lv10=1760  Lv24=6800  Lv50=24480  Lv100=88890
-const forgeCost = lv => Math.round(80 * (lv + 1) * (1 + lv / 10) / 10) * 10;
+// 铁匠铺研磨价格：全面平衡通关关卡奖励（降幅约 60%~75%，1 关收益 ≈ 1~2 次升级）
+// Lv.0=30G, Lv.4=180G, Lv.6=270G(原900G), Lv.10=480G, Lv.20=1200G, Lv.30=2200G
+const forgeCost = lv => Math.round(30 * (lv + 1) * (1 + lv / 22) / 5) * 5;  
 
 // 条目字段：n=名称（两个以上空格后为标签）  ic=图标  d=说明  g/t=金币/天赋点花费  max=已满
 //           bt=按钮动词  hold=[当前,上限]（显示持有条）  st=1（详情里预览升级后的属性变化）  nv=1（非购买动作）
@@ -1312,10 +1312,11 @@ function items() {
   ];
 
   // 铁匠铺：胶囊已剥离，无上限等级，攻击+2%/生命+5%/伤害-0.05%/魔力+3%
+  // 铁匠铺条目描述对齐 5%
   if (p === 'eq') {
     const q = (k, n, d, ic) => ({ n: n + '  Lv.' + S[k], ic, d, g: forgeCost(S[k]), max: false, bt: '研磨', st: 1, f: () => S[k]++ });
     return [
-      q('sw', '基础斩刃研磨', '基础攻击力 +2% / 级（无上限）', '⚔'),
+      q('sw', '基础斩刃研磨', '基础攻击力 +5% / 级（无上限）', '⚔'),
       q('ar', '基础装甲强化', '基础生命 +5%、受到伤害 -0.05% / 级（无上限）', '🛡'),
       q('bt', '驱动引擎调试', '基础魔力 +3% / 级（无上限）', '⚙'),
       bk
@@ -1770,6 +1771,7 @@ function drawWBSettlement() {
   txt(subTip, px + pw / 2, py + 148, 11.5, W.isKill ? '#7dff9a' : '#ffa502', 'center');
 
   // 5. 奖励展示卡片网格 (py + 204，收紧间距)
+  // 5. 奖励展示卡片网格 (收紧间距，防止文字与角标重叠)[cite: 45]
   const cardW = 150, cardH = 70, cardGap = 14;
   const cards = [
     { 
@@ -1779,7 +1781,14 @@ function drawWBSettlement() {
       col: '#ffd84a',
       badge: W.isKill ? 'KILL +50%' : null
     },
-    { title: '世界首领钻石', val: '+' + (W.diam | 0), icon: ICO.d, col: '#4fe3ff', badge: W.isKill ? 'KILL +50%' : null },
+    // ★ 将标题微调为「首领钻石」，排版更清爽[cite: 45]
+    { 
+      title: '首领钻石', 
+      val: '+' + (W.diam | 0), 
+      icon: ICO.d, 
+      col: '#4fe3ff', 
+      badge: W.isKill ? 'KILL +50%' : null 
+    },
     { 
       title: '历史最高伤害', 
       val: poN(W.bestDmg), 
@@ -1806,14 +1815,17 @@ function drawWBSettlement() {
     if (cd.icon) drawIco(cd.icon, cx + 26, cardY + cardH / 2, 28);
     else txt(cd.sym || '◆', cx + 26, cardY + cardH / 2, 22, cd.col, 'center');
 
+    // 内部文字正常显示，不再受角标干扰[cite: 45]
     txt(cd.title, cx + 48, cardY + 22, 11, '#8fa0b3');
     txt(cd.val, cx + 48, cardY + 46, 15, cd.col);
 
+    // ★ 核心优化：改为卡片右上边框上方外浮挂件，彻底告别文字重叠！
     if (cd.badge) {
-      rpath(cx + cardW - 74, cardY + 5, 68, 15, 4);
-      ctx.fillStyle = 'rgba(255, 71, 87, 0.28)'; ctx.fill();
-      ctx.strokeStyle = '#ff4757'; ctx.lineWidth = 1; ctx.stroke();
-      txt(cd.badge, cx + cardW - 40, cardY + 12.5, 7.5, '#ffd84a', 'center');
+      const bw = 66, bh = 17, bx = cx + cardW - bw - 8, by = cardY - 9;
+      rpath(bx, by, bw, bh, 5);
+      ctx.fillStyle = 'rgba(235, 47, 47, 0.95)'; ctx.fill();
+      ctx.strokeStyle = '#ffd84a'; ctx.lineWidth = 1.2; ctx.stroke();
+      txt(cd.badge, bx + bw / 2, by + bh / 2, 8.5, '#ffffff', 'center');
     }
   });
 
@@ -2111,7 +2123,20 @@ function psTick(dt) {
   if (psSaveT > 15) { psSaveT = 0; if (!window.__noSave) try { localStorage.malaya = JSON.stringify(S) } catch (e) { } }   // 仅本地，云端仍走 save() 的防抖
 }
 function psHit(d, c) { const p = ps(); p.dmg += d; p.hits++; if (c) p.crits++; if (d > p.maxHit) p.maxHit = d }
-function psKill(isBoss) { const p = ps(); p.kills++; if (isBoss) p.boss++ }
+function psKill(isBoss) { 
+  const p = ps(); 
+  p.kills++; 
+  if (isBoss) p.boss++; 
+
+  // ★ 记录各个形态专属的击杀数据
+  if (!p.formKills) p.formKills = {};
+  if (!p.formBoss) p.formBoss = {};
+  const rk = (typeof curRiderKey === 'function') ? curRiderKey() : 'malaya';
+  p.formKills[rk] = (p.formKills[rk] || 0) + 1;
+  if (isBoss) {
+    p.formBoss[rk] = (p.formBoss[rk] || 0) + 1;
+  }
+}
 function psGold(n) { if (n > 0) ps().gE += n }
 function psDia(n) { if (n > 0) ps().dE += n }
 function psTaken(d) { ps().taken += d }

@@ -128,6 +128,7 @@
   }
 
   // 只在基地 / 房间里，且没有别的弹窗 / 菜单 / 变身动画时才响应 Esc
+  // 只在基地 / 房间里，且没有别的弹窗 / 菜单 / 变身动画时才响应 Esc[cite: 18]
   function canOpen() {
     if (typeof G === 'undefined' || !(G === 'vil' || G === 'room')) return false;
     if (document.getElementById('auth-overlay').classList.contains('show')) return false;
@@ -137,6 +138,8 @@
     if (typeof showStat !== 'undefined' && showStat) return false;
     if (typeof showQuest !== 'undefined' && showQuest) return false;
     if (typeof gachaModal !== 'undefined' && gachaModal) return false;
+    // ★ 加入此行：展厅检视弹窗开启期间，禁止 Esc 打开系统设置！
+    if (typeof HALL_MODAL !== 'undefined' && HALL_MODAL.show) return false;
     if (typeof P !== 'undefined' && (P.st === 'trans' || P.st === 'trans_ryuki')) return false;
     if (typeof COOP !== 'undefined' && COOP.active && COOP.inGame) return false;
     return true;

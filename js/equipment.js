@@ -110,7 +110,7 @@ function affixMax(k, tier, lvl) {   // 品质 q = 1 时的满值
   switch (k) {
     case 'atk': return (3 + b * 1.1) * mul * EQ_K;
     case 'hp': return (20 + b * 9) * mul * EQ_K;
-    case 'mp': return (10 + b * 5) * mul * EQ_K;
+    case 'mp': return (6 + b * 0.5) * mul * EQ_K;
     case 'crit': return .012 + tier * .004;
     case 'def': return (1 + b * .2) * mul * EQ_K;
     case 'ls': return LS_MAX[tier] || LS_MAX[0];
@@ -161,9 +161,13 @@ function toggleAffixLock(it, i) {
   save();
 }
 // 重铸消耗：基础价 ×（1 + 锁定条数的倍率）。锁得越多越贵
+// 重铸消耗：下调基础金币开销
 function rerollCost(it) {
   const m = LOCK_COST_MUL[Math.min(affixLockN(it), LOCK_COST_MUL.length - 1)];
-  return { g: Math.round(300 * ((it.tier | 0) + 1) * (1 + (it.reqLvl || 1) / 25) * m), mat: Math.round(4 * ((it.tier | 0) + 1) * m) };
+  return { 
+    g: Math.round(120 * ((it.tier | 0) + 1) * (1 + (it.reqLvl || 1) / 30) * m), 
+    mat: Math.max(1, Math.round(2.5 * ((it.tier | 0) + 1) * m)) 
+  };
 }
 // 重铸词条：金币 + 碎晶；锁定的词条原样保留，其余重新随机（旧存档里没有词条的装备也能重铸出词条）
 function rerollAffix(it) {
@@ -197,7 +201,7 @@ function genItem(slot, tier, lvl = 1) {
   const s = calcBase(slot, tier, reqLvl);
 
   const it = {
-    v: 4,
+    v: 5,
     id: 'eq_' + (++uid) + '_' + Math.random().toString(36).slice(2, 7),
     name,
     slot,
@@ -224,9 +228,9 @@ const starStr = it => '⭐'.repeat(it.star | 0) + '☆'.repeat(MAX_STAR - (it.st
 // 两项固定基础属性：每个部位固定两项，数值只由「部位 + 品质 + 需求等级」决定（没有随机）
 const SLOT_BASE = {
   weapon:   [['atk', (b, t, m) => (10 + b * 5.2) * m], ['hp', (b, t, m) => (30 + b * 12) * m]],
-  chest:    [['hp', (b, t, m) => (60 + b * 32) * m], ['mp', (b, t, m) => (20 + b * 8) * m]],
-  belt:     [['atk', (b, t, m) => (5 + b * 2.2) * m], ['mp', (b, t, m) => (30 + b * 16) * m]],
-  necklace: [['mp', (b, t, m) => (25 + b * 14) * m], ['crit', (b, t) => .02 + t * .01]],
+  chest:    [['hp', (b, t, m) => (60 + b * 32) * m], ['mp', (b, t, m) => (6 + b * 0.4) * m]],
+  belt:     [['atk', (b, t, m) => (5 + b * 2.2) * m], ['mp', (b, t, m) => (8 + b * 0.5) * m]],
+  necklace: [['mp', (b, t, m) => (12 + b * 1.0) * m], ['crit', (b, t) => .02 + t * .01]],
   ring:     [['atk', (b, t, m) => (6 + b * 3.2) * m], ['crit', (b, t) => .02 + t * .02]],
   legs:     [['hp', (b, t, m) => (50 + b * 25) * m], ['def', (b, t, m) => (1 + t * 1.2 + b * .4) * m]],
   boots:    [['hp', (b, t, m) => (30 + b * 15) * m], ['atk', (b, t, m) => (3 + b * 1.2) * m]]
@@ -253,12 +257,19 @@ function recalcItem(it) {
 }
 
 // 强化消耗：金币 + 碎晶 + 强化卷轴（每 5 级强化，多 1 张卷轴）
+// 强化消耗：降低金币门槛，与关卡金币掉落匹配
 function upgradeCost(it) {
-  return { g: (it.lvl + 1) * 60 * (it.tier + 1), mat: (it.lvl + 1) * Math.max(1, it.tier), scr: 1 + (((it.lvl | 0) / 5) | 0) };
+  return { 
+    g: Math.round((it.lvl + 1) * 25 * (it.tier + 1)), 
+    mat: (it.lvl + 1) * Math.max(1, it.tier), 
+    scr: 1 + (((it.lvl | 0) / 5) | 0) 
+  };
 }
 
-// 升星消耗：金币 + 2 件「同名 & 同品质」的背包装备（自动挑投入最少的）
-function starCost(it) { return Math.round(((it.star | 0) + 1) * (it.tier + 1) * 250 * (1 + (it.reqLvl || 1) / 40)); }
+// 升星消耗：已有 2 件同名装备消耗，降低金币附加门槛
+function starCost(it) { 
+  return Math.round(((it.star | 0) + 1) * (it.tier + 1) * 100 * (1 + (it.reqLvl || 1) / 50)); 
+}
 function starMats(it) {
   return S.inv
     .filter(o => o.id !== it.id && !o.locked && o.name === it.name && o.tier === it.tier)
@@ -470,14 +481,16 @@ function discardItem(item) {
 // 基础属性：按「部位 + 品质 + 需求等级」重新生成固定的两项（强化 / 升星等级保留）。
 // 副词条：保留原有的（含品质和锁定），不足 3 条的补满、互不重复。
 // 做成具名函数：云存档拉取后（auth.js loadCloudSave）也要再跑一次。
+// ===== 旧存档迁移（→ v5：重算装备过度膨胀的魔力属性） =====
 function migrateEquip() {
   const fix = it => {
-    if (!it || it.v >= 4 || !SLOT_BASE[it.slot]) return;
+    if (!it || it.v >= 5 || !SLOT_BASE[it.slot]) return;
     const tier = it.tier | 0, lvl = it.reqLvl || 1;
     it.baseStats = calcBase(it.slot, tier, lvl);
     const keep = (it.affix || []).filter(a => AFFIX_DEFS[a.k]).slice(0, AFFIX_COUNT);
     it.affix = keep.concat(rollAffixes(tier, lvl, keep.map(a => a.k), AFFIX_COUNT - keep.length));
-    it.v = 4; recalcItem(it);
+    it.v = 5; 
+    recalcItem(it);
   };
   (S.inv || []).forEach(fix);
   for (const s in (S.eq || {})) fix(S.eq[s]);

@@ -26,10 +26,11 @@ function coopNewP2() {
   };
 }
 
+// 在 COOP 对象中增加合体技状态字段：
 const COOP = {
-  active: false,        // 是否在联机房间/战斗中
-  inGame: false,        // 是否已进入战斗关卡（直到离开联机为止保持 true，含结算界面）
-  isHost: false,        // 是否为房主 (1P)
+  active: false,
+  inGame: false,
+  isHost: false,
   roomCode: '',
   channel: null,
   stageIdx: 0,
@@ -38,18 +39,88 @@ const COOP = {
   peerConnected: false,
 
   lastSyncT: 0, monT: 0, lastSt: '', lastDown: false, lastRecv: 0,
-  out: [], lastFlush: 0, subscribed: false,   // 发送队列（合并成一包再发，避免超出 Realtime 每秒消息数限制）
-  RGb: 0,               // 房主：本局击杀的「未加成」基础金币（客机据此按自己的金币词条结算）
-  fxQ: [], fxT: 0,      // 待广播的特效队列
-  badTrans: {},         // 队友变身演出绘制失败过的类型（失败后改用站立 + 光效）
-  rescueT: 0,           // 我正在救队友的累计进度（秒）
-  channeling: false,    // 我此刻是否正在读条救人（锁定移动与出招）
-  escT: 0,              // 撤退二次确认计时
-  vote: { me: null, peer: null },   // 结算投票：'retry' | 'next' | null
-  note: null,           // 屏幕提示 {s, until}
+  out: [], lastFlush: 0, subscribed: false,
+  RGb: 0,
+  fxQ: [], fxT: 0,
+  badTrans: {},
+  rescueT: 0,
+  channeling: false,
+  escT: 0,
+  vote: { me: null, peer: null },
+  note: null,
 
-  P2: coopNewP2()       // 队友数据镜像
+  // ★ 双人合体技状态机
+  myFvT: 0,          // 本地进入 fv 大招的绝对时间戳 (ms)
+  peerFvT: 0,        // 队友进入 fv 大招的绝对时间戳 (ms)
+  comboLock: false,  // 单次大招防重复触发锁
+  combo: {
+    active: false,
+    t: 0,
+    dur: 2.8,        // 特写与锁定标持续时间
+    targetX: 0,
+    targetY: 470,
+    p1Atk: 0,
+    p2Atk: 0,
+    hitDone: false   // 核爆伤害是否已结算
+  },
+
+  P2: coopNewP2()
 };
+
+// ★ 触发双人合体技核心函数
+function coopTriggerDoubleKick(targetX, p1Atk, p2Atk, isBroadcaster = true) {
+  COOP.combo.active = true;
+  COOP.combo.t = 0;
+  COOP.combo.targetX = targetX;
+  COOP.combo.targetY = GY;
+  COOP.combo.p1Atk = p1Atk;
+  COOP.combo.p2Atk = p2Atk;
+  COOP.combo.hitDone = false;
+  COOP.comboLock = true;
+
+  // 强震屏与全屏公告
+  shake = 30;
+  DT.push({ x: targetX, y: GY - 280, s: '⚡ DOUBLE RIDER FINISH!! ⚡', t: 2.2, c: '#ffd84a' });
+
+  // 若为发起端，广播至队友客户端同步开启特写
+  if (isBroadcaster) {
+    coopSend('double_rider_kick', { targetX, p1Atk, p2Atk });
+  }
+}
+
+// ★ 房主权威结算核爆级 160% 联合伤害
+function coopExecuteDoubleKickExplosion() {
+  if (COOP.combo.hitDone) return;
+  COOP.combo.hitDone = true;
+
+  const p1Atk = COOP.combo.p1Atk || P.atk;
+  const p2Atk = COOP.combo.p2Atk || P.atk;
+  const targetX = COOP.combo.targetX;
+
+  // 单人大招倍率约为 5.6 倍，合体技提升至两人总和的 160%：(Atk1 + Atk2) * 5.6 * 1.6
+  const totalDmg = Math.round((p1Atk + p2Atk) * 5.6 * 1.6);
+
+  // 1. 优先对锁定的首领施加全额联合伤害
+  const boss = E.find(e => !e.dead && e.t === 'boss');
+  if (boss) {
+    hurt(boss, totalDmg);
+  }
+  // 2. 对全场所有其余怪物施加 80% 的毁灭震荡波伤害
+  for (const e of E) {
+    if (e.dead || e === boss) continue;
+    hurt(e, Math.round(totalDmg * 0.8));
+  }
+
+  // 3. 全屏敌方弹幕直接湮灭碎裂
+  cancelEP(-9999, 9999);
+
+  // 4. 全屏核爆级视觉震撼反馈（通过 fx_batch 广播给队友）
+  shake = 45;
+  FX.push({ type: 'parry_spark', x: targetX, y: GY - 80, t: 0.8, d: 0.8, r: 350, c: '#ffd84a' });
+  FX.push({ type: 'boom', x: targetX, y: GY - 80, t: 0.9, d: 0.9, r: 400, c: '#ff3838' });
+  FX.push({ type: 'boss_death_blast', x: targetX, y: GY - 80, t: 1.0, d: 1.0, r: 380, c: '#00e5ff' });
+  DT.push({ x: targetX, y: GY - 220, s: 'CRITICAL 160% SYNCHRO!!', t: 1.8, c: '#ff3838' });
+}
 
 // ---------- 0. 状态查询小工具 ----------
 const coopIsGuest = () => COOP.active && COOP.inGame && !COOP.isHost;
@@ -305,12 +376,22 @@ function coopHandleMessage({ type, data, fromHost }) {
   }
 
   // 2. 队友状态（位置 + 动作 + 形态 + 倒地）
+  // 在 coopHandleMessage 中添加 double_rider_kick 消息监听：
+  else if (type === 'double_rider_kick') {
+    coopTriggerDoubleKick(data.targetX, data.p1Atk, data.p2Atk, false);
+  }
+  // 在 type === 'p_sync' 的分支中，更新队友大招时间戳并读取攻击力：
   else if (type === 'p_sync') {
     COOP.peerConnected = true;
     const { x, y, hk, lt, ...rest } = data;
     const p2 = COOP.P2;
+
+    // ★ 监听队友是否刚开启大招 K
+    if (rest.st === 'fv' && p2.st !== 'fv') {
+      COOP.peerFvT = performance.now();
+    }
+
     Object.assign(p2, rest);
-    // 终结技 / 变身演出会读 P.hit['landed'] 之类的标记与 P.landT，一并还原
     p2.hit = {};
     if (hk) for (const k of String(hk).split(',')) if (k) p2.hit[k] = 1;
     p2.landT = (lt === null || lt === undefined) ? undefined : lt;
@@ -418,6 +499,53 @@ function coopUpdateBattle(dt) {
   const p2 = COOP.P2, now = performance.now();
   if (COOP.escT > 0) COOP.escT -= dt;
 
+  // ★ 1. 本地大招边缘触发监听
+  if (P.st === 'fv' && COOP.lastSt !== 'fv') {
+    COOP.myFvT = now;
+  }
+
+  // ★ 2. 1.5 秒时差合体技检测（由房主权威裁定并触发）
+  if (COOP.isHost && !COOP.comboLock) {
+    const timeDiff = Math.abs(COOP.myFvT - COOP.peerFvT);
+    const bothInFv = (P.st === 'fv') && (p2.st === 'fv');
+    const withinWindow = timeDiff <= 1500 && (now - COOP.myFvT < 2500) && (now - COOP.peerFvT < 2500);
+
+    if (bothInFv && withinWindow) {
+      // 寻找首领或群怪中心作为汇聚打击点
+      const boss = E.find(e => !e.dead && e.t === 'boss');
+      const target = boss || E.find(e => !e.dead) || { x: (P.x + p2.x) / 2 };
+      coopTriggerDoubleKick(target.x, P.atk, p2.atk || P.atk, true);
+    }
+  }
+
+  // ★ 3. 合体技进行期状态推进与落点强力汇聚
+  if (COOP.combo.active) {
+    COOP.combo.t += dt;
+
+    // 当飞踢砸落或任意一方触地时，房主结算全屏核爆
+    if (COOP.isHost && !COOP.combo.hitDone) {
+      const anyLanded = (P.hit && P.hit['landed']) || (p2.hit && p2.hit['landed']) || (COOP.combo.t >= 1.25);
+      if (anyLanded) {
+        coopExecuteDoubleKickExplosion();
+      }
+    }
+
+    // 飞踢下砸阶段双方落点强行向 targetX 汇聚对撞
+    if (P.st === 'fv') {
+      const dx = COOP.combo.targetX - P.x;
+      if (Math.abs(dx) > 15) P.f = Math.sign(dx);
+    }
+
+    if (COOP.combo.t >= COOP.combo.dur) {
+      COOP.combo.active = false;
+    }
+  }
+
+  // 双方均退出大招后解除锁定，等待下一次配合
+  if (P.st !== 'fv' && p2.st !== 'fv') {
+    COOP.comboLock = false;
+  }
+
   // 1. 队友平滑插值 + 本地推进动画时钟（两次网络包之间动画不卡）
   const k = Math.min(1, dt * 18);
   p2.x += (p2.targetX - p2.x) * k;
@@ -501,6 +629,7 @@ function coopUpdateBattle(dt) {
       vx: Math.round(P.vx), vy: Math.round(P.vy),
       f: P.f, st: P.st, t: Math.round(P.t * 1000) / 1000,
       hp: P.hp, mh: P.mh,
+      atk: P.atk, // ★ 同步当前攻击力用于核算总伤害
       ryuki: !!P.ryuki, k5: !!P.k5, bl: !!P.bl, zeztz: !!P.zeztz, trk: P.trk || null,
       spr: !!P.spr, tdur: P.tdur || 0, h: P.h | 0,
       lt: (typeof P.landT === 'number') ? Math.round(P.landT * 1000) / 1000 : null,
@@ -705,6 +834,76 @@ function drawCoopOverlay() {
     txt(hint, x0 + w / 2, y0 + h / 2, 12, conflict ? '#ffa502' : '#dfe6ee', 'center');
   }
 
+  // ★ 双人合体技特写暗场与首领锁定标渲染
+  if (COOP.combo && COOP.combo.active && G === 'play') {
+    const cb = COOP.combo;
+    const p = cb.t / cb.dur;
+    const tx = cb.targetX - cam;
+
+    ctx.save();
+    // 1. 全屏特写暗场与向中心汇聚的能量流速线
+    const darkAlpha = Math.min(0.75, Math.sin(Math.min(1, p * 1.5) * Math.PI) * 0.85);
+    ctx.fillStyle = `rgba(4, 2, 12, ${darkAlpha.toFixed(3)})`;
+    ctx.fillRect(0, 0, 960, 540);
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 16; i++) {
+      const lineX = ((T * 800 + i * 60) % 1100) - 70;
+      const alpha = (0.2 + 0.3 * Math.sin(i + T * 6)) * (darkAlpha / 0.75);
+      ctx.strokeStyle = (i % 2 === 0) ? `rgba(255, 216, 74, ${alpha.toFixed(3)})` : `rgba(0, 229, 255, ${alpha.toFixed(3)})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(lineX, 0);
+      ctx.lineTo(lineX - 180, 540);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // 2. 首领头顶「DOUBLE RIDER FINISH」锁定标
+    const boss = E.find(e => !e.dead && e.t === 'boss') || E.find(e => !e.dead);
+    const markX = boss ? (boss.x - cam) : tx;
+    const markY = boss ? (boss.y - boss.h - 55) : (GY - 240);
+
+    // 旋转全息金色双环准星
+    ctx.save();
+    ctx.translate(markX, markY + 20);
+    ctx.rotate(T * 4);
+    ctx.strokeStyle = '#ffd84a';
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = '#ffd84a'; ctx.shadowBlur = 14;
+    ctx.setLineDash([14, 10]);
+    ctx.beginPath(); ctx.arc(0, 0, 48, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.translate(markX, markY + 20);
+    ctx.rotate(-T * 3);
+    ctx.strokeStyle = '#00e5ff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, 36, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+
+    // 锁定指示箭头
+    const arrowBounce = Math.sin(T * 12) * 6;
+    txt('▼', markX, markY + 12 + arrowBounce, 22, '#ff3838', 'center');
+
+    // 全息大标题横幅
+    const bannerW = 280, bannerH = 44;
+    poBevel(markX - bannerW / 2, markY - 48, bannerW, bannerH, 8);
+    const bgGrad = ctx.createLinearGradient(markX - bannerW / 2, 0, markX + bannerW / 2, 0);
+    bgGrad.addColorStop(0, 'rgba(255, 59, 48, 0.85)');
+    bgGrad.addColorStop(0.5, 'rgba(10, 14, 28, 0.95)');
+    bgGrad.addColorStop(1, 'rgba(0, 229, 255, 0.85)');
+    ctx.fillStyle = bgGrad; ctx.fill();
+    ctx.strokeStyle = '#ffd84a'; ctx.lineWidth = 1.8; ctx.stroke();
+
+    txt('⚡ DOUBLE RIDER FINISH ⚡', markX, markY - 34, 14.5, '#ffffff', 'center');
+    txt('✦ 160% SYNCHRO KICK · LOCK ON ✦', markX, markY - 17, 10, '#ffd84a', 'center');
+
+    ctx.restore();
+  }
+  
   // 提示条
   if (COOP.note && performance.now() < COOP.note.until) {
     txt(COOP.note.s, 480, 96, 16, '#ffd84a', 'center');

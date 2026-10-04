@@ -27,9 +27,10 @@ function calc() {
   const t = S.ta;
   const oldMh = P.mh, oldMm = P.mm;
 
+  // 将原先的兜底数值对齐新基数：
   const st = (typeof previewStats === 'function') 
     ? previewStats(S.eq, true)
-    : { atk: 14 + S.lv * 2, hp: 100 + S.lv * 10, mp: 100 + S.lv * 5, cr: 0.05, def: 0 };
+    : { atk: 14 + S.lv * 8, hp: 100 + S.lv * 25, mp: 100 + S.lv * 0.8, cr: 0.05, def: 0 };
 
   P.atkRaw = st.atk; P.mhRaw = st.hp; P.mmRaw = st.mp;
   P.atk = Math.round(st.atk);

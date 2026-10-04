@@ -9,27 +9,56 @@ const EQ_DEF_MAX = 0.45;   // 装备免伤的递减曲线渐近线（装备单�
 const CP_W = { off: 10, sur: 0.8, mp: 0.3, critMul: 1.5, defCap: DEF_CAP };   // 权重集中在这里，方便调平衡
 
 // 纯函数：给定一套装备，算出玩家属性（calc() 也改成调用它，公式只维护一份）
+// 纯函数：给定一套装备，算出玩家属性（本体基础与装备解耦版）
 function previewStats(eq, withForm) {
   let a = 0, h = 0, m = 0, c = 0, d = 0;
   for (const k in eq) {
     const it = eq[k];
-    if (it && it.stats) { a += it.stats.atk || 0; h += it.stats.hp || 0; m += it.stats.mp || 0; c += it.stats.crit || 0; d += it.stats.def || 0; }
+    if (it && it.stats) { 
+      a += it.stats.atk || 0; 
+      h += it.stats.hp || 0; 
+      m += it.stats.mp || 0; 
+      c += it.stats.crit || 0; 
+      d += it.stats.def || 0; 
+    }
   }
   const t = S.ta;
-  let atk = (14 + S.lv * 2 + a) * (1 + .05 * t[0]) * (1 + .02 * S.sw);
-  let cr = .05 + .02 * t[3] + c;
+
+  // ★ 核心解耦：天赋 (t) 与铁匠铺研磨 (S.sw / S.ar / S.bt) 仅作用于骑士自身本体成长
+  // 随着角色等级 (S.lv) 成长，即使脱光装备加点也能获得扎实可观的提升
+  // ★ 核心公式：按你的需求调整升级与天赋百分比系数
+  // 1. 攻击天赋由 0.05 提升至 0.10 (10%)；金币研磨 S.sw 由 0.02 提升至 0.05 (5%)
+  const baseAtk = (14 + S.lv * 8) * (1 + .10 * t[0]) * (1 + .05 * S.sw);
+
+  // 2. 生命天赋由 0.06 提升至 0.10 (10%)
+  const baseHp  = (100 + S.lv * 25) * (1 + .10 * t[1]) * (1 + .05 * S.ar);
+
+  // 3. 魔力保持原样
+  const baseMp  = (100 + S.lv * 0.8) * (1 + .06 * t[2]) * (1 + .03 * S.bt);
+
+  // 装备属性独立相加
+  let atk = baseAtk + a;
+  let hp  = baseHp + h;
+  let mp  = baseMp + m;
+
+  // 4. 会心一击暴击天赋由 0.02 (2%) 调整为 0.0025 (0.25%)
+  let cr  = .05 + .0025 * t[3] + c;
+
+  // 最终形态全域倍率放大（变身依然能够等比放大全身实力）
   if (withForm) {
     const fc = formCap();
-    if (fc) {   // 胶囊升星：每星攻击 +4% / 暴击 +1.5%（capstar.js）
+    if (fc) {
       atk *= (typeof capAtkMul === 'function' ? capAtkMul(fc) : (fc.atkMul || 1));
       cr += (typeof capCrAdd === 'function' ? capCrAdd(fc) : (fc.crAdd || 0));
     }
   }
+
   return {
-    atk, cr: Math.min(1, cr),
-    hp: (100 + S.lv * 10 + h) * (1 + .06 * t[1]) * (1 + .05 * S.ar),
-    mp: (100 + S.lv * 5 + m) * (1 + .06 * t[2]) * (1 + .03 * S.bt),
-    def: Math.min(DEF_CAP, S.ar * .0005 + EQ_DEF_MAX * d / (d + 40 + S.lv))   // 护甲强化每级 0.05%；装备免伤递减收益；总上限 80%
+    atk, 
+    cr: Math.min(1, cr),
+    hp, 
+    mp,
+    def: Math.min(DEF_CAP, S.ar * .0005 + EQ_DEF_MAX * d / (d + 40 + S.lv))
   };
 }
 
