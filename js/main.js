@@ -73,6 +73,31 @@ async function prep() {
     }
   } catch(e) {}
 
+  // ★ 加载 Boss 专属血条边框特效贴图 (1~10章及保底边框)
+  msg = '加载 Boss 专属血条边框…';
+  const bossFrameDir = A + 'UI/BossFrames/';
+  for (let s = 1; s <= 10; s++) {
+    const frameTries = [
+      bossFrameDir + `Boss_Frame_${s}.png`,
+      bossFrameDir + `Boss_Frame_${s}.PNG`,
+      bossFrameDir + `boss_frame_${s}.png`
+    ];
+    for (const p of frameTries) {
+      try {
+        const im = await load(p);
+        if (im && im.width) {
+          BOSS_FRAMES[s] = trim(toCanvas(im)); // 自动裁剪边缘空白
+          break;
+        }
+      } catch (e) {}
+    }
+  }
+  // 保底通用边框（可选）
+  try {
+    const defIm = await load(bossFrameDir + 'Boss_Frame_Default.png');
+    if (defIm && defIm.width) BOSS_FRAMES['default'] = trim(toCanvas(defIm));
+  } catch (e) {}
+
   msg = '加载战斗特效…';
   const efList = [
     ['energy', 'Bullet_Energy'],
@@ -224,14 +249,32 @@ prep().catch(e => {
   msg = '加载出现问题（' + why + '）。请确保使用本地服务器(http://)并放置素材，然后刷新重试。';
 });
 
-// ===== 普攻音效 =====
+// ===== 普攻打击音效（支持随连击 Rank 动态音阶升调） =====
 const HIT_SND = []; let hitSndI = 0;
-(function () { for (let i = 0; i < 4; i++) { const a = new Audio(); a.preload = 'auto'; a.volume = .6; a.src = encodeURI(A + 'SoundFX/Sword_Hit.mp3'); HIT_SND.push(a) } })();
+(function () { 
+  for (let i = 0; i < 6; i++) { 
+    const a = new Audio(); a.preload = 'auto'; a.volume = .65; 
+    a.src = encodeURI(A + 'SoundFX/Sword_Hit.mp3'); 
+    HIT_SND.push(a);
+  } 
+})();
+
 function playSwordHit() { 
   const a = HIT_SND[hitSndI++ % HIT_SND.length]; 
   try { 
     a.currentTime = 0; 
-    a.playbackRate = 1.0; // 恢复常速
+
+    // ★ 根据当前连击 Rank (0~6) 动态提升音高 (1.00x → 1.48x)
+    const rankIdx = (typeof COMBO !== 'undefined' && COMBO.count > 0) ? COMBO.rankIdx : 0;
+    // 基础音高随评价升阶：D(1.0) -> C(1.06) -> B(1.13) -> A(1.21) -> S(1.30) -> SS(1.39) -> SSS(1.48)
+    const pitch = 1.0 + rankIdx * 0.08;
+
+    a.playbackRate = pitch;
+    // 关闭音高修正，让升速自然转变为清脆高昂的升声音调
+    if ('preservesPitch' in a) a.preservesPitch = false;
+    if ('mozPreservesPitch' in a) a.mozPreservesPitch = false;
+    if ('webkitPreservesPitch' in a) a.webkitPreservesPitch = false;
+
     const p = a.play(); 
     if (p && p.catch) p.catch(() => { });
   } catch (e) { } 
@@ -278,6 +321,7 @@ function upd(dt) {
   for (const g of GH) g.t -= dt; GH = GH.filter(g => g.t > 0);
 
   psTick(dt);
+  if (typeof tagUpdate === 'function') tagUpdate(dt);
   questTick(dt);
 
   if (PR.KeyI) { if (showStat) showStat = false; else if (psCanOpen()) psOpen(); delete PR.KeyI; }
@@ -305,13 +349,15 @@ function upd(dt) {
     const mdur = malayaTransDur();
     Object.assign(P, { vx: 0, st: 'trans', t: 0, tdur: mdur, inv: mdur + .5, hit: {} });
     playMalayaHenshin();
+    if (typeof henshinApply === 'function') henshinApply('malaya');
   }
-  if (PR.KeyP) { triggerRyukiTransform(); delete PR.KeyP }
+  if (PR.KeyO) { if (typeof tagUnform === 'function' && S.eqCap2) tagUnform(); delete PR.KeyO }   // 装了副位后 [O] 解除变身
+  if (PR.KeyP) { if (!(typeof tagTry === 'function' && tagTry())) triggerRyukiTransform(); delete PR.KeyP }   // 已变身+有副位 → 切人突袭
 
   if (P.st === 'trans' && (G === 'vil' || G === 'room')) {
     P.vx = 0; P.t += dt; P.inv = 1;
     updMalayaTrans(dt);
-    if (P.t > (P.tdur || malayaTransDur()) || PR.Enter || PR.Space || PR.Escape) {
+    if (P.t > (P.tend || P.tdur || malayaTransDur()) || PR.Enter || PR.Space || PR.Escape) {
       delete PR.Enter; delete PR.Space; delete PR.Escape;
       stopMalayaHenshin();
       P.st = 'idle'; P.t = 0; P.inv = .5; P.hit = {};
@@ -319,6 +365,7 @@ function upd(dt) {
     return;
   }
 
+  if (P.st !== 'trans_ryuki' && P.st !== 'trans' && typeof henshinStopBuf === 'function') henshinStopBuf();
   if (P.st !== 'trans_ryuki') { 
     stopFaizHenshin(); stopRyukiHenshin(); stopBladeHenshin(); 
     if (typeof stopZeztzHenshin === 'function') stopZeztzHenshin();
@@ -335,8 +382,9 @@ function upd(dt) {
     else if (!is5 && !isB && !isZ && !isD) updHenshin(dt);
     else updHenshin(dt);
 
-    const tdur = P.tdur || 16 * 0.12;
+    const tdur = P.tend || P.tdur || 16 * 0.12;
     if (P.t > tdur) {
+      if (P.tend && typeof henshinShortFinish === 'function') henshinShortFinish(P.trk);
       P.st = 'idle'; P.k5 = is5; P.bl = isB; P.zeztz = isZ; P.dn = isD; P.ryuki = !is5 && !isB && !isZ && !isD; P.inv = .6; calc();
     }
     return;
@@ -386,7 +434,7 @@ function upd(dt) {
     P.t += dt;
     P.inv = 1;
     updMalayaTrans(dt);
-    if (P.t > (P.tdur || MALAYA_AUDIO_LEN)) {
+    if (P.t > (P.tend || P.tdur || MALAYA_AUDIO_LEN)) {
       P.st = 'idle';
       P.inv = 0.6;
       calc();
@@ -449,7 +497,7 @@ function upd(dt) {
     P.t += dt;
     P.inv = 1;
     updMalayaTrans(dt);
-    const dur = P.tdur || malayaTransDur();
+    const dur = P.tend || P.tdur || malayaTransDur();
     if (P.t > dur || PR.Enter || PR.Space) {
       stopMalayaHenshin();
       P.st = 'idle';
@@ -988,11 +1036,18 @@ function draw() {
   for (const d of DT) txt(d.s, d.x - cam, d.y - (1 - d.t) * 40, String(d.s).length > 4 ? 22 : 18, d.c, 'center');
   ctx.restore();
 
-  drawPlayerHUD(16, 14); drawStaminaHUD(16, 96); drawGoldHUD(); drawMinimapHUD(); drawLocationHUD(ST[cur].n);
+  // 在 draw() 函数中找到 drawSkillBarHUD() 和 drawInfoHUD() 附近：
+  drawPlayerHUD(16, 14); 
+  drawStaminaHUD(16, 96); 
+  drawGoldHUD(); 
+  drawMinimapHUD(); 
+  drawLocationHUD(ST[cur].n);
   drawSkillBarHUD();
   drawInfoHUD();
+  drawStyleRankHUD();
+  drawBossBannerHUD(); // ★ 绘制领主登场专属立绘横幅
 
-  const henshinPrompt = inForm() ? '[P] 解除变身' : (S.eqCap ? '[P] ' + capShort() + '变身' : '[P] 变身');
+  const henshinPrompt = (inForm() && S.eqCap2) ? '[P] 切人突袭   [O] 解除变身' : inForm() ? '[P] 解除变身' : (S.eqCap ? '[P] ' + capShort() + '变身' : '[P] 变身');
   hintLine('J 剑击   L ' + lSkillName() + '   K 终结技   E 机车   Shift 闪避/疾跑   ' + henshinPrompt + '   [C] 背包   [N] 胶囊   Esc 撤退');
 
   const b = E.find(e => e.t === 'boss');
@@ -1102,6 +1157,7 @@ addEventListener('keydown', e => {
     { id: 'k', t: '终结技', c: 'skl ult', pos: arc(2.7, 66), codes: ['KeyK'], ctx: 'p', mp: 120 },
     { id: 'more', t: '更多', c: 'sm sys', pos: `left:${L0};top:29%`, ctx: 'b', more: 1 },
     { id: 'hp', t: '药①', c: 'sm pot', pos: `left:${L0};top:calc(29% + var(--s)*1)`, codes: ['Digit1'], ctx: 'p' },
+    { id: 'unf', t: '解除', c: 'sm sys', pos: `left:${L0};top:calc(29% + var(--s)*2.8)`, codes: ['KeyO'], ctx: 'b' },
     { id: 'mpp', t: '药②', c: 'sm pot mpot', pos: `left:${L0};top:calc(29% + var(--s)*1.9)`, codes: ['Digit2'], ctx: 'p' }
   ];
   window.TC_POS = { R: arc(2.7, 92) };
@@ -1122,7 +1178,7 @@ addEventListener('keydown', e => {
       else if (P.dcd > 0) warn(o, '闪避冷却中 ' + f1(P.dcd));
       else if (P.sta < 28) warn(o, '体力不足！', '#ff8a4a'); // ★ 增加体力不足提示
     }
-    else if (o.id === 'p') { if (cdLeft('p') > 0) warn(o, '变身冷却中 ' + f1(cdLeft('p'))); }
+    else if (o.id === 'p') { if (!(typeof tagOn === 'function' && tagOn()) && cdLeft('p') > 0) warn(o, '变身冷却中 ' + f1(cdLeft('p'))); }
     else if (o.id === 'l' || o.id === 'e' || o.id === 'k') {
       if (cdLeft(o.id) > 0) warn(o, o.tEl.textContent + '冷却中 ' + f1(cdLeft(o.id)));
       else if (P.mp < o.mp) warn(o, '蓝量不足', '#70a1ff');
@@ -1163,6 +1219,8 @@ addEventListener('keydown', e => {
     #tc .b .n{position:absolute;left:0;right:0;bottom:7%;z-index:3;font-style:normal;font-size:calc(var(--s)*.2);font-weight:700;color:#8fd0ff;pointer-events:none;text-shadow:0 1px 2px #000}
     #tc .b.pot .n{position:static;color:#fff}
     #tc .b.low{filter:grayscale(1) brightness(.7)}
+    #tc .b.tagbuff{border-color:#ffd84a;box-shadow:0 0 14px rgba(255,216,74,.85)}
+    #tc .b.trf .n{position:absolute;left:0;right:0;bottom:9%;font-style:normal;font-size:calc(var(--s)*.17);font-weight:700;color:#ffe9a8;text-shadow:0 1px 2px #000}
     #tc .b.dg{background:rgba(30,150,90,.5);border-color:rgba(130,255,180,.85)}
     #tc .b.sk-l{background:rgba(30,130,200,.55);border-color:rgba(130,215,255,.95);box-shadow:0 0 10px rgba(80,190,255,.45)}
     #tc .b.sk-e{background:rgba(200,100,10,.55);border-color:rgba(255,190,100,.95);box-shadow:0 0 10px rgba(255,150,40,.45)}
@@ -1239,7 +1297,13 @@ addEventListener('keydown', e => {
           setT(o, t); o.el.classList.toggle('hot', t !== '剑击'); break;
         }
         case 'dg': setCd(o, P.dcd > 0 ? P.dcd / DODGE_CD : 0); o.el.style.borderColor = P.exh ? '#ff6b6b' : ''; break;
-        case 'p': setT(o, inForm() ? '解除' : '变身'); setCd(o, (P.cd.p || 0) > 0 ? P.cd.p / (P.maxCd.p || 1) : 0); break;
+        case 'p': {
+          const tg = typeof tagOn === 'function' && tagOn(), cdv = tg ? TAG.cd : (P.cd.p || 0), mx = tg ? TAG.cdMax : (P.maxCd.p || 1);
+          const h = tg ? tagTouchLabel() : (inForm() ? '解除' : '变身'); if (o.h !== h) { o.h = h; o.tEl.innerHTML = h; }
+          setCd(o, cdv > 0 ? cdv / mx : 0);
+          o.el.classList.toggle('tagbuff', typeof TAG !== 'undefined' && TAG.crT > 0); break;
+        }
+        case 'unf': o.el.style.display = (typeof tagOn === 'function' && tagOn()) ? 'flex' : 'none'; break;
         case 'l': case 'e': case 'k': {
           if (o.id === 'l') setT(o, lSkillName());
           setCd(o, (P.cd[o.id] || 0) > 0 ? P.cd[o.id] / (P.maxCd[o.id] || 1) : 0);
@@ -1457,7 +1521,7 @@ addEventListener('keydown', e => {
       const btmY = ly + 405 - 34;
       const filteredCaps = CAPSULES.filter(c => {
         if (capFilter === 'owned') return S.caps.includes(c.id);
-        if (capFilter === 'equipped') return S.eqCap === c.id;
+        if (capFilter === 'equipped') return S.eqCap === c.id || S.eqCap2 === c.id;
         return true;
       });
       const maxCapPages = Math.max(1, Math.ceil(filteredCaps.length / 5));
@@ -1488,6 +1552,7 @@ addEventListener('keydown', e => {
         return;
       }
 
+      if (typeof tagHitSub === 'function' && tagHitSub(x, y)) { capEquipSub(curSelCapId); return; }
       if (x >= CAPACT.x && x <= CAPACT.x + CAPACT.w && y >= CAPACT.y && y <= CAPACT.y + CAPACT.h) {
         const selCap = CAPSULES.find(c => c.id === curSelCapId);
         if (!selCap) return;
@@ -1500,6 +1565,7 @@ addEventListener('keydown', e => {
           if (inForm()) { clearForms(); calc(); }
           save();
         } else {
+          if (S.eqCap2 === selCap.id) S.eqCap2 = S.eqCap;   // 副位设为主位 = 与主位互换
           S.eqCap = selCap.id;
           clearForms();
           save();

@@ -21,6 +21,8 @@ const EF_IMGS = {};
 
 // ===== 技能图标存储 =====
 const SKILL_IMGS = {};
+// ★ 新增：Boss 血条专属特效边框贴图池 (按章节 set 1~10 索引)
+const BOSS_FRAMES = {};
 
 // ===== 升级弹窗横幅状态与贴图 =====
 let LV_IMG = null;
@@ -281,7 +283,7 @@ COOP_STAGES.forEach((cs, idx) => {
 
 // ===== 世界BOSS（作为特殊关卡追加在 ST 末尾，复用整套战斗系统；不计入章节进度 S.cl） =====
 // lv=解锁等级  r=推荐等级  g=满伤害金币奖励  hpx=生命倍率  tl=讨伐时限(秒)  set=使用第几章的怪物图与招式
-const WB_DAILY = 3;                 // 每天免费讨伐次数
+const WB_DAILY = 5;                 // 每天免费讨伐次数
 const WB_HP_MUL = 20;               // 全服首领血量倍率（相对旧版单人首领）
 const WB_DMX = 2;                   // 世界BOSS攻击倍率
 const WB_TL = 90;                   // 所有世界BOSS讨伐时限（秒）
@@ -482,7 +484,7 @@ const K = {}, PR = {};
 const FIRST_CLEAR_DIAMOND = 60;   // 首通钻石（战斗结算与关卡列表显示共用这一个常量）
 const S = {
   g: 200, d: 1000, hp: 2, mp: 1, sw: 0, ar: 0, bt: 0, lv: 1, xp: 0, tp: 0, ta: [0, 0, 0, 0], cl: 0,
-  caps: [], eqCap: null,
+  caps: [], eqCap: null, eqCap2: null,
   inv: [],
   eq: { weapon: null, chest: null, belt: null, legs: null, boots: null, necklace: null, ring: null },
   mat: 20, scr: 3,
@@ -503,6 +505,7 @@ try {
   if (typeof S.d !== 'number') S.d = 1000;
   if (!S.cs || typeof S.cs !== 'object') S.cs = {};
   if (typeof S.csh !== 'number') S.csh = 0;
+  if (typeof S.eqCap2 !== 'string') S.eqCap2 = null;
   if (!S.tw || typeof S.tw !== 'object') S.tw = { best: 0 };
 } catch (e) {}
 
@@ -721,3 +724,13 @@ function assign(L) {
   if (EMAP) { for (const k in EMAP) r[k] = EMAP[k].map(i => L[i]).filter(Boolean) }
   else if (L.length) { r.boss = [L[ix.pop()]]; const m = Math.ceil(ix.length / 2); r.imp = ix.slice(0, m).map(i => L[i]); r.wd = ix.slice(m).map(i => L[i]) } return r;
 }
+
+// ===== 全局文本测宽工具 (挂载到 window，保证所有脚本随时可用) =====
+window.tw = function(s, sz = 14) {
+  if (!ctx) return (String(s).length * sz * 0.6);
+  ctx.save();
+  ctx.font = `700 ${sz}px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif`;
+  const w = ctx.measureText(String(s)).width;
+  ctx.restore();
+  return w;
+};

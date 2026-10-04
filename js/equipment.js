@@ -507,3 +507,68 @@ if (S.inv.length === 0 && !S.eq.weapon) {
   S.inv.push(genItem('legs', 0, 1));
   S.inv.push(genItem('boots', 1, 1));
 }
+
+// ===== 一键智能装配：自动换上背包内各槽位战力最优装备 =====
+function autoEquipBest() {
+  const slots = ['weapon', 'chest', 'belt', 'legs', 'boots', 'necklace', 'ring'];
+  let equippedCount = 0;
+  const initialCp = typeof calcCP === 'function' ? calcCP() : (P.cp || 0);
+
+  // 逐一扫描 7 大装备部位
+  for (const slot of slots) {
+    const curEq = S.eq[slot];
+    // 筛选背包中符合该部位且玩家等级满足要求的装备
+    const candidates = S.inv.filter(it => it && it.slot === slot && (it.reqLvl || 1) <= S.lv);
+    if (!candidates.length) continue;
+
+    let bestItem = null;
+    let maxGain = 0;
+
+    for (const it of candidates) {
+      let gain = 0;
+      if (typeof cpDelta === 'function' && curEq) {
+        gain = cpDelta(it);
+      } else if (typeof calcCP === 'function') {
+        // 模拟换装测试战力浮动
+        S.eq[slot] = it;
+        const testCp = calcCP();
+        S.eq[slot] = curEq;
+        gain = testCp - initialCp;
+      } else {
+        // 属性评分兜底
+        const itScore = (it.tier || 0) * 100 + (it.lvl || 0) * 25 + (it.star || 0) * 35;
+        const curScore = curEq ? ((curEq.tier || 0) * 100 + (curEq.lvl || 0) * 25 + (curEq.star || 0) * 35) : -1;
+        gain = itScore - curScore;
+      }
+
+      if (gain > maxGain) {
+        maxGain = gain;
+        bestItem = it;
+      }
+    }
+
+    // 存在实质提升时穿戴
+    if (bestItem && maxGain > 0) {
+      equipItem(bestItem);
+      equippedCount++;
+    }
+  }
+
+  calc();
+  save();
+
+  const finalCp = typeof calcCP === 'function' ? calcCP() : (P.cp || 0);
+  const totalGain = finalCp - initialCp;
+
+  if (equippedCount > 0 && totalGain > 0) {
+    bagNotice = `⚡ 已智能换装 ${equippedCount} 件最优装备，战力提升 +${Math.round(totalGain)}！`;
+    bagNoticeT = 2.5;
+    if (typeof playSwordHit === 'function') playSwordHit();
+  } else if (equippedCount > 0) {
+    bagNotice = `⚡ 已为 ${equippedCount} 个空槽位穿上装备！`;
+    bagNoticeT = 2.0;
+  } else {
+    bagNotice = '当前穿戴已是最强搭配，暂无更优装备！';
+    bagNoticeT = 2.0;
+  }
+}

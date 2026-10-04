@@ -1,3 +1,46 @@
+// ===== 连击动作评价系统 (Style Rank System) =====
+const STYLE_RANKS = [
+  { rank: 'D',   title: "DON'T STOP", min: 1,  col: '#a4b0be', spdMul: 1.02, mpAdd: 1 },
+  { rank: 'C',   title: 'COOL!',      min: 5,  col: '#70a1ff', spdMul: 1.05, mpAdd: 2 },
+  { rank: 'B',   title: 'BRAVO!',     min: 12, col: '#2ed573', spdMul: 1.08, mpAdd: 3 },
+  { rank: 'A',   title: 'AWESOME!',   min: 22, col: '#ffa502', spdMul: 1.12, mpAdd: 4 },
+  { rank: 'S',   title: 'STYLISH!!',  min: 36, col: '#ff4757', spdMul: 1.16, mpAdd: 5 },
+  { rank: 'SS',  title: 'SUPERIOR!!', min: 55, col: '#e056fd', spdMul: 1.20, mpAdd: 7 },
+  { rank: 'SSS', title: 'SUPREME!!!', min: 80, col: '#ffd32a', spdMul: 1.25, mpAdd: 10 }
+];
+
+const COMBO = {
+  count: 0,
+  timer: 0,
+  maxT: 3.2,      // 连击保护时间 3.2 秒
+  rankIdx: 0,
+  pop: 1.0,       // 升阶弹性缩放动画
+  flash: 0        // 升阶光晕
+};
+
+// 增加连击数并检测升阶
+function addComboHit() {
+  COMBO.count++;
+  COMBO.timer = COMBO.maxT;
+
+  const oldRank = COMBO.rankIdx;
+  let newRank = 0;
+  for (let i = STYLE_RANKS.length - 1; i >= 0; i--) {
+    if (COMBO.count >= STYLE_RANKS[i].min) {
+      newRank = i;
+      break;
+    }
+  }
+
+  // 触发升阶动画弹跳
+  if (newRank > oldRank || COMBO.count === 1) {
+    COMBO.pop = 1.45;
+    COMBO.flash = 0.35;
+    shake = Math.max(shake, 4 + newRank * 1.5);
+  }
+  COMBO.rankIdx = newRank;
+}
+
 // ===== 完美招架 (Parry) & 全局顿帧 (Hit-stop) =====
 let HITSTOP = 0; // 全局顿帧倒计时（秒）
 
@@ -23,6 +66,7 @@ function tryParry(attacker, projectile) {
   P.inv = Math.max(P.inv, 0.4);
 
   HITSTOP = 0.3;
+  if (typeof coopSend === 'function' && typeof COOP !== 'undefined' && COOP.active && COOP.inGame) coopSend('hitstop', { d: 0.3 });   // 联机：全队一起顿帧
   shake = 22;
 
   if (typeof playParryHit === 'function') playParryHit();
@@ -47,6 +91,7 @@ function tryParry(attacker, projectile) {
     FX.push({ type: 'boom', x: projectile.x, y: projectile.y, t: 0.25, d: 0.25, r: 60, c: '#ffd84a' });
   }
 
+  // 找到 for (const e of E) 循环
   for (const e of E) {
     if (e.dead) continue;
     const isTarget = (e === attacker) || (Math.abs(e.x - P.x) < 220 && Math.abs(e.y - P.y) < 170);
@@ -57,7 +102,21 @@ function tryParry(attacker, projectile) {
       e.wu = 0;
       e.cd = Math.max(e.cd, 2.0);
       e.x += P.f * 40;
-      DT.push({ x: e.x, y: e.y - e.h - 10, s: 'STAGGER! 击破硬直', t: 1.2, c: '#ffd84a' });
+      
+      // ★ 完美弹反削韧：世界Boss削减8% (约130点)，普通Boss削减25%
+      if (e.t === 'boss' && !e.broken && (e.breakImmune || 0) <= 0) {
+        const isWb = ST[cur] && ST[cur].wb;
+        const parryPct = isWb ? 0.08 : 0.25;
+        const parryPoiseDmg = Math.round(e.maxPoise * parryPct);
+        e.poise = Math.max(0, e.poise - parryPoiseDmg);
+        DT.push({ x: e.x, y: e.y - e.h - 30, s: `POISE CRUSH -${parryPoiseDmg}`, t: 1.2, c: '#00e5ff' });
+        if (e.poise <= 0) {
+          e.broken = true; e.brokenT = 4.0; e.stun = 4.0;
+          DT.push({ x: e.x, y: e.y - e.h - 50, s: '💥 PARRY BREAK!! 击破破绽', t: 2.0, c: '#ffd84a' });
+        }
+      } else {
+        DT.push({ x: e.x, y: e.y - e.h - 10, s: 'STAGGER! 击破硬直', t: 1.2, c: '#ffd84a' });
+      }
     }
   }
 
@@ -80,7 +139,18 @@ function begin(k) {
   WIN_RES = null;
   LOSE_RES = null;
   WB_RES = null;
+  // 在 begin(k) 里加入重置连击
+  COMBO.count = 0;
+  COMBO.timer = 0;
+  COMBO.rankIdx = 0;
+  COMBO.pop = 1.0;
+  COMBO.flash = 0;
 
+  // 在 begin(k) 内部加入：
+  if (typeof BOSS_BANNER !== 'undefined') {
+    BOSS_BANNER.active = false;
+  }
+  
   if (typeof clearForms === 'function') clearForms();
   calc();
 
@@ -105,6 +175,7 @@ function begin(k) {
 
   psHen();
   if (typeof playMalayaHenshin === 'function') playMalayaHenshin();
+  if (typeof henshinApply === 'function') henshinApply('malaya');
 
   GH = []; E = []; PJ = []; EP = []; FX = []; DT = []; OR = []; HZ = []; TQ = [];
   kills = 0; bs = 0; sp = 1; RG = 0; cam = 0; cur = k; G = 'play';
@@ -314,15 +385,59 @@ function hurt(e, d, pre) {
   const mp2 = typeof COOP !== 'undefined' && COOP.active && COOP.inGame;
   const guest = mp2 && !COOP.isHost;
   let c, f = P.f;
-  if (pre) { c = !!pre.c; f = pre.f || 1; }
-  else { c = Math.random() < P.cr; d = Math.round(d * (.9 + Math.random() * .2) * (c ? 2 : 1)); }
+
+  // 1. 破防状态下享受 150% 易伤
+  if (e.broken) {
+    d = Math.round(d * 1.5);
+  }
+
+  if (pre) { 
+    c = !!pre.c; f = pre.f || 1; 
+  } else { 
+    c = Math.random() < P.cr; 
+    d = Math.round(d * (.9 + Math.random() * .2) * (c ? 2 : 1)); 
+  }
+
+  // 2. 领主削韧逻辑 (带 0.06s 内置CD与霸体保护)
+  if (e.t === 'boss' && !e.dead && !guest) {
+    e.poiseDelay = 3.5;
+
+    if (!e.broken && (e.breakImmune || 0) <= 0) {
+      if (!e.pIcd || e.pIcd <= 0) {
+        e.pIcd = 0.06; // 限制高频判定瞬秒韧性
+
+        let pDmg = 12;
+        if (P.st === 'uppercut') pDmg = 30;
+        else if (P.st === 'diveslam') pDmg = 50;
+        else if (P.st === 'fv') pDmg = 80;
+        else if (P.st === 'thr') pDmg = 25;
+
+        e.poise = Math.max(0, e.poise - pDmg);
+
+        if (e.poise <= 0) {
+          e.broken = true;
+          e.brokenT = 4.0;
+          e.stun = 4.0;
+          e.dsh = 0; e.wu = 0;
+          shake = 24;
+          if (typeof playParryHit === 'function') playParryHit();
+          FX.push({ type: 'boom', x: e.x, y: e.y - e.h / 2, t: 0.6, d: 0.6, r: 240, c: '#ffffff' });
+          DT.push({ x: e.x, y: e.y - e.h - 50, s: '💥 SHIELD BREAK!! 破防瘫痪', t: 2.0, c: '#ffffff' });
+          DT.push({ x: e.x, y: e.y - e.h - 25, s: '✦ 150% 易伤状态 ✦', t: 1.8, c: '#ff4757' });
+        }
+      }
+    }
+  }
 
   if (guest) {
     if (e.dead) return;
     psHit(d, c);
     e.fl = .12; shake = Math.max(shake, 4);
     P.mp = Math.min(P.mm, P.mp + 3);
-    if (!P.down) { const ls = affixTotal('ls'); if (ls > 0) P.hp = Math.min(P.mh, P.hp + Math.min(P.mh * .03, Math.max(1, d * ls))); }
+    if (!P.down) { 
+      const ls = affixTotal('ls'); 
+      if (ls > 0) P.hp = Math.min(P.mh, P.hp + Math.min(P.mh * .03, Math.max(1, d * ls))); 
+    }
     DT.push({ x: e.x, y: e.y - e.h, s: d + (c ? '!' : ''), t: .8, c: c ? '#ff8a2a' : '#ffd84a' });
     coopSend('guest_hurt_m', { id: e.id, dmg: d, c: c ? 1 : 0, f });
     return;
@@ -330,11 +445,23 @@ function hurt(e, d, pre) {
 
   if (e.t === 'boss' && ST[cur].wb) WBD += Math.max(0, Math.min(d, e.hp));
   if (!pre) psHit(d, c);
-  if (!pre && !P.down) { const ls = affixTotal('ls'); if (ls > 0) P.hp = Math.min(P.mh, P.hp + Math.min(P.mh * .03, Math.max(1, d * ls))); }
+  if (!pre && !P.down) { 
+    const ls = affixTotal('ls'); 
+    if (ls > 0) P.hp = Math.min(P.mh, P.hp + Math.min(P.mh * .03, Math.max(1, d * ls))); 
+  }
   e.hp -= d; e.fl = .12; e.x += f * (e.t === 'boss' ? 2 : 12);
   if (!pre) P.mp = Math.min(P.mm, P.mp + 3);
+  // 在伤害数字跳出的附近（大约第 166 行的 DT.push 附近）
   DT.push({ x: e.x, y: e.y - e.h, s: d + (c ? '!' : ''), t: .8, c: c ? '#ff8a2a' : '#ffd84a' });
   shake = Math.max(shake, 4);
+
+  // ★ 加入连击累加与额外回蓝收益
+  if (!pre) {
+    addComboHit();
+    const curRankObj = STYLE_RANKS[COMBO.rankIdx];
+    // 原有每次击中回蓝 3 点，评价越高回蓝加成越多
+    P.mp = Math.min(P.mm, P.mp + 3 + (curRankObj ? curRankObj.mpAdd : 0));
+  }
 
   if (mp2) coopSend('m_hurt_ack', { id: e.id, hp: e.hp, dmg: d, c: c ? 1 : 0, dead: e.hp <= 0, g: pre ? 1 : 0 });
 
@@ -417,12 +544,28 @@ function spawn(t, ox, vi) {
   let x = ox !== undefined ? ox : P.x + side * (520 + Math.random() * 150);
   if (ox === undefined && (x < 60 || x > WW - 60)) x = P.x - side * 600;
 
+  // ★ Boss 韧性池平衡：世界Boss设为 1600 点，普通关卡Boss设为 360~600 点
+  const maxPoise = t === 'boss' ? (z.wb ? 1600 : (360 + Math.min(cur, 20) * 12)) : 0;
+
   E.push({ 
     id: ++uid, t, im: c, vi: vi2, x: cl(x, 60, WW - 60), y: t === 'imp' ? 300 : GY, 
     hp, mhp: (t === 'boss' && z.wb) ? hpFull : hp, dm, h: o.H, w: c.width * s, s, fl: 0,
     cd: t === 'boss' ? 2 : 1.5 + Math.random() * 2, hc: 0, fc: 1, wu: 0, dsh: 0, atk: '', last: '',
-    stun: 0
+    stun: 0,
+    // 领主专属韧性系统
+    poise: maxPoise,
+    maxPoise: maxPoise,
+    broken: false,
+    brokenT: 0,
+    poiseDelay: 0,
+    pIcd: 0,
+    breakImmune: 0
   });
+
+  // ★ 领主登场：自动触发专属立绘机械横幅与 0.4s 微定格
+  if (t === 'boss' && typeof triggerBossBanner === 'function') {
+    triggerBossBanner(E[E.length - 1]);
+  }
 
   if (t === 'boss' && z.wb) WBM = hpFull;
 }
@@ -885,6 +1028,33 @@ function startAtk(e) {
 function updEnemy(e, dt) {
   if (e.dead) return;
 
+  // 1. 领主破防倒计时、霸体保护与自然回韧
+  if (e.t === 'boss') {
+    if (e.pIcd > 0) e.pIcd -= dt;
+    if (e.breakImmune > 0) e.breakImmune -= dt;
+
+    if (e.broken) {
+      e.brokenT -= dt;
+      e.stun = Math.max(e.stun, e.brokenT);
+      e.fl = (Math.sin(T * 18) > 0) ? 0.2 : 0;
+
+      if (e.brokenT <= 0) {
+        e.broken = false;
+        e.poise = e.maxPoise;
+        e.breakImmune = 3.5; // 重启护盾后提供 3.5 秒霸体保护，避免连环瘫痪
+        e.cd = 1.0;
+        DT.push({ x: e.x, y: e.y - e.h - 30, s: '🛡️ 护盾重启', t: 1.2, c: '#7df9ff' });
+        FX.push({ type: 'boom', x: e.x, y: e.y - e.h / 2, t: 0.3, d: 0.3, r: 120, c: '#7df9ff' });
+      }
+    } else {
+      if (e.poiseDelay > 0) {
+        e.poiseDelay -= dt;
+      } else if (e.poise < e.maxPoise) {
+        e.poise = Math.min(e.maxPoise, e.poise + (e.maxPoise * 0.12) * dt);
+      }
+    }
+  }
+
   if (e.stun > 0) {
     e.stun -= dt;
     e.fl = Math.max(e.fl, 0.08);
@@ -972,6 +1142,17 @@ function hzHit(h) {
 }
 
 function updBattleFx(dt) {
+  // ★ 连击衰减与动画更新
+  if (COMBO.timer > 0) {
+    COMBO.timer -= dt;
+    if (COMBO.timer <= 0) {
+      COMBO.count = 0;
+      COMBO.rankIdx = 0;
+    }
+  }
+  if (COMBO.pop > 1.0) COMBO.pop = Math.max(1.0, COMBO.pop - dt * 2.2);
+  if (COMBO.flash > 0) COMBO.flash = Math.max(0, COMBO.flash - dt);
+
   for (const q of TQ) q.t -= dt;
   const due = TQ.filter(q => q.t <= 0); TQ = TQ.filter(q => q.t > 0);
   due.forEach(q => q.f());

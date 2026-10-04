@@ -37,6 +37,8 @@ function calc() {
   P.mh = Math.round(st.hp);
   P.mm = Math.round(st.mp);
   P.cr = st.cr;
+  if (typeof tagNormalize === 'function') tagNormalize();                       // 双胶囊：主/副位自洽
+  if (typeof tagCrBonus === 'function') P.cr += tagCrBonus();                   // 切人突袭：进场暴击增益
   P.def = st.def;
   P.stm = (100 + S.lv * 2) | 0;
 
@@ -107,6 +109,10 @@ function walk(dt, R) {
     // 正常走动；若玩家持续按住 Shift 则无缝进入疾跑
     const d = ((K.KeyD || K.ArrowRight) ? 1 : 0) - ((K.KeyA || K.ArrowLeft) ? 1 : 0);
     let spd = (260 + S.lv * 4) * formSpd() * (1 + (typeof affixTotal === 'function' ? affixTotal('spd') : 0));
+    // ★ Style Rank 连击移速加成（D级 +2% ~ SSS级 +25%）
+    if (typeof COMBO !== 'undefined' && COMBO.count > 0 && typeof STYLE_RANKS !== 'undefined') {
+      spd *= (STYLE_RANKS[COMBO.rankIdx] ? STYLE_RANKS[COMBO.rankIdx].spdMul : 1.0);
+    }
     if (sh && d) {
       spd *= 1.75;
       P.spr = true;
@@ -163,6 +169,7 @@ function triggerRyukiTransform() {
       else if (isB) playBladeHenshin(); 
       else if (is5) playFaizHenshin(); 
       else playRyukiHenshin();
+      if (typeof henshinApply === 'function') henshinApply(S.eqCap);   // 精简变身：跳到爆发段并缩短时长
       
       DT.push({ x: P.x, y: P.y - 180, s: isD ? 'DEN-O · 変身！' : isZ ? 'IMPACT ZEZTZ!' : isB ? '变身！' : is5 ? 'STANDING BY…' : 'KAMEN RIDE: RYUKI!', t: 1.5, c: isD ? '#ff3b30' : isZ ? '#00f2fe' : isB ? '#3aa0ff' : is5 ? '#ffb400' : '#ff4757' });
     }

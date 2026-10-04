@@ -21,6 +21,33 @@ function faizTransDur() { return SND5 && isFinite(SND5.duration) && SND5.duratio
 function playFaizHenshin() { if (!SND5) return; try { SND5.currentTime = 0; const p = SND5.play(); if (p && p.catch) p.catch(() => { }) } catch (e) { } }
 function stopFaizHenshin() { if (SND5 && !SND5.paused) SND5.pause() }
 
+// ---------- L 技能 / 大招 Exceed Charge 音效（Assets/SoundFX/）----------
+function loadFaizSnd(list, cb) {
+  let i = 0;
+  const next = () => {
+    if (i >= list.length) { cb(null); return; }
+    const a = new Audio(); a.preload = 'auto';
+    a.addEventListener('error', next, { once: true });
+    a.src = encodeURI(A + 'SoundFX/' + list[i++]);
+    cb(a);
+  };
+  next();
+}
+let SND5_L = null, SND5_FV = null;
+loadFaizSnd(['Kamen_Rider_555_L_Sound.mp3', 'Kamen Rider 555 L Sound.mp3'], a => { SND5_L = a; });
+loadFaizSnd(['Kamen_Rider_555_Exceed_Charge.mp3', 'Kamen Rider 555 Exceed Charge.mp3'], a => { SND5_FV = a; });
+
+// L 音效用 cloneNode，连发时可重叠
+function playFaizL() {
+  if (!SND5_L) return;
+  try { const a = SND5_L.cloneNode(); a.volume = SND5_L.volume; const p = a.play(); if (p && p.catch) p.catch(() => { }); } catch (e) { }
+}
+function playFaizFV() {
+  if (!SND5_FV) return;
+  try { SND5_FV.currentTime = 0; const p = SND5_FV.play(); if (p && p.catch) p.catch(() => { }); } catch (e) { }
+}
+function stopFaizFV() { if (SND5_FV && !SND5_FV.paused) SND5_FV.pause() }
+
 // ---------- 变身动画（帧间渐变 + 居中 + 特效见 ui.js 的 drawTransSeq）----------
 function drawFaizTransform(x, y, f) {
   if (!okS(SH5.trans)) { dr(SH.atk, 12, x, y, f, 1.0); return; }
@@ -83,6 +110,7 @@ function faizMuzzleWorld(ang) {
 }
 
 function fireFaiz() {
+  playFaizL();
   const ang = faizAim(), m = faizMuzzleWorld(ang), v = FAIZ_GUN.spd;
   PJ.push({ x: m.x, y: m.y, vx: P.f * Math.cos(ang) * v, vy: Math.sin(ang) * v, f: P.f, t: .75, h: {}, b5: 1 });
   FX.push({ type: 'boom', x: m.x, y: m.y, t: .16, d: .16, r: 34, c: '#ffcf5a' });
@@ -136,6 +164,7 @@ function drawBullet5(s) {
 function updFaizFV(dt) {
   const Z = FAIZ_FV, t = P.t;
   P.inv = 1;
+  if (!P.hit['snd']) { P.hit['snd'] = 1; playFaizFV(); }   // 大招开始时播放 Exceed Charge
   if (!P.hit['landed']) {
     if (t < Z.charge) {
       P.vx = 0; P.vy = 0;

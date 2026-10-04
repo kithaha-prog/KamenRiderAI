@@ -66,19 +66,7 @@ async function wbFetch(i, force) {
   return WBG.s[i];
 }
 
-// 讨伐次数相关
-function wbBuy() {
-  if ((S.d | 0) < WB_BUY_COST) return false;
-  S.d -= WB_BUY_COST; wbData().buy = (wbData().buy | 0) + 1; save();
-  return true;
-}
-function wbBuyClick() {
-  if ((PO.wbAsk || 0) > T) {
-    PO.wbAsk = 0;
-    if (wbBuy()) pToast('已购买 1 次讨伐机会（-' + WB_BUY_COST + ' 钻石）');
-    else pToast('钻石不足（需要 ' + WB_BUY_COST + '）');
-  } else { PO.wbAsk = T + 3; pToast('再点一次确认：花费 ' + WB_BUY_COST + ' 钻石购买 1 次'); }
-}
+// 讨伐次数购买：wbBuy / wbBuyClick 统一定义在 portal.js（切勿在此重复定义，后加载的会覆盖前者）
 
 // 开战
 async function wbStart(i) {

@@ -90,10 +90,11 @@ function drawRyuki(x, y, f) {
 
   if (P.st === 'run') {
     if (SHR.run && SHR.run.f && SHR.run.f.length) {
-      if (!SHR.run.bbs) SHR.run.bbs = SHR.run.f.map(fr => bb(fr));
-      const totalRunFrames = 4;
-      const runIdx = (T * (P.spr ? 13 : 9) | 0) % totalRunFrames;
-      const b = SHR.run.bbs[runIdx];
+      // 注意：ui.js 的 dr() 也会把 SHR.run.bbs 建成【稀疏数组】（只填用过的帧），所以不能用 !bbs 判断，要按帧懒计算
+      if (!SHR.run.bbs) SHR.run.bbs = [];
+      const totalRunFrames = Math.min(4, SHR.run.f.length);
+      const runIdx = Math.abs(T * (P.spr ? 13 : 9) | 0) % totalRunFrames;
+      const b = SHR.run.bbs[runIdx] || (SHR.run.bbs[runIdx] = bb(SHR.run.f[runIdx]));
       const realCenterX = (b.x0 + b.x1) / 2;
       const realFootY = b.y1;
 
@@ -177,8 +178,39 @@ function ryukiMuzzleWorld(ang) {
   return { x: h.x + P.f * (lx * c - ly * s), y: h.y + (lx * s + ly * c) };
 }
 
+// ---------- 【L 技能音效】Strike Vent（Assets/SoundFX/）----------
+const RYUKI_L_SND_FILES = [
+  'Kamen_Rider_Ryuki_Strike_Vent.mp3',
+  'Kamen Rider Ryuki Strike Vent.mp3',
+  'Kamen_Rider_Ryuki_Strike_Vent.m4a',
+  'Kamen Rider Ryuki Strike Vent.m4a'
+];
+let SND_L = null;
+
+(function initRyukiLSound() {
+  let i = 0;
+  const next = () => {
+    if (i >= RYUKI_L_SND_FILES.length) { SND_L = null; return; }
+    const a = new Audio(); a.preload = 'auto';
+    a.addEventListener('error', next, { once: true });
+    a.src = encodeURI(A + 'SoundFX/' + RYUKI_L_SND_FILES[i++]);
+    SND_L = a;
+  };
+  next();
+})();
+
+// 用 cloneNode 播放，连按 L 时音效可以重叠而不是被打断
+function playRyukiL() {
+  if (!SND_L) return;
+  try {
+    const a = SND_L.cloneNode(); a.volume = SND_L.volume;
+    const p = a.play(); if (p && p.catch) p.catch(() => {});
+  } catch (e) {}
+}
+
 function fireRyukiGun() {
   const ang = ryukiAim(), m = ryukiMuzzleWorld(ang), v = RYUKI_GUN.spd;
+  playRyukiL();
   PJ.push({ x: m.x, y: m.y, vx: P.f * Math.cos(ang) * v, vy: Math.sin(ang) * v, f: P.f, t: .8, h: {}, rb: 1 });
   FX.push({ type: 'boom', x: m.x, y: m.y, t: .18, d: .18, r: 40, c: '#ff8a30' });
   shake = Math.max(shake, 3);

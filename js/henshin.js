@@ -404,7 +404,7 @@ function hnScreen(H, s, over) {
 function updHenshin(dt) {
   const k = henKey(), H = HN[k], snd = k === '555' ? (typeof SND5 !== 'undefined' ? SND5 : null) : (typeof SNDR !== 'undefined' ? SNDR : null);
   if (snd && !snd.paused && snd.currentTime > .02) P.t = snd.currentTime;
-  const s = hnTS(), h = P.hit, fire = (id, t, fn) => { if (s >= t && !h[id]) { h[id] = 1; fn() } };
+  const s = hnTS(), h = P.hit, fire = (id, t, fn) => { if (s >= t && !h[id]) { h[id] = 1; if (!(t < (P.sk || 0))) fn() } };
   const sk = v => { shake = Math.max(shake, v) };
   if (k === 'ryuki') {
     const L = RYUKI_TL;

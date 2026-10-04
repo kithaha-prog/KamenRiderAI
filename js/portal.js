@@ -17,7 +17,6 @@ const COOP_PIN_MODAL = {
 const WB_COL = '#ff4d4d';
 const poN = n => { n = Math.round(n || 0); return n >= 1e8 ? +(n / 1e8).toFixed(2) + '亿' : n >= 1e4 ? +(n / 1e4).toFixed(1) + '万' : String(n); };
 const poFont = sz => `700 ${sz}px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif`;
-const tw = (s, sz) => { ctx.font = poFont(sz); return ctx.measureText(String(s)).width; };
 const pToast = s => { PO.toast = s; PO.tt = 2; };
 const pHit = (x, y, w, h, f) => PO.hit.push({ x, y, w, h, f });
 
@@ -41,17 +40,59 @@ function poBadge(x, y, label, col, bg) {
   return w;
 }
 
-// 数据状态
+// WB_DAILY 已在 config.js 中全局定义为 5，这里切勿重复 const 声明
+
 function wbData() {
-  const d = new Date(), day = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
-  if (!S.wb || typeof S.wb !== 'object') S.wb = { day, used: 0, buy: 0, best: {}, kills: {} };
-  if (!S.wb.best) S.wb.best = {};
-  if (!S.wb.kills) S.wb.kills = {};
-  if (typeof S.wb.buy !== 'number') S.wb.buy = 0;
-  if (S.wb.day !== day) { S.wb.day = day; S.wb.used = 0; S.wb.buy = 0; }
+  const d = (typeof qDay === 'function') ? qDay() : new Date().toISOString().slice(0, 10);
+  if (!S.wb || S.wb.day !== d) {
+    S.wb = { day: d, used: 0, best: [], kills: [] };
+  }
+  if (!Array.isArray(S.wb.kills)) S.wb.kills = [];
+  // 迁移旧版“购买次数”：把已购买的次数折算成恢复的已用次数（补偿被旧代码吞掉的钻石）
+  if (S.wb.buy > 0) { S.wb.used = Math.max(0, (S.wb.used | 0) - (S.wb.buy | 0)); S.wb.buy = 0; }
   return S.wb;
 }
-const wbLeft = () => Math.max(0, WB_DAILY + (wbData().buy | 0) - wbData().used);
+
+// ★ 剩余可用次数：固定上限 5，只扣除已用次数
+function wbLeft() {
+  const w = wbData();
+  return Math.max(0, WB_DAILY - (w.used || 0));
+}
+
+// ★ 购买逻辑：恢复 1 次已用次数 (used 减 1)，总槽位永远是 5
+function wbBuy() {
+  const left = wbLeft();
+  if (left >= WB_DAILY) {
+    pToast(`讨伐次数已满 (${WB_DAILY}/${WB_DAILY})，无需购买`);
+    return false;
+  }
+  if (S.d < WB_BUY_COST) {
+    pToast(`钻石不足 ${WB_BUY_COST} 钻`);
+    return false;
+  }
+  S.d -= WB_BUY_COST;
+  const w = wbData();
+  w.used = Math.max(0, (w.used || 0) - 1);
+  save();
+  pToast('已成功恢复 1 次讨伐机会！');
+  return true;
+}
+
+// 二次确认购买
+function wbBuyClick() {
+  const left = wbLeft();
+  if (left >= WB_DAILY) {
+    pToast(`今日次数已满 (${WB_DAILY}/${WB_DAILY})`);
+    return;
+  }
+  if (T < (PO.wbAsk || 0)) {
+    PO.wbAsk = 0;
+    wbBuy();
+  } else {
+    PO.wbAsk = T + 2.2;
+  }
+}
+
 const wbOpen = w => S.lv >= w.lv;
 
 const chapUnlocked = i => CHAPTERS[i].stages[0] <= S.cl;
@@ -406,8 +447,8 @@ function drawPoHub() {
       status(sx, sy, sw) {
         const n = WB.filter(wbOpen).length, left = wbLeft();
         txt('今日剩余讨伐', sx, sy, 11, '#9ab');
-        txt(left + ' / ' + (WB_DAILY + (wbData().buy | 0)) + ' (已开放 ' + n + ')', sx + sw, sy, 11, left ? '#ffd84a' : '#ff6b6b', 'right');
-        bar(sx, sy + 14, sw, 7, left, WB_DAILY + (wbData().buy | 0), '#ff4757', '#ff9f43', 4);
+        txt(left + ' / ' + WB_DAILY + ' (已开放 ' + n + ')', sx + sw, sy, 11, left ? '#ffd84a' : '#ff6b6b', 'right');
+        bar(sx, sy + 14, sw, 7, left, WB_DAILY, '#ff4757', '#ff9f43', 4);
       }
     },
     {
@@ -912,7 +953,7 @@ function poWBRow(w, i, y) {
 }
 
 function drawPoWB() {
-  const w = WB[PO.wb], open = wbOpen(w), Wd = wbData(), left = wbLeft(), total = WB_DAILY + (Wd.buy | 0), online = wbOnline();
+  const w = WB[PO.wb], open = wbOpen(w), Wd = wbData(), left = wbLeft(), online = wbOnline();
   poFrame(WB_COL, '👹 世界BOSS · 全服共讨');
   WB.forEach((b, i) => poWBRow(b, i, 84 + i * 55));
   wbFetch(PO.wb);
@@ -949,6 +990,17 @@ function drawPoWB() {
   txt(g ? poN(hpNow) + ' / ' + poN(hpMax) : (!online ? '需要登录账号并联网' : WBG.err ? '无法连接：' + WBG.err.slice(0, 26) : '同步中…'), rx + rw / 2, dy + 92, 10, '#fff', 'center');
   txt(g && g.lastKiller ? '上一只首领被「' + g.lastKiller + '」终结' : '这只首领还没有被击杀过', rx, dy + 116, 11, '#9fb0c6');
 
+  // ★ 局外世界 Boss 血条专属图片边框特效
+  const wbFrameImg = BOSS_FRAMES[w.set] || BOSS_FRAMES['default'];
+  if (wbFrameImg) {
+    ctx.save();
+    const padX = 34, padY = 12;
+    ctx.shadowColor = WB_COL;
+    ctx.shadowBlur = 10;
+    ctx.drawImage(wbFrameImg, rx - padX, dy + 85 - padY, rw + padX * 2, 14 + padY * 2);
+    ctx.restore();
+  }
+
   const stats = [['推荐等级', 'Lv.' + w.r, poRel(w.r)[1]], ['讨伐时限', w.tl + ' 秒', '#fff'], ['我的累计伤害', g ? poN(g.me) : '—', '#7df9ff']];
   stats.forEach((st, i) => {
     const sx = rx + i * 112, sy = dy + 144;
@@ -977,15 +1029,46 @@ function drawPoWB() {
   txt('⚠ 超时 / 战败即结束并结算；撤退不消耗次数，但本次伤害不计入全服', dx + 16, dy + 310, 11.5, '#c9d4e6');
 
   // ---- 次数 ----
+  // ---- 次数 (永远固定 5 颗指示灯槽位) ----
   txt('今日剩余', dx + 16, dy + 336, 12, '#9ab');
-  const nd = Math.min(total, 10);
-  for (let i = 0; i < nd; i++) {
-    ctx.beginPath(); ctx.arc(dx + 88 + i * 19, dy + 336, 7, 0, 7); ctx.fillStyle = i < left ? WB_COL : 'rgba(255,255,255,.08)'; ctx.fill();
-    ctx.lineWidth = 1.2; ctx.strokeStyle = WB_COL + 'aa'; ctx.stroke();
+  for (let i = 0; i < WB_DAILY; i++) {
+    const dotX = dx + 88 + i * 20;
+    ctx.beginPath();
+    ctx.arc(dotX, dy + 336, 6, 0, Math.PI * 2);
+    if (i < left) {
+      // 剩余可用：高亮实心红灯
+      ctx.fillStyle = WB_COL;
+      ctx.fill();
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = '#ffd84a';
+      ctx.stroke();
+    } else {
+      // 已消耗：暗黑凹槽圆环
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+      ctx.fill();
+      ctx.lineWidth = 1.2;
+      ctx.strokeStyle = 'rgba(255, 71, 87, 0.25)';
+      ctx.stroke();
+    }
   }
-  txt(left + ' / ' + total, dx + 88 + nd * 19 + 6, dy + 336, 12, left ? '#ffd84a' : '#ff6b6b');
+
+  // 固定显示 X / 5
+  txt(left + ' / ' + WB_DAILY, dx + 88 + WB_DAILY * 20 + 8, dy + 336, 12, left > 0 ? '#ffd84a' : '#ff6b6b');
+
+  // 购买按钮：满 5 次时置灰禁用，不满时可点击花费 100 钻恢复
   const ask = (PO.wbAsk || 0) > T;
-  pBtn(dx + dw - 16 - 190, dy + 322, 190, 28, ask ? '再点一次确认 -' + WB_BUY_COST + ' 💎' : '💎 购买 1 次（' + WB_BUY_COST + ' 钻）', { c: '#4fe3ff', ghost: true, sz: 11.5, cr: 6 }, wbBuyClick);
+  const isFull = left >= WB_DAILY;
+  const btnText = isFull 
+    ? `次数已满 (${WB_DAILY}/${WB_DAILY})` 
+    : (ask ? `再点一次确认 -${WB_BUY_COST} 💎` : `💎 恢复 1 次（${WB_BUY_COST} 钻）`);
+
+  pBtn(dx + dw - 16 - 190, dy + 322, 190, 28, btnText, { 
+    c: isFull ? '#576574' : '#4fe3ff', 
+    ghost: true, 
+    dis: isFull, 
+    sz: 11.5, 
+    cr: 6 
+  }, wbBuyClick);
 
   if (!open) { pPill(dx + dw - 168, dy + 12, 152, 24, 'rgba(255,71,87,.2)', '#ff4757'); txt('🔒 需要 Lv.' + w.lv + ' 解锁', dx + dw - 92, dy + 24, 12, '#ff8a95', 'center'); }
 

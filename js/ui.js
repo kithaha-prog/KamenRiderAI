@@ -509,6 +509,11 @@ function drawCharPanel() {
   // 标题栏
   bevel(x + 4, y + 4, w - 8, 34, 12); ctx.fillStyle = 'rgba(0, 229, 255, 0.13)'; ctx.fill();
   txt('⚡ 假面骑士 MALAYA · 骑士装甲与无限战备背包 ⚡', x + 20, y + 21, 14, '#7df9ff', 'left');
+
+  // ★ 新增：一键智能提升按钮 (翡翠发光质感，位于关闭按钮左侧)
+  bagBtn(x + w - 182, y + 9, 96, 24, '⚡ 一键提升', 'rgba(46,213,115,.25)', '#7dff9a', 11.5, () => autoEquipBest(), '#2ed573');
+
+  // 原有的关闭按钮保持不变
   bagBtn(x + w - 76, y + 9, 66, 24, '✕ 关闭', 'rgba(255,71,87,.25)', '#ff9aa4', 11.5, () => { showChar = false }, '#ff4757');
 
   // ================= 左侧：信息条 + [左槽 | 角色 | 右槽] + 战斗参数 =================
@@ -1016,7 +1021,7 @@ function drawCapsuleModal0() {
   // 根据过滤器筛选
   const filteredCaps = CAPSULES.filter(c => {
     const isOwned = S.caps.includes(c.id);
-    const isEq = S.eqCap === c.id;
+    const isEq = S.eqCap === c.id || S.eqCap2 === c.id;
     if (capFilter === 'owned') return isOwned;
     if (capFilter === 'equipped') return isEq;
     return true;
@@ -1037,7 +1042,8 @@ function drawCapsuleModal0() {
     curPageCaps.forEach((c, i) => {
       const rowY = rowY0 + i * (rowH + rowGap);
       const isSel = curSelCapId === c.id;
-      const isEq = S.eqCap === c.id;
+      const isEq = S.eqCap === c.id || S.eqCap2 === c.id;
+      const isSub = S.eqCap2 === c.id;
       const isOwned = S.caps.includes(c.id);
       const cardX = lx + 12, cardW = lw - 24;
 
@@ -1100,7 +1106,7 @@ function drawCapsuleModal0() {
       if (isEq) {
         ctx.fillStyle = 'rgba(46, 213, 115, 0.22)'; ctx.fill();
         ctx.strokeStyle = '#2ed573'; ctx.lineWidth = 1.2; ctx.stroke();
-        txt('★ 装配中', tagX + tagW / 2, tagY + tagH / 2, 11, '#2ed573', 'center');
+        txt(isSub ? '⇄ 副位' : '★ 主位', tagX + tagW / 2, tagY + tagH / 2, 11, '#2ed573', 'center');
       } else if (isOwned) {
         ctx.fillStyle = 'rgba(255, 216, 74, 0.18)'; ctx.fill();
         ctx.strokeStyle = '#ffd84a'; ctx.lineWidth = 1.2; ctx.stroke();
@@ -1175,12 +1181,15 @@ function drawCapsuleModal0() {
     const by = ry + L.btnY, bh = L.btnH;
     if (!isCapOwned) {
       actBtn(cx, by, cw, bh, '🔒 尚未拥有（可前往扭蛋终端抽取）', '#2a3140', false, 12);
+      Object.assign(CAPSUB, { x: -99, y: -99, w: 0, h: 0 });
       Object.assign(CAPACT, { x: cx, y: by, w: cw, h: bh }); Object.assign(CAPUP, { x: -99, y: -99, w: 0, h: 0 });
     } else {
-      const uw0 = 116, ew = cw - uw0 - 8, ux = cx + cw - uw0;
-      if (isCapEquipped) actBtn(cx, by, ew, bh, '✔ 当前已装配 [点击卸下]', '#2e86de', true, 13);
-      else actBtn(cx, by, ew, bh, '⚡ 立即装配该变身胶囊', '#2ed573', true, 13.5);
+      const uw0 = 100, ew0 = cw - uw0 - 8, ux = cx + cw - uw0, sw0 = 82, ew = ew0 - sw0 - 6, isSubSel = S.eqCap2 === selCap.id;
+      if (isCapEquipped) actBtn(cx, by, ew, bh, '✔ 主位 [卸下]', '#2e86de', true, 12.5);
+      else actBtn(cx, by, ew, bh, isSubSel ? '⚡ 设为主位' : '⚡ 装配主位', '#2ed573', true, 12.5);
       Object.assign(CAPACT, { x: cx, y: by, w: ew, h: bh });
+      actBtn(cx + ew + 6, by, sw0, bh, isSubSel ? '⇄ 副位 ✔' : '⇄ 设副位', '#e1a100', !isCapEquipped, 12);
+      Object.assign(CAPSUB, { x: cx + ew + 6, y: by, w: sw0, h: bh });
       const need = capStarCost(selCap.id), maxed = need === 0, have = capShards(), can = !maxed && have >= need;
       actBtn(ux, by, uw0, bh, '', '#a55eea', can, 12);
       if (maxed) txt('★ 已满星', ux + uw0 / 2, by + bh / 2, 12.5, '#ffd84a', 'center', false);
@@ -1340,7 +1349,7 @@ function drawSkillBarHUD() {
     { key: 'l',   label: 'L', name: lSkillName(), mp: 20, cd: P.cd.l || 0, mcd: P.maxCd.l || 1 },
     { key: 'e',   label: 'E', name: '战车', mp: 70, cd: P.cd.e || 0, mcd: P.maxCd.e || 1 },
     { key: 'k',   label: 'K', name: '终结技', mp: 120, cd: P.cd.k || 0, mcd: P.maxCd.k || 1 },
-    { key: 'p',   label: 'P', name: inForm() ? '解除' : '变身', mp: 0, cd: P.cd.p || 0, mcd: P.maxCd.p || 1 }
+    { key: 'p',   label: 'P', name: (typeof tagPname === 'function' ? tagPname() : (inForm() ? '解除' : '变身')), mp: 0, cd: (typeof tagPcd === 'function' ? tagPcd() : (P.cd.p || 0)), mcd: (typeof tagPmax === 'function' ? tagPmax() : (P.maxCd.p || 1)) }
   ];
 
   const sz = 44, gap = 10, totalW = skills.length * sz + (skills.length - 1) * gap;
@@ -1413,6 +1422,8 @@ function drawSkillBarHUD() {
     ctx.fillStyle = '#080c16'; ctx.fill();
     ctx.strokeStyle = 'rgba(217,189,125,.8)'; ctx.lineWidth = 1; ctx.stroke();
     ut(sk.label, x + 5, y + 3, 9, '#f3e3b0', 'center', { w: 700, sh: 0 });
+
+    if (sk.key === 'p' && typeof drawTagSlot === 'function') drawTagSlot(x, y, sz);   // 双胶囊：P 槽叠加副位 / 增益显示
 
     // 右下角消耗 MP 标牌
     if (sk.mp > 0) {
@@ -1945,7 +1956,16 @@ function drawWBSettlement() {
   ctx.fillStyle = 'rgba(10, 12, 22, 0.9)'; ctx.fill();
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)'; ctx.lineWidth = 1; ctx.stroke();
   
-  txt('今日剩余讨伐次数：' + W.leftTries + ' / ' + (WB_DAILY + (wbData().buy | 0)), expX + 16, expY + 10, 11, W.leftTries > 0 ? '#ffd84a' : '#ff6b81');
+  // 全局测宽保底（防止个别模块时序问题导致 tw is not defined）
+  window.tw = function(s, sz = 14) {
+    ctx.save();
+    ctx.font = `700 ${sz}px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif`;
+    const w = ctx.measureText(String(s)).width;
+    ctx.restore();
+    return w;
+  };
+
+  txt('今日剩余讨伐次数：' + W.leftTries + ' / ' + WB_DAILY, expX + 16, expY + 10, 11, W.leftTries > 0 ? '#ffd84a' : '#ff6b81');
   txt(W.rem >= 0 ? '全服首领剩余 ' + (W.rem / Math.max(1, W.bossMax) * 100).toFixed(1) + '%' : '每天 00:00 重置配额 · 可花钻石购买', expX + expW - 16, expY + 10, 10, '#8fa0b3', 'right');
 
   // 7. 三大交互操作按钮组 (py + 342)
@@ -1990,13 +2010,12 @@ function drawWBSettlement() {
   ctx.restore();
 }
 
-// ===== Boss 血条：登场充能 / 延迟残影 / 血量变色 / 受击抖动闪白 =====
+// ===== Boss 血条：无外框极简科技风 + 纯白韧性条 + 完美避让排版 =====
 const BOSSB = { e: null, hp: 0, ghost: 0, hold: 0, flash: 0, intro: 0, t: null };
 function drawBossBar(b, name) {
-  // 独立计时（不与 hudDt 共用，避免同帧互相吃掉 dt）
   const d = BOSSB.t === null ? 0 : Math.min(.1, Math.max(0, T - BOSSB.t)); BOSSB.t = T;
-  if (BOSSB.e !== b) { Object.assign(BOSSB, { e: b, hp: b.hp, ghost: b.hp, hold: 0, flash: 0, intro: 0 }); }   // 新首领：重新播放登场充能
-  if (b.hp < BOSSB.hp) { BOSSB.hold = .45; BOSSB.flash = .18; }                                                // 受击：残影停留 .45s，整体抖动闪白
+  if (BOSSB.e !== b) { Object.assign(BOSSB, { e: b, hp: b.hp, ghost: b.hp, hold: 0, flash: 0, intro: 0 }); }
+  if (b.hp < BOSSB.hp) { BOSSB.hold = .45; BOSSB.flash = .18; }
   BOSSB.hp = b.hp;
   BOSSB.intro = Math.min(1, BOSSB.intro + d / 1.1);
   BOSSB.flash = Math.max(0, BOSSB.flash - d);
@@ -2006,41 +2025,120 @@ function drawBossBar(b, name) {
   else BOSSB.ghost = Math.max(b.hp, BOSSB.ghost - (BOSSB.ghost - b.hp) * Math.min(1, d * 5) - b.mhp * .02 * d);
 
   const r = cl(b.hp / b.mhp, 0, 1), gr = cl(BOSSB.ghost / b.mhp, 0, 1);
-  const bw = 300, bh = 16, bx = (CP_HUD.w ? CP_HUD.x + 3 : 317) + (BOSSB.flash > 0 ? (Math.random() - .5) * 4 : 0), by = 66;   // 放在战力 / 任务按钮正下方（与战力胶囊左对齐）
   const pulse = r < .25 ? .5 + .5 * Math.sin(T * 9) : 0;
   const cols = r > .5 ? ['#ff4757', '#ff9f43'] : r > .25 ? ['#d81f3a', '#ff6a3d'] : ['#a80018', '#ff2d2d'];
   const rage = !!b.rg;
 
+  // ★ 1. 绝对安全区域定位：左距玩家面板 54px，上距战力按钮 22px，两端均衡
+  const jitterX = BOSSB.flash > 0 ? (Math.random() - .5) * 4 : 0;
+  const bw = 350, bh = 13;
+  const bx = 360 + jitterX; // 左侧从 x=360 开始，完全避开 x=306 的玩家面板
+  const by = 70;            // 上方从 y=70 开始，完全避开 y=36 的战力按钮
+
   ctx.save();
-  // 名称 + 狂暴标记 + 百分比
-  txt(name, bx + 2, 53, 14, '#fff', 'left');
-  if (rage) txt('狂暴', bx + 2 + ctx.measureText(name).width + 10, 53, 12, '#ff3838', 'left');
-  txt((r * 100 < 10 && r > 0 ? (r * 100).toFixed(1) : Math.ceil(r * 100)) + '%', bx + bw - 2, 53, 13, r < .25 ? '#ff6b6b' : '#ffd8a8', 'right');
 
-  // 底框
-  rpath(bx - 3, by - 3, bw + 6, bh + 6, 10);
-  ctx.fillStyle = 'rgba(8,10,20,.92)'; ctx.fill();
-  ctx.strokeStyle = rage ? 'rgba(255,60,60,.85)' : 'rgba(217,189,125,.55)'; ctx.lineWidth = 1.6;
-  if (rage || pulse) { ctx.shadowColor = '#ff3030'; ctx.shadowBlur = 8 + pulse * 10 }
-  ctx.stroke(); ctx.shadowBlur = 0;
+  // ★ 2. 血条底层暗色凹槽
+  rpath(bx - 3, by - 3, bw + 6, bh + 6, 8);
+  ctx.fillStyle = 'rgba(8, 10, 20, 0.94)';
+  ctx.fill();
+  ctx.strokeStyle = rage ? 'rgba(255,60,60,.85)' : 'rgba(217,189,125,.55)';
+  ctx.lineWidth = 1.4;
+  if (rage || pulse) { ctx.shadowColor = '#ff3030'; ctx.shadowBlur = 8 + pulse * 10; }
+  ctx.stroke();
+  ctx.shadowBlur = 0;
 
-  // 条内裁剪
-  rpath(bx, by, bw, bh, 7); ctx.clip();
+  // ★ 3. 内部血量与残影填充
+  ctx.save();
+  rpath(bx, by, bw, bh, 6);
+  ctx.clip();
+
   const fw = bw * Math.min(r, ease), gw = bw * Math.min(gr, ease);
-  if (gw > fw) { ctx.fillStyle = 'rgba(255,240,200,.85)'; ctx.fillRect(bx + fw, by, gw - fw, bh) }   // 残影
-  if (fw > 0) {
-    const g = ctx.createLinearGradient(bx, 0, bx + bw, 0); g.addColorStop(0, cols[0]); g.addColorStop(1, cols[1]);
-    ctx.fillStyle = g; ctx.fillRect(bx, by, fw, bh);
-    const hl = ctx.createLinearGradient(0, by, 0, by + bh); hl.addColorStop(0, 'rgba(255,255,255,.38)'); hl.addColorStop(.5, 'rgba(255,255,255,0)');
-    ctx.fillStyle = hl; ctx.fillRect(bx, by, fw, bh);                                                  // 顶部高光
-    if (pulse) { ctx.fillStyle = 'rgba(255,255,255,' + pulse * .22 + ')'; ctx.fillRect(bx, by, fw, bh) }
-    if (BOSSB.flash > 0) { ctx.fillStyle = 'rgba(255,255,255,' + BOSSB.flash / .18 * .55 + ')'; ctx.fillRect(bx, by, fw, bh) }
+  if (gw > fw) {
+    ctx.fillStyle = 'rgba(255, 240, 200, 0.85)';
+    ctx.fillRect(bx + fw, by, gw - fw, bh);
   }
-  if (BOSSB.intro < 1) { ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.fillRect(bx + bw * ease - 2, by, 3, bh) }   // 充能光标
+  if (fw > 0) {
+    const g = ctx.createLinearGradient(bx, 0, bx + bw, 0);
+    g.addColorStop(0, cols[0]); g.addColorStop(1, cols[1]);
+    ctx.fillStyle = g;
+    ctx.fillRect(bx, by, fw, bh);
+
+    // 顶部反光高光线
+    const hl = ctx.createLinearGradient(0, by, 0, by + bh);
+    hl.addColorStop(0, 'rgba(255,255,255,0.4)');
+    hl.addColorStop(0.5, 'rgba(255,255,255,0)');
+    ctx.fillStyle = hl;
+    ctx.fillRect(bx, by, fw, bh);
+
+    if (pulse) {
+      ctx.fillStyle = 'rgba(255,255,255,' + (pulse * 0.22).toFixed(3) + ')';
+      ctx.fillRect(bx, by, fw, bh);
+    }
+    if (BOSSB.flash > 0) {
+      ctx.fillStyle = 'rgba(255,255,255,' + (BOSSB.flash / 0.18 * 0.55).toFixed(3) + ')';
+      ctx.fillRect(bx, by, fw, bh);
+    }
+  }
+  if (BOSSB.intro < 1) {
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.fillRect(bx + bw * ease - 2, by, 3, bh);
+  }
   ctx.restore();
 
-  // 数值（条下方右对齐）
-  txt(b.hp.toLocaleString() + ' / ' + b.mhp.toLocaleString(), bx + bw - 2, by + bh + 13, 11, '#cdd6e6', 'right');
+  // ★ 4. 纯白亮银 韧性/破绽条 (位于主血条下方 2px)
+  const poiseY = by + bh + 2;
+  const poiseH = 3;
+  const curPoise = (typeof b.poise === 'number') ? b.poise : (b.maxPoise || 100);
+  const maxPoise = b.maxPoise || 100;
+  const poiseRatio = b.broken ? cl(b.brokenT / 4.0, 0, 1) : cl(curPoise / maxPoise, 0, 1);
+
+  // 韧性底槽
+  rpath(bx, poiseY, bw, poiseH, poiseH / 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fill();
+
+  // 纯白韧性填充 (带微光)
+  if (poiseRatio > 0) {
+    rpath(bx, poiseY, Math.max(poiseH, bw * poiseRatio), poiseH, poiseH / 2);
+    if (b.broken) {
+      // 破防瘫痪：紫红高频警示闪烁
+      ctx.fillStyle = (Math.sin(T * 18) > 0) ? '#ff3838' : '#ffd84a';
+    } else {
+      // 纯白亮银发光
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#ffffff';
+      ctx.shadowBlur = 4;
+    }
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  // ★ 5. 顶部与底部文字信息
+  const textTopY = by - 10;
+  const textBotY = poiseY + poiseH + 11;
+
+  // Boss 名字与状态标签
+  txt(name, bx + 2, textTopY, 13.5, '#ffffff', 'left');
+  const nameW = ctx.measureText(name).width;
+
+  if (b.broken) {
+    const breakPulse = 0.8 + 0.2 * Math.sin(T * 14);
+    txt('⚡ 破防弱化 150%', bx + 2 + nameW + 8, textTopY, 12, `rgba(255, 216, 74, ${breakPulse})`, 'left');
+  } else if (b.breakImmune > 0) {
+    txt('🛡️ 霸体护盾', bx + 2 + nameW + 8, textTopY, 11, '#7df9ff', 'left');
+  } else if (rage) {
+    txt('狂暴', bx + 2 + nameW + 8, textTopY, 12, '#ff3838', 'left');
+  }
+
+  // 百分比
+  const pctStr = (r * 100 < 10 && r > 0 ? (r * 100).toFixed(1) : Math.ceil(r * 100)) + '%';
+  txt(pctStr, bx + bw - 2, textTopY, 12.5, r < .25 ? '#ff6b6b' : '#ffd8a8', 'right');
+
+  // 具体血量数值
+  const valStr = b.hp.toLocaleString() + ' / ' + b.mhp.toLocaleString();
+  txt(valStr, bx + bw - 2, textBotY, 11, '#c2d0e0', 'right');
+
+  ctx.restore();
 }
 
 // ===== 小怪 / 精英血条：常驻显示（平时半透明）、受伤后高亮、带延迟残影、受击闪白 =====
@@ -2179,14 +2277,14 @@ function hintLine(str, cy = 524) {
 // W/S ↑/↓ 选择胶囊（自动翻页）　A/D ←/→ 切换分类　Enter/空格/F 装配或卸下　N/Esc 关闭（在 main.js 处理）
 const CAP_FILTERS = ['all', 'owned', 'equipped'], CAP_PAGE = 5;
 function capList() {
-  return CAPSULES.filter(c => capFilter === 'owned' ? S.caps.includes(c.id) : capFilter === 'equipped' ? S.eqCap === c.id : true);
+  return CAPSULES.filter(c => capFilter === 'owned' ? S.caps.includes(c.id) : capFilter === 'equipped' ? (S.eqCap === c.id || S.eqCap2 === c.id) : true);
 }
 function capEquipToggle() {
   const c = CAPSULES.find(c => c.id === curSelCapId);
   if (!c) return;
   if (!S.caps.includes(c.id)) { showCapModal = false; say('尚未获得该胶囊，请前往扭蛋机抽取！'); }
   else if (S.eqCap === c.id) { S.eqCap = null; if (inForm()) { clearForms(); calc() } save() }
-  else { S.eqCap = c.id; if (inForm()) clearForms(); save(); calc() }
+  else { if (S.eqCap2 === c.id) S.eqCap2 = S.eqCap; S.eqCap = c.id; if (inForm()) clearForms(); save(); calc() }
 }
 function capKeys() {
   const list = capList(), n = list.length;
@@ -2202,13 +2300,14 @@ function capKeys() {
   if (PR.KeyS || PR.ArrowDown) { step(1); eat('KeyS', 'ArrowDown') }
   if (PR.KeyA || PR.ArrowLeft) { tab(-1); eat('KeyA', 'ArrowLeft') }
   if (PR.KeyD || PR.ArrowRight) { tab(1); eat('KeyD', 'ArrowRight') }
+  if (PR.KeyQ) { capEquipSub(); eat('KeyQ') }
   if (PR.Enter || PR.Space || PR.KeyF) { capEquipToggle(); eat('Enter', 'Space', 'KeyF') }
 }
 function drawCapsuleModal() {
   drawCapsuleModal0();
   drawCapUpFx();
   if (typeof TOUCH !== 'undefined' && TOUCH) return;
-  ut('W/S 选择    A/D 切换分类    Enter 装配 / 卸下    N 或 Esc 关闭', 480, 523, 11, 'rgba(210,218,232,.8)', 'center', { w: 500, sp: .5 });
+  ut('W/S 选择    A/D 切换分类    Enter 装配主位    Q 设为/取消副位    N 或 Esc 关闭', 480, 523, 11, 'rgba(210,218,232,.8)', 'center', { w: 500, sp: .5 });
 }
 
 // ===== 战绩档案（点击左上角等级徽章 / 按 [I] 打开）=====
@@ -2913,5 +3012,327 @@ function drawCloudHint() {
   const a = el < .25 ? el / .25 : el > DUR - .8 ? (DUR - el) / .8 : 1;
   ctx.save(); ctx.globalAlpha = a * .5;
   txt('已备份', 950, 528, 11, '#aeb6c2', 'right', false);
+  ctx.restore();
+}
+
+// ===== 连击动作评价 HUD 绘制 (Style Rank Gauge - 经典动感倾斜版) =====
+function drawStyleRankHUD() {
+  if (G !== 'play' || typeof COMBO === 'undefined' || COMBO.count <= 0) return;
+
+  const R = STYLE_RANKS[COMBO.rankIdx];
+  const pop = COMBO.pop || 1.0;
+  const col = R.col;
+
+  // ★ 黄金战斗视角空隙 (x: 712, y: 132)：不遮 Boss 血条，不撞右侧任务栏
+  const cx = 712, cy = 132;
+  const timeRatio = cl(COMBO.timer / COMBO.maxT, 0, 1);
+
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // 1. 经典 10° 动感向右倾斜切角底框
+  ctx.transform(1, 0, -0.18, 1, 0, 0);
+
+  const boxW = 98, boxH = 46;
+  rpath(-boxW / 2, -boxH / 2, boxW, boxH, 7);
+  
+  // 深色微晶科技渐变底
+  const bgGrad = ctx.createLinearGradient(0, -boxH / 2, 0, boxH / 2);
+  bgGrad.addColorStop(0, 'rgba(15, 23, 42, 0.95)');
+  bgGrad.addColorStop(1, 'rgba(6, 10, 20, 0.96)');
+  ctx.fillStyle = bgGrad;
+  ctx.fill();
+
+  // 霓虹发光科技描边
+  ctx.strokeStyle = col;
+  ctx.lineWidth = COMBO.flash > 0 ? 2.5 : 1.5;
+  ctx.save();
+  ctx.shadowColor = col;
+  ctx.shadowBlur = (COMBO.flash > 0 || COMBO.rankIdx >= 4) ? 14 : 6;
+  ctx.stroke();
+  ctx.restore();
+
+  // 2. 左侧大号 Rank 字母 (带 Pop 弹性升阶动画与高光描边)
+  ctx.save();
+  ctx.translate(-boxW / 2 + 22, -1);
+  ctx.scale(pop, pop);
+
+  // 根据字母数量（D~SSS）自适应字号
+  const rankFontSize = R.rank.length >= 3 ? 24 : (R.rank.length === 2 ? 26 : 30);
+  ctx.font = `italic 900 ${rankFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // 黑色抗干扰立体厚描边
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = '#040711';
+  ctx.strokeText(R.rank, 0, 0);
+
+  // 亮色核心文字与发光
+  ctx.fillStyle = col;
+  ctx.shadowColor = col;
+  ctx.shadowBlur = COMBO.rankIdx >= 4 ? 14 : 8;
+  ctx.fillText(R.rank, 0, 0);
+  ctx.restore();
+
+  // 3. 右侧大号连击数字与 HITS (纯粹精简，彻底去除冗长英文，绝不溢出)
+  const textX = -boxW / 2 + 46;
+
+  // 大号纯白连击数字
+  const countStr = String(COMBO.count);
+  ctx.font = '900 18px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+  ctx.shadowBlur = 4;
+  ctx.fillText(countStr, textX, -6);
+
+  // 紧贴数字后的彩光 HITS
+  const numW = ctx.measureText(countStr).width;
+  ctx.font = '800 9.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.fillStyle = col;
+  ctx.shadowColor = col;
+  ctx.shadowBlur = 6;
+  ctx.fillText('HITS', textX + numW + 4, -5);
+  ctx.shadowBlur = 0;
+
+  // 4. 右侧内嵌式连击保护倒计时能量条
+  const barX = textX, barY = 6, barW = boxW - 54, barH = 3;
+  rpath(barX, barY, barW, barH, 1.5);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.fill();
+
+  if (timeRatio > 0) {
+    rpath(barX, barY, Math.max(2, barW * timeRatio), barH, 1.5);
+    // 剩余时间小于 25% 时红光脉冲闪烁提醒
+    ctx.fillStyle = (timeRatio < 0.25 && Math.sin(T * 22) > 0) ? '#ff3838' : col;
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+// ===== 领主登场专属立绘横幅系统 (Boss Encounter Banner) =====
+const BOSS_TITLES = {
+  1: { title: '【 崩桥断绝 · 废墟机神 】', sub: 'THREAT LEVEL: DISASTER // 灾害级' },
+  2: { title: '【 绝灭赤核 · 炎狱魔尊 】', sub: 'THREAT LEVEL: CALAMITY // 灾厄级' },
+  3: { title: '【 永冻绝壁 · 霜骨魔龙 】', sub: 'THREAT LEVEL: DISASTER // 灾害级' },
+  4: { title: '【 苍穹裂痕 · 迅雷翼神 】', sub: 'THREAT LEVEL: CALAMITY // 灾厄级' },
+  5: { title: '【 剧毒渊薮 · 蚀骨虫皇 】', sub: 'THREAT LEVEL: DISASTER // 灾害级' },
+  6: { title: '【 炼金古构 · 泰坦机皇 】', sub: 'THREAT LEVEL: CATASTROPHE // 毁灭级' },
+  7: { title: '【 冥府引渡 · 幽魂主宰 】', sub: 'THREAT LEVEL: CALAMITY // 灾厄级' },
+  8: { title: '【 圣辉耀斑 · 裁决神侍 】', sub: 'THREAT LEVEL: CATASTROPHE // 毁灭级' },
+  9: { title: '【 混沌裂隙 · 虚空吞噬者 】', sub: 'THREAT LEVEL: APOCALYPSE // 终焉级' },
+  10: { title: '【 终局裁断 · 绝界恶魔 】', sub: 'THREAT LEVEL: GENESIS // 创世级' }
+};
+
+const BOSS_BANNER = {
+  active: false,
+  t0: 0,
+  dur: 2.2,     // 横幅总展示时长 2.2 秒
+  b: null,
+  name: '',
+  title: '',
+  sub: '',
+  set: 1
+};
+
+// 触发领主登场横幅
+function triggerBossBanner(bossEntity) {
+  if (!bossEntity) return;
+  const z = (typeof cur === 'number' && ST[cur]) ? ST[cur] : {};
+  const set = z.set || 1;
+  const isWb = !!z.wb;
+
+  const cfg = isWb 
+    ? { title: '【 全服歼灭战 · 灭世古龙 】', sub: 'WORLD BOSS // APOCALYPSE CLASS' }
+    : (BOSS_TITLES[set] || { title: '【 灾厄领主 · 绝界强敌 】', sub: 'THREAT LEVEL: CALAMITY' });
+
+  BOSS_BANNER.active = true;
+  BOSS_BANNER.t0 = performance.now() / 1000;
+  BOSS_BANNER.b = bossEntity;
+  BOSS_BANNER.name = z.bn || '强敌 BOSS';
+  BOSS_BANNER.title = cfg.title;
+  BOSS_BANNER.sub = cfg.sub;
+  BOSS_BANNER.set = set;
+
+  // 定格战场 0.45 秒
+  if (typeof HITSTOP !== 'undefined') HITSTOP = 0.45;
+  shake = Math.max(shake, 18);
+  if (typeof playParryHit === 'function') playParryHit(); // 借用高能重击音效
+}
+
+// 绘制领主登场横幅
+function drawBossBannerHUD() {
+  if (!BOSS_BANNER.active) return;
+  const elapsed = performance.now() / 1000 - BOSS_BANNER.t0;
+  if (elapsed >= BOSS_BANNER.dur) {
+    BOSS_BANNER.active = false;
+    return;
+  }
+
+  const p = elapsed / BOSS_BANNER.dur;
+  const W = 960, H = 540;
+
+  ctx.save();
+
+  // 1. 上下电影级黑胶宽画幅遮罩入场 (0~0.25s 展开，结尾 0.25s 收缩)
+  const barProgress = p < 0.12 ? p / 0.12 : (p > 0.88 ? (1 - p) / 0.12 : 1.0);
+  const letterH = 46 * barProgress;
+  ctx.fillStyle = '#02040a';
+  ctx.fillRect(0, 0, W, letterH);
+  ctx.fillRect(0, H - letterH, W, letterH);
+
+  // 全屏暗化聚光罩
+  ctx.fillStyle = `rgba(5, 2, 8, ${(0.55 * barProgress).toFixed(3)})`;
+  ctx.fillRect(0, 0, W, H);
+
+  // 2. 居中斜向暗红机械光带 (0.0~0.25s 极速划破，0.85~1.0s 划出)
+  let ribbonX = 0;
+  if (p < 0.15) {
+    const k = p / 0.15;
+    ribbonX = (1 - Math.pow(1 - k, 3)) * W - W; // 从左侧极速切入
+  } else if (p > 0.88) {
+    const k = (p - 0.88) / 0.12;
+    ribbonX = Math.pow(k, 3) * W;              // 向右侧极速划出
+  }
+
+  ctx.save();
+  ctx.translate(ribbonX, 0);
+
+  // 斜切机械光带路径 (向右倾斜 7 度)
+  ctx.beginPath();
+  ctx.moveTo(-100, 185);
+  ctx.lineTo(W + 100, 145);
+  ctx.lineTo(W + 100, 365);
+  ctx.lineTo(-100, 405);
+  ctx.closePath();
+
+  // 机械光带底色渐变
+  const ribGrad = ctx.createLinearGradient(0, 160, 0, 390);
+  ribGrad.addColorStop(0, 'rgba(38, 10, 18, 0.96)');
+  ribGrad.addColorStop(0.5, 'rgba(14, 5, 12, 0.98)');
+  ribGrad.addColorStop(1, 'rgba(28, 6, 12, 0.96)');
+  ctx.fillStyle = ribGrad;
+  ctx.fill();
+
+  // 贯穿上下两道赤金科技描边
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = '#ff3838';
+  ctx.shadowColor = '#ff2222';
+  ctx.shadowBlur = 12;
+  ctx.beginPath();
+  ctx.moveTo(-100, 185); ctx.lineTo(W + 100, 145);
+  ctx.moveTo(-100, 405); ctx.lineTo(W + 100, 365);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // 上边框烫金色副边
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = '#ffd84a';
+  ctx.beginPath();
+  ctx.moveTo(-100, 188); ctx.lineTo(W + 100, 148);
+  ctx.stroke();
+
+  // 机械光带内部装饰网格线
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
+  for (let gx = 0; gx < W + 200; gx += 32) {
+    ctx.fillRect(gx - 80, 170, 1.5, 220);
+  }
+
+  // 3. 右侧 Boss 巨型立绘/剪影投影 (慢速微推镜头)
+  const boss = BOSS_BANNER.b;
+  if (boss && boss.im) {
+    const im = boss.im;
+    const baseH = 210;
+    const zoom = 1.0 + (p * 0.08); // 慢镜头微推
+    const scale = (baseH / im.height) * zoom;
+    const drawW = im.width * scale, drawH = im.height * scale;
+    const bx = 680, by = 280;
+
+    ctx.save();
+    // 限制在横带区域内裁切
+    ctx.beginPath();
+    ctx.moveTo(-100, 185); ctx.lineTo(W + 100, 145);
+    ctx.lineTo(W + 100, 365); ctx.lineTo(-100, 405);
+    ctx.clip();
+
+    // 背后大号深红光晕剪影
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.scale(scale * 1.08, scale * 1.08);
+    ctx.shadowColor = '#ff2222';
+    ctx.shadowBlur = 30;
+    ctx.globalAlpha = 0.5;
+    ctx.drawImage(im, -im.width / 2, -im.height / 2);
+    ctx.restore();
+
+    // 正身实体
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.scale(scale, scale);
+    ctx.drawImage(im, -im.width / 2, -im.height / 2);
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  // 4. 左侧排版：警告标志 + 烫金书法专属称号 + 大号科技全名
+  const tx = 110;
+
+  // (1) 警报角标
+  rpath(tx, 202, 146, 20, 4);
+  ctx.fillStyle = 'rgba(255, 56, 56, 0.25)'; ctx.fill();
+  ctx.strokeStyle = '#ff3838'; ctx.lineWidth = 1; ctx.stroke();
+  txt('⚠ WARNING // 领主现世', tx + 8, 212, 10.5, '#ffd84a', 'left', false);
+
+  // (2) 烫金书法专属称号（如【绝灭·炎狱魔尊】）
+  ctx.save();
+  ctx.font = 'italic 900 24px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  const tg = ctx.createLinearGradient(tx, 0, tx + 400, 0);
+  tg.addColorStop(0, '#ffffff');
+  tg.addColorStop(0.3, '#ffeaa7');
+  tg.addColorStop(0.7, '#ffd84a');
+  tg.addColorStop(1, '#ff9f43');
+  ctx.fillStyle = tg;
+  ctx.shadowColor = '#d63031';
+  ctx.shadowBlur = 10;
+  ctx.fillText(BOSS_BANNER.title, tx, 246);
+  ctx.restore();
+
+  // (3) Boss 真实大号全名 (34px 科技字体)
+  ctx.save();
+  ctx.font = '900 34px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = '#050711';
+  ctx.strokeText(BOSS_BANNER.name, tx, 292);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(BOSS_BANNER.name, tx, 292);
+  ctx.restore();
+
+  // (4) 威胁等级与警戒代码
+  txt(BOSS_BANNER.sub, tx, 332, 11, '#ff7675', 'left', false);
+
+  ctx.restore(); // 还原机械光带位移
+
+  // 5. 开场 0.15 秒内的对角白刃高光闪
+  if (p < 0.18) {
+    const flashA = 1 - (p / 0.18);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = `rgba(255, 255, 255, ${flashA.toFixed(2)})`;
+    ctx.lineWidth = 14;
+    ctx.beginPath();
+    ctx.moveTo(0, 195);
+    ctx.lineTo(W, 145);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   ctx.restore();
 }

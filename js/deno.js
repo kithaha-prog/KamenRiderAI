@@ -115,7 +115,7 @@ function denoFrameAt(s) {   // → { a, b, e }：当前帧 / 下一帧 / 交叉�
 
 // 节拍事件（main.js 更新循环里调用）：震屏 / 飘字 / 伤害，每个只触发一次
 function updDenoTrans() {
-  const s = denoTS(), h = P.hit, fire = (k, t, fn) => { if (s >= t && !h[k]) { h[k] = 1; fn() } };
+  const s = denoTS(), h = P.hit, fire = (k, t, fn) => { if (s >= t && !h[k]) { h[k] = 1; if (!(t < (P.sk || 0))) fn() } };
   fire('card', .7, () => { shake = Math.max(shake, 3) });
   fire('ring', 1.8, () => { shake = Math.max(shake, 5); DT.push({ x: P.x, y: P.y - 210, s: '胶片之环！', t: 1.0, c: '#ffb36b' }) });
   fire('burst', DENO_BURST, () => { shake = Math.max(shake, 18) });
@@ -201,7 +201,7 @@ function updDenoWaves(dt) {
     w.t -= dt; w.x += w.f * DENO_L.vx * dt;
     if (typeof cancelEP === 'function') cancelEP(w.x - 70, w.x + 70);
     for (const e of E) {
-      if (e.dead || w.hit.has(e)) continue;
+      if (e.dead || w.hit.has(e) || w.vis) continue;   // w.vis = 队友发来的斩击波：只展示，伤害由队友端结算
       if (Math.abs(e.x - w.x) < DENO_L.w + e.w * .4 && Math.abs((e.y - e.h * .5) - w.y) < 140 + e.h * .5) {
         w.hit.add(e);
         hurt(e, P.atk * DENO_L.mul);

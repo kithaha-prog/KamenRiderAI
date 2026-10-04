@@ -219,7 +219,7 @@ function updMalayaTrans(dt) {
   }
   const s = P.t;
   const h = P.hit;
-  const fire = (id, t, fn) => { if (s >= t && !h[id]) { h[id] = 1; fn(); } };
+  const fire = (id, t, fn) => { if (s >= t && !h[id]) { h[id] = 1; if (!(t < (P.sk || 0))) fn(); } };
 
   fire('henshin', MALAYA_TL.henshin, () => {
     DT.push({ x: P.x, y: P.y - 210, s: 'HENSHIN!', t: 1.2, c: '#ffd84a' });

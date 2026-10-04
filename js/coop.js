@@ -135,6 +135,7 @@ function coopNotice(s) {
 
 // 战斗开始（begin）时重置联机战斗状态
 function coopResetBattle() {
+  if (typeof coopStopAllRemoteSounds === 'function') coopStopAllRemoteSounds();
   COOP.vote = { me: null, peer: null };
   COOP.rescueT = 0; COOP.channeling = false; COOP.escT = 0;
   COOP.lastSt = ''; COOP.lastDown = false; COOP.lastSyncT = 0; COOP.monT = 0;
@@ -195,6 +196,7 @@ async function coopJoinRoom(code) {
 
 // 退出/解散房间
 function coopLeaveRoom() {
+  if (typeof coopStopAllRemoteSounds === 'function') coopStopAllRemoteSounds();
   if (COOP.channel) {
     const ch = COOP.channel;
     coopSend('room_close', {});
@@ -413,6 +415,7 @@ function coopHandleMessage({ type, data, fromHost }) {
       else if (_k === 'm' && typeof MECH !== 'undefined' && MECH.vis) MECH.vis.push(Object.assign(v, { cs: 1 }));
       else if (_k === 'b' && typeof BLB !== 'undefined') BLB.push(Object.assign(v, { tk: 99, vis: 1, cs: 1 }));
       else if (_k === 'z' && typeof Z_WAVES !== 'undefined') Z_WAVES.push(Object.assign(v, { hit: {}, tick: 0, vis: 1, cs: 1 }));
+      else if (_k === 'd' && typeof DNW !== 'undefined') DNW.push(Object.assign(v, { hit: new Set(), vis: 1, cs: 1 }));
     }
   }
 
@@ -457,6 +460,15 @@ function coopHandleMessage({ type, data, fromHost }) {
       le.hp = m.hp; le.mhp = m.mhp;
     }
     E = E.filter(e => alive.has(e.id));   // 房主列表为准，清理幽灵怪
+  }
+
+  // 4b. 队友的音效 / 顿帧（时停）
+  else if (type === 'snd') {
+    coopPlayRemoteSound(data);
+  } else if (type === 'snd_stop') {
+    coopStopRemoteSound(data && data.n);
+  } else if (type === 'hitstop') {
+    if (G === 'play' && typeof HITSTOP !== 'undefined') HITSTOP = Math.max(HITSTOP, Math.min(1.5, +data.d || 0.3));
   }
 
   // 5. 救援 / 胜负 / 投票
@@ -616,6 +628,7 @@ function coopUpdateBattle(dt) {
     if (typeof MECH !== 'undefined' && MECH.vis) for (const v of MECH.vis) if (!v.cs) { v.cs = 1; if (q.length < 60) q.push(Object.assign({ _k: 'm' }, coopPack(v))); }
     if (typeof BLB !== 'undefined') for (const b of BLB) if (!b.cs && !b.vis) { b.cs = 1; if (q.length < 60) q.push(Object.assign({ _k: 'b' }, coopPack(b))); }
     if (typeof Z_WAVES !== 'undefined') for (const b of Z_WAVES) if (!b.cs && !b.vis) { b.cs = 1; if (q.length < 60) q.push(Object.assign({ _k: 'z' }, coopPack(b))); }
+    if (typeof DNW !== 'undefined') for (const b of DNW) if (!b.cs && !b.vis) { b.cs = 1; if (q.length < 60) q.push(Object.assign({ _k: 'd' }, coopPack(b))); }
     COOP.fxT += dt;
     if (q.length && COOP.fxT >= 0.06) { COOP.fxT = 0; coopSend('fx_batch', { l: q.splice(0, 24) }); }
   }
@@ -910,3 +923,77 @@ function drawCoopOverlay() {
     txt(COOP.note.s, 480, 96, 16, '#ffd84a', 'center');
   }
 }
+
+// ---------- 6. 音效互通 ----------
+// 做法：在 HTMLMediaElement.play / pause 上挂钩，凡是播放 Assets/SoundFX/ 下的音频，就把「文件名 / 音量 / 倍速」
+// 广播给队友，队友用自己的 Audio 同步播放。这样所有骑士的变身音、技能音、招架音（含没有上传到这里的 js 文件）
+// 都能互相听到，不需要逐个改动各模块。队友端播放的音频带 __coopRemote 标记，不会再次广播（防回声）。
+const COOP_SND_DIR = 'SoundFX/';
+const COOP_SND = { remote: {}, last: {} };
+
+function coopSndName(el) {
+  const src = el.currentSrc || el.src || '';
+  const i = src.indexOf(COOP_SND_DIR);
+  if (i < 0) return '';
+  let n = src.slice(i + COOP_SND_DIR.length).split(/[?#]/)[0];
+  try { n = decodeURI(n); } catch (e) { }
+  return n;
+}
+function coopSndShare(el) {
+  return !el.__coopRemote && !el.muted && COOP.active && COOP.inGame && COOP.peerConnected && G === 'play';
+}
+function coopPlayRemoteSound(d) {
+  if (!d || !d.n || G !== 'play' || !COOP.active || !COOP.inGame) return;
+  let a = COOP_SND.remote[d.n];
+  if (!a || (!a.paused && !a.ended && a.currentTime > 0.05 && d.n.length && !d.re)) {
+    // 同名音效还在播（连续出刀）：用新的 Audio，避免互相截断；变身长音则复用同一个元素
+    a = new Audio(); a.preload = 'auto'; a.__coopRemote = true;
+    a.src = encodeURI(A + COOP_SND_DIR + d.n);
+    COOP_SND.remote[d.n] = a;
+  }
+  try {
+    a.volume = Math.max(0, Math.min(1, d.v == null ? 0.6 : d.v));
+    a.playbackRate = d.r || 1;
+    a.loop = !!d.l;
+    if ('preservesPitch' in a) a.preservesPitch = false;
+    a.currentTime = 0;
+    const p = a.play(); if (p && p.catch) p.catch(() => { });
+  } catch (e) { }
+}
+function coopStopRemoteSound(n) {
+  const a = n && COOP_SND.remote[n];
+  if (a) { try { a.pause(); } catch (e) { } }
+}
+function coopStopAllRemoteSounds() {
+  for (const k in COOP_SND.remote) { try { COOP_SND.remote[k].pause(); } catch (e) { } }
+}
+
+(function coopHookAudio() {
+  if (typeof HTMLMediaElement === 'undefined') return;
+  const proto = HTMLMediaElement.prototype, rawPlay = proto.play, rawPause = proto.pause;
+  proto.play = function () {
+    try {
+      if (coopSndShare(this)) {
+        const n = coopSndName(this);
+        const now = performance.now();
+        if (n && now - (COOP_SND.last[n] || 0) > 40) {   // 40ms 内的重复触发不再发（防刷屏）
+          COOP_SND.last[n] = now;
+          coopSend('snd', { n, v: Math.round(this.volume * 100) / 100, r: this.playbackRate || 1, l: this.loop ? 1 : 0, re: this.duration > 2 ? 1 : 0 });
+        }
+      }
+    } catch (e) { }
+    return rawPlay.apply(this, arguments);
+  };
+  proto.pause = function () {
+    try {
+      if (!this.paused && coopSndShare(this)) {
+        const n = coopSndName(this);
+        if (n) coopSend('snd_stop', { n });
+      }
+    } catch (e) { }
+    return rawPause.apply(this, arguments);
+  };
+})();
+
+// 离开战斗（结算 / 回基地）后，立刻停掉队友传来的所有声音
+setInterval(() => { if (G !== 'play') coopStopAllRemoteSounds(); }, 300);

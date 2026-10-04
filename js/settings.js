@@ -1,10 +1,80 @@
+// ===== 变身动画：完整 / 精简（约 2 秒，含伤害爆发）=====
+// 精简模式 = 直接从变身中段切入，播到爆发(伤害判定)后收尾；音频同步跳到同一位置。
+// 各骑士窗口 [s0, s1] 为“音频原速秒数”，爆发 / 伤害事件都落在窗口内；想调节奏只改这张表。
+const HEN_MODE_KEY = 'kr_henshin_mode';
+const HEN_SHORT = {
+  malaya: { s0: 2.7,  s1: 4.69, snd: () => (typeof SND_MALAYA !== 'undefined' ? SND_MALAYA : null) },                                     // 爆发 3.70
+  ryuki:  { s0: 5.5,  s1: 7.6,  len: () => RYUKI_AUDIO_LEN, snd: () => (typeof SNDR !== 'undefined' ? SNDR : null) },                    // 爆发 6.40
+  '555':  { s0: 7.4,  s1: 9.5,  len: () => FAIZ_AUDIO_LEN,  snd: () => (typeof SND5 !== 'undefined' ? SND5 : null) },                    // 爆发 8.50
+  blade:  { s0: 8.8,  s1: 10.8, len: () => BLADE_AUDIO_LEN, snd: () => (typeof SND6 !== 'undefined' ? SND6 : null) },                    // 伤害 9.82
+  deno:   { s0: 4.6,  s1: 6.4,  len: () => DENO_TL_LEN,     snd: () => (typeof SND_D !== 'undefined' ? SND_D : null) },                   // 伤害 5.80
+  zeztz:  { s0: 10.9, s1: 13.0, snd: () => (typeof SND_ZEZTZ !== 'undefined' ? SND_ZEZTZ : null) }                                        // 爆发 11.75
+};
+function henshinMode() { try { return localStorage.getItem(HEN_MODE_KEY) === 'short' ? 'short' : 'full'; } catch (e) { return 'full'; } }
+function henshinSetMode(m) { try { localStorage.setItem(HEN_MODE_KEY, m === 'short' ? 'short' : 'full'); } catch (e) {} }
+
+// ---- 精简模式的音频：用 WebAudio 缓冲从指定秒数开播 ----
+// 原因：python http.server 等不支持 Range 的服务器上，<audio> 无法跳到中段（currentTime 会被打回 0），
+// 而变身动画的时钟又跟随音频 → 会退回完整播放。所以精简模式改用解码后的缓冲播放，动画走自己的时钟。
+const HEN_BUF = { ctx: null, buf: {}, loading: {}, src: null };
+function henCtx() { if (!HEN_BUF.ctx) { const C = window.AudioContext || window.webkitAudioContext; if (C) { try { HEN_BUF.ctx = new C(); } catch (e) {} } } return HEN_BUF.ctx; }
+function henLoad(key) {
+  const c = HEN_SHORT[key], a = c && c.snd(); if (!a) return;
+  const url = a.currentSrc || a.src; if (!url || HEN_BUF.buf[url] || HEN_BUF.loading[url]) return;
+  const ctx = henCtx(); if (!ctx) return;
+  HEN_BUF.loading[url] = 1;
+  fetch(url).then(r => r.arrayBuffer()).then(ab => new Promise((ok, no) => ctx.decodeAudioData(ab, ok, no)))
+    .then(b => { HEN_BUF.buf[url] = b; }).catch(() => {}).then(() => { delete HEN_BUF.loading[url]; });
+}
+function henshinPreload() { if (henshinMode() === 'short') for (const k in HEN_SHORT) henLoad(k); }
+function henshinStopBuf() { if (HEN_BUF.src) { try { HEN_BUF.src.stop(); } catch (e) {} HEN_BUF.src = null; } }
+function henshinPlayBuf(a, url, off) {
+  const ctx = HEN_BUF.ctx, b = HEN_BUF.buf[url]; if (!ctx || !b) return false;
+  try {
+    if (ctx.state === 'suspended') ctx.resume();
+    henshinStopBuf();
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = b; g.gain.value = a.muted ? 0 : (typeof a.volume === 'number' ? a.volume : 1);
+    src.connect(g); g.connect(ctx.destination); src.start(0, off); HEN_BUF.src = src; return true;
+  } catch (e) { return false; }
+}
+
+// 变身开始后立刻调用（必须在 play*Henshin() 之后，因为它们会把音频拨回 0）
+function henshinApply(key) {
+  P.sk = 0; P.tend = 0;                       // 默认完整模式
+  if (henshinMode() !== 'short') return;
+  const c = HEN_SHORT[key]; if (!c) return;
+  const a = c.snd(); if (!a) return;          // 没有音频：完整动画本来就只有 ~2 秒
+  const dur = (isFinite(a.duration) && a.duration > 0.5) ? a.duration : 0;
+  const len = c.len ? c.len() : (P.tdur || dur || 1);
+  const td = P.tdur || dur || len;
+  const k = td / len;                         // 轴秒 → P.t 的换算系数
+  P.sk = c.s0;                                // 起点之前的节拍事件不再触发
+  P.t = c.s0 * k;
+  P.tend = Math.min(c.s1 * k, td);
+  const url = a.currentSrc || a.src;
+  if (henshinPlayBuf(a, url, c.s0)) { try { a.pause(); } catch (e) {} }   // 元素静音暂停 → 动画走自己的时钟
+  else { try { a.currentTime = c.s0; } catch (e) {} henLoad(key); }       // 缓冲还没就绪：尽力 seek（下次就有缓冲了）
+}
+
+// 精简变身收尾：龙骑 / 555 的名字事件在窗口之外，这里补一个收势
+function henshinShortFinish(key) {
+  try {
+    const nm = { ryuki: ['KAMEN RIDER RYUKI', '#ff4757'], '555': ['KAMEN RIDER 555', '#ffb400'] }[key];
+    if (!nm) return;
+    DT.push({ x: P.x, y: P.y - 210, s: nm[0], t: 1.4, c: nm[1] });
+    FX.push({ type: 'boom', x: P.x, y: GY - 60, t: .5, d: .5, r: 240, c: '#ffd166' });
+    shake = Math.max(shake, 14);
+  } catch (e) {}
+}
+
 // ===== 基地设置界面（Esc 呼出）=====
 // 只在基地 / 房间里、且没有别的弹窗打开时响应 Esc。
 // 里面可以：继续游戏 / 立即云端备份 / 注销账号（必须二次确认才会执行）。
 (function () {
   const css = document.createElement('style');
   css.textContent = `
-  #set-overlay{display:none;position:fixed;inset:0;z-index:98;background:rgba(3,6,14,.82);backdrop-filter:blur(6px);align-items:center;justify-content:center}
+  #set-overlay{display:none;position:fixed;inset:0;z-index:98;background:rgba(3,6,14,.92);align-items:center;justify-content:center}
   #set-overlay.show{display:flex}
   .set-box{width:min(90vw,360px);background:linear-gradient(180deg,#0e172a,#060a14);border:1.5px solid #00e5ff;border-radius:12px;
     box-shadow:0 0 25px rgba(0,229,255,.35);padding:22px;box-sizing:border-box;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;text-align:center}
@@ -52,11 +122,17 @@
         '<div class="set-who">当前账号：' + who().replace(/</g, '&lt;') + '</div>' +
         '<button class="set-btn main" id="set-resume">继 续 游 戏</button>' +
         '<button class="set-btn" id="set-sync">立 即 云 端 备 份</button>' +
+        '<button class="set-btn" id="set-hen">变 身 动 画：' + (henshinMode() === 'short' ? '精 简（约 2 秒）' : '完 整') + '</button>' +
         '<button class="set-btn" id="set-logout">退 出 登 录（保 留 存 档）</button>' +
         '<button class="set-btn danger" id="set-delete">注 销 账 号（删 除 全 部 数 据）</button>' +
         '<div class="set-st" id="set-st"></div>';
       box.querySelector('#set-resume').onclick = closeSet;
       box.querySelector('#set-sync').onclick = doSync;
+      box.querySelector('#set-hen').onclick = () => {
+        const m = henshinMode() === 'short' ? 'full' : 'short';
+        henshinSetMode(m); if (m === 'short') henshinPreload(); render('main');
+        status(m === 'short' ? '已切换：精简变身（约 2 秒，含爆发伤害）' : '已切换：完整变身动画');
+      };
       box.querySelector('#set-logout').onclick = doSignOut;
       box.querySelector('#set-delete').onclick = () => render('confirm');
       box.querySelector('#set-resume').focus();
@@ -164,4 +240,5 @@
   }, true);
   addEventListener('keyup', e => { if (isOpen()) e.stopImmediatePropagation(); }, true);
   window.openSettings = openSet;
+  setTimeout(henshinPreload, 2500);
 })();

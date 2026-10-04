@@ -346,7 +346,7 @@ function bladeScreenFx(s, over) {
 
 // 节拍事件（在 main.js 的更新循环里调用）：震屏 / 飘字 / 伤害，每个只触发一次
 function updBladeTrans() {
-  const s = bladeTS(), L = BLADE_TL, h = P.hit, fire = (k, t, fn) => { if (s >= t && !h[k]) { h[k] = 1; fn() } };
+  const s = bladeTS(), L = BLADE_TL, h = P.hit, fire = (k, t, fn) => { if (s >= t && !h[k]) { h[k] = 1; if (!(t < (P.sk || 0))) fn() } };
   fire('draw', L.draw, () => { shake = Math.max(shake, 2) });
   L.beats.forEach((t, n) => fire('b' + n, t, () => { shake = Math.max(shake, 4) }));
   fire('gate', L.gate, () => { shake = Math.max(shake, 12); DT.push({ x: P.x, y: P.y - 210, s: 'TURN UP！', t: 1.4, c: '#8fe9ff' }) });

@@ -755,7 +755,7 @@ function drawZeztzTransform(x, y, f) {
 
 function updZeztzTrans(dt) {
   const L = ZEZTZ_TL, s = zeztzSyncT(P.t), h = P.hit;
-  const fire = (id, t, fn) => { if (s >= t && !h[id]) { h[id] = 1; fn(); } };
+  const fire = (id, t, fn) => { if (s >= t && !h[id]) { h[id] = 1; if (!(t < (P.sk || 0))) fn(); } };
   // 字幕开着时不再飘头顶文字（避免重复）；关掉字幕会自动退回飘字
   const say = (str, t, c) => { if (!ZEZTZ_SUBS_ON) DT.push({ x: P.x, y: P.y - 210, s: str, t: t, c: c }); };
 
