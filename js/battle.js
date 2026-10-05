@@ -163,7 +163,7 @@ function begin(k) {
 
   const transDur = typeof malayaTransDur === 'function' ? malayaTransDur() : 4.69;
   Object.assign(P, { 
-    x: 300, y: GY, vx: 0, vy: 0, f: 1, 
+    x: 300, y: GY, vx: 0, vy: 0, f: 1, z: 0, vz: 0, dxm: 1,
     hp: P.mh, mp: P.mm, 
     st: 'trans', t: 0, tdur: transDur,
     inv: transDur + 0.5, land: 0, h: 0, hit: {}, 
@@ -493,11 +493,13 @@ function hurt(e, d, pre) {
   }
 }
 
-function area(x0, x1, dmg, set) {
+function area(x0, x1, dmg, set, srcZ) {
+  // ★ 2.5D：只命中同车道敌人；范围越宽（大招 / 全屏技）纵向判定越宽
+  const span = x1 - x0, zt = span > 520 ? 110 : span > 340 ? 70 : DEPTH.tol;
   for (const e of E) {
     if (e.dead) continue;
     const w = e.w / 2;
-    if (e.x + w > x0 && e.x - w < x1 && e.y > P.y - 160 && e.y - e.h < P.y && (!set || !set[e.id])) {
+    if (e.x + w > x0 && e.x - w < x1 && e.y > P.y - 160 && e.y - e.h < P.y && (!set || !set[e.id]) && zOk(e, srcZ, zt)) {
       if (set) set[e.id] = 1;
       hurt(e, dmg);
     }
@@ -512,7 +514,7 @@ function cancelEP(x0, x1) {
     if (p.unblockable || p.pool || p.g || p.low || p.tex === 'meteor' || p.tex === 'wave_ground' || p.tex === 'ch1_guardrail' || p.tex === 'ch1_pillar_fall') {
       continue;
     }
-    if (p.x >= x0 - 30 && p.x <= x1 + 30 && p.y >= yMin && p.y <= yMax) {
+    if (p.x >= x0 - 30 && p.x <= x1 + 30 && p.y >= yMin && p.y <= yMax && (!depthActive() || Math.abs((p.z || 0) - (P.z || 0)) <= DEPTH.tol + 25)) {
       p.t = 0;
       playSwordHit();
       shake = Math.max(shake, 4);
@@ -566,7 +568,7 @@ function spawn(t, ox, vi) {
   const maxPoise = t === 'boss' ? (z.wb ? 1600 : (360 + Math.min(cur, 20) * 12)) : 0;
 
   E.push({ 
-    id: ++uid, t, im: c, vi: vi2, x: cl(x, 60, WW - 60), y: t === 'imp' ? 300 : GY, 
+    id: ++uid, t, im: c, vi: vi2, z: depthActive() ? cl((P.z || 0) + (Math.random() - .5) * 110, DEPTH.zMin, DEPTH.zMax) : 0, x: cl(x, 60, WW - 60), y: t === 'imp' ? 300 : GY, 
     hp, mhp: (t === 'boss' && z.wb) ? hpFull : hp, dm, h: o.H, w: c.width * s, s, fl: 0,
     cd: t === 'boss' ? 2 : 1.5 + Math.random() * 2, hc: 0, fc: 1, wu: 0, dsh: 0, atk: '', last: '',
     stun: 0,
@@ -614,7 +616,7 @@ function ep(e, a, v, o) {
   EP.push(Object.assign({
     x: e.x + e.fc * e.w * .4, y: e.y - e.h * .6, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
     dm: edm(e), c: ecol(e), t: 4, r: 10, slow: s === 4, psn: s === 5, a: 0,
-    tex: 'energy'
+    tex: 'energy', z: zv(e)   // ★ 2.5D：弹幕沿发射者所在车道飞行
   }, o || {}));
 }
 
@@ -1100,6 +1102,7 @@ function updEnemy(e, dt) {
     if (e.wu <= 0) { e.wu = 0; ATKS[e.atk].f(e); e.lk = null; if (!(e.dsh > 0)) e.cd = cdBase(e); }
   } else {
     if (ad > 14) e.fc = d < 0 ? -1 : 1;
+    if (depthActive()) depthEnemyLane(e, dt);   // ★ 2.5D：缓慢靠拢玩家车道（前摇 / 冲锋中不换道）
     if (e.t === 'imp') {
       if (ad > 40) e.x += Math.sign(d) * o.sp * dt * Math.min(1, (ad - 40) / 40);
       e.y += (P.y - 110 + Math.sin(T * 3 + e.id) * 50 - e.y) * Math.min(1, 2 * dt);
@@ -1124,7 +1127,7 @@ function updEnemy(e, dt) {
   }
 
   const isCharging = (e.dsh > 0 || e.atk === 'charge' || e.atk === 'swoop');
-  if (Math.abs(P.x - e.x) < e.w / 2 + 25 && e.y > P.y - 150 && e.y - e.h < P.y && e.hc <= 0) {
+  if (Math.abs(P.x - e.x) < e.w / 2 + 25 && e.y > P.y - 150 && e.y - e.h < P.y && e.hc <= 0 && zBodyOk(e)) {
     // ★ 玩家处于升龙斩与空中攻击时，即使在怪物体内穿行也绝不受撞击伤害
     if (P.st === 'uppercut' || P.st === 'air_atk') return;
 
@@ -1139,7 +1142,7 @@ function knockupEnemies(x0, x1, dmg, upForce = -650) {
   for (const e of E) {
     if (e.dead) continue;
     const w = e.w / 2;
-    if (e.x + w > x0 && e.x - w < x1 && e.y >= P.y - 140 && e.y <= P.y + 20) {
+    if (e.x + w > x0 && e.x - w < x1 && e.y >= P.y - 140 && e.y <= P.y + 20 && zOk(e)) {
       hurt(e, dmg);
       if (e.t !== 'boss') {
         if (e.vy === undefined) e.vy = 0;
@@ -1157,7 +1160,7 @@ function juggleAirEnemies(x0, x1, dmg, liftForce = -220) {
   for (const e of E) {
     if (e.dead) continue;
     const w = e.w / 2;
-    if (e.x + w > x0 && e.x - w < x1 && Math.abs(e.y - P.y) < 130) {
+    if (e.x + w > x0 && e.x - w < x1 && Math.abs(e.y - P.y) < 130 && zOk(e)) {
       hurt(e, dmg);
       if (e.t !== 'boss') {
         if (e.vy === undefined) e.vy = 0;
@@ -1176,7 +1179,7 @@ function slamDownEnemies(x0, x1, dmg) {
   for (const e of E) {
     if (e.dead) continue;
     const w = e.w / 2;
-    if (e.x + w > x0 && e.x - w < x1 && Math.abs((e.y - e.h * 0.5) - P.y) < 90) {
+    if (e.x + w > x0 && e.x - w < x1 && Math.abs((e.y - e.h * 0.5) - P.y) < 90 && zOk(e)) {
       hurt(e, dmg);
       if (e.t !== 'boss') {
         if (e.vy === undefined) e.vy = 0;
@@ -1187,6 +1190,7 @@ function slamDownEnemies(x0, x1, dmg) {
 }
 
 function hzHit(h) {
+  if (depthActive() && Math.abs(depthStamp(h) - (P.z || 0)) > (h.zh || DEPTH.hzTol)) return false;   // ★ 2.5D：地面技只打同车道
   if (h.k === 'col') return Math.abs(P.x - h.x) < h.w + 20;
   if (h.k === 'blast' || h.k === 'pool') return Math.abs(P.x - h.x) < h.w + 15 && P.y > GY - 70;
   if (h.k === 'beam') { const dx = (P.x - h.x) * h.dir; return dx > -20 && dx < h.len && Math.abs(P.y - 80 - h.y) < h.hh + 40; }
@@ -1209,6 +1213,7 @@ function updBattleFx(dt) {
   for (const q of TQ) q.t -= dt;
   const due = TQ.filter(q => q.t <= 0); TQ = TQ.filter(q => q.t > 0);
   due.forEach(q => q.f());
+  if (depthActive()) { for (const p of EP) if (p.z === undefined) p.z = P.z || 0; for (const h of HZ) if (h.z === undefined) h.z = P.z || 0; }
 
   for (const p of EP) {
     p.a += dt; p.t -= dt;
@@ -1224,13 +1229,13 @@ function updBattleFx(dt) {
     if (p.g && p.vy > 0 && p.y >= p.gy) {
       FX.push({ type: 'boom', x: p.x, y: GY - 10, t: .4, d: .4, r: 70, c: p.c });
       HZ.push(p.pool
-        ? { k: 'pool', x: p.x, y: GY, w: p.pw || 75, delay: 0, dur: p.pdur || 4.5, tick: .5, tk: 0, t: 0, dm: Math.max(1, p.dm * .45 | 0), c: p.c, tex: p.ptex, fire: p.fire }
-        : { k: 'blast', x: p.x, y: GY, w: 55, delay: 0, dur: .2, t: 0, dm: p.dm, c: p.c });
+        ? { k: 'pool', x: p.x, y: GY, z: p.z, w: p.pw || 75, delay: 0, dur: p.pdur || 4.5, tick: .5, tk: 0, t: 0, dm: Math.max(1, p.dm * .45 | 0), c: p.c, tex: p.ptex, fire: p.fire }
+        : { k: 'blast', x: p.x, y: GY, z: p.z, w: 55, delay: 0, dur: .2, t: 0, dm: p.dm, c: p.c });
       p.t = 0; continue;
     }
     if (p.y > GY + 20 || p.y < -260 || p.x < -100 || p.x > WW + 100) { p.t = 0; continue; }
 
-    const hit = p.low ? (Math.abs(P.x - p.x) < 34 && P.y > GY - 50) : (Math.hypot(p.x - P.x, p.y - (P.y - 80)) < p.r + 30);
+    const hit = zEpOk(p) && (p.low ? (Math.abs(P.x - p.x) < 34 && P.y > GY - 50) : (Math.hypot(p.x - P.x, p.y - (P.y - 80)) < p.r + 30));
     const isHeavy = (p.unblockable || p.tex === 'meteor' || p.tex === 'wave_ground' || p.tex === 'ch1_guardrail' || p.tex === 'ch1_pillar_fall' || p.pool || p.low || p.g);
     if (hit && (P.inv <= 0 || (isHeavy && isParryWindow()))) {
       hurtP(p.dm, null, p);
@@ -1272,6 +1277,7 @@ function updBattleFx(dt) {
 // ---------- 地面区域 / 陷阱 / 天降光柱 / 激光 / 漩涡渲染 ----------
 function drawHZ() {
   for (const h of HZ) {
+    depthBegin(h.x, zv(h));
     const x = h.x - cam, act = h.t >= h.delay, pr = cl(h.t / h.delay, 0, 1);
     const warnImg = EF_IMGS['warn'];
     ctx.save();
@@ -1456,6 +1462,7 @@ function drawHZ() {
         ctx.fillStyle = '#05030a'; ctx.beginPath(); ctx.arc(x, h.y, 24, 0, 7); ctx.fill();
       }
     }
+    ctx.restore();
     ctx.restore();
   }
 }
@@ -1744,6 +1751,7 @@ function drawAura2(e, layer) {
 // ===== 弹幕与第一章高精专属特效绘制（带高精矢量降级保底） =====
 function drawEP() {
   for (const p of EP) {
+    depthBegin(p.x, zv(p));
     const x = p.x - cam;
     const img = p.tex ? EF_IMGS[p.tex] : null;
 
@@ -1934,6 +1942,7 @@ function drawEP() {
       }
     }
     ctx.restore();
+    ctx.restore();
   }
 }
 
@@ -1981,7 +1990,7 @@ function updBikes(dt) {
     
     if (!b.vis) {
       cancelEP(b.x - 70, b.x + 70);
-      area(b.x - 80, b.x + 80, b.dmg, b.hit);
+      area(b.x - 80, b.x + 80, b.dmg, b.hit, depthStamp(b));
     }
 
     if (Math.random() < 0.45) {
@@ -1995,6 +2004,7 @@ function drawBikes() {
   if (!BK) return;
   const s = 230 / BK.width;
   for (const b of BIKES) {
+    depthBegin(b.x, zv(b));
     const x = sn(b.x - cam), y = sn(b.y), f = b.f;
     for (let i = 0; i < 4; i++) {
       ctx.fillStyle = 'rgba(255,210,90,' + (.4 - i * .09) + ')';
@@ -2004,6 +2014,7 @@ function drawBikes() {
     ctx.translate(x, y);
     ctx.scale(f * s, s);
     ctx.drawImage(BK, -BK.width / 2, -BK.height);
+    ctx.restore();
     ctx.restore();
   }
 }

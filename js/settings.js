@@ -133,9 +133,15 @@ function henshinShortFinish(key) {
 }
 
 // ===================================================================
-// 三、 系统设置机甲终端 UI (Cyber Armor Terminal UI)
+// 三、 系统设置机甲终端 UI (Cyber Armor Terminal UI) —— 手机适配版
+//   · 盒子 = 固定标题栏 + 可滚动主体 + 固定底栏（继续游戏永远可见）
+//   · 矮屏(横屏手机)自动改为左右双栏，一屏放得下
+//   · 跟随 visualViewport，软键盘弹出时不会被遮挡
 // ===================================================================
 (function () {
+  const IS_TOUCH = (typeof TOUCH !== 'undefined' && TOUCH) || (window.matchMedia && matchMedia('(pointer:coarse)').matches);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
   const css = document.createElement('style');
   css.textContent = `
   :root {
@@ -144,174 +150,217 @@ function henshinShortFinish(key) {
   #set-overlay {
     display: none;
     position: fixed;
-    inset: 0;
+    left: 0; right: 0; top: 0;
+    height: 100vh;
+    height: var(--vvh, 100dvh);
     z-index: 98;
     background: rgba(3, 6, 14, 0.88);
+    -webkit-backdrop-filter: blur(8px);
     backdrop-filter: blur(8px);
     align-items: center;
     justify-content: center;
+    box-sizing: border-box;
+    padding: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-right, 0px))
+             max(8px, env(safe-area-inset-bottom, 0px)) max(8px, env(safe-area-inset-left, 0px));
     font-family: var(--game-font);
     user-select: none;
     -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: contain;
   }
   #set-overlay.show { display: flex; }
+  #set-overlay * { -webkit-tap-highlight-color: transparent; }
+  /* 手机端：去掉重度模糊，战斗画布还在后台跑，blur 会明显掉帧 */
+  body.touch #set-overlay { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(3, 6, 14, 0.94); }
 
-  /* 机甲切角底盘 */
   .set-box {
     position: relative;
-    width: min(92vw, 420px);
+    display: flex;
+    flex-direction: column;
+    width: min(100%, 420px);
+    max-height: 100%;
     background: linear-gradient(180deg, #0e172a 0%, #060a14 100%);
     border: 1.5px solid #00e5ff;
     border-radius: 14px;
     box-shadow: 0 0 30px rgba(0, 229, 255, 0.35), inset 0 0 15px rgba(0, 229, 255, 0.1);
-    padding: 22px 24px;
     box-sizing: border-box;
     color: #fff;
+    overflow: hidden;
   }
   .set-box::before {
     content: '';
     position: absolute;
-    top: -2px; left: 24px; right: 24px; height: 2px;
+    top: 0; left: 24px; right: 24px; height: 2px;
     background: linear-gradient(90deg, transparent, #00e5ff, #ffd84a, #00e5ff, transparent);
+    pointer-events: none;
   }
   .set-box.warn {
     border-color: #ff4757;
     box-shadow: 0 0 30px rgba(255, 71, 87, 0.4), inset 0 0 15px rgba(255, 71, 87, 0.12);
   }
 
-  /* 顶栏标题 */
+  /* 顶栏（固定） */
   .set-head {
+    flex: none;
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-bottom: 12px;
+    gap: 10px;
+    padding: 18px 22px 10px;
   }
   .set-t {
-    font-size: 18px;
-    font-weight: 800;
-    color: #7df9ff;
-    letter-spacing: 1.2px;
+    font-size: 18px; font-weight: 800; color: #7df9ff; letter-spacing: 1.2px;
     text-shadow: 0 0 10px rgba(0, 229, 255, 0.6);
   }
   .set-box.warn .set-t { color: #ff8a95; text-shadow: 0 0 10px rgba(255, 71, 87, 0.6); }
-  .set-s {
-    font-size: 9.5px;
-    color: #7a8fa6;
-    letter-spacing: 0.8px;
-    margin-top: 2px;
-  }
+  .set-s { font-size: 9.5px; color: #7a8fa6; letter-spacing: 0.8px; margin-top: 2px; }
   .set-close-x {
-    cursor: pointer;
-    font-size: 13px;
+    flex: none;
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 64px; min-height: 36px;
+    box-sizing: border-box;
+    font: 700 13px/1 inherit; font-family: inherit;
     color: #94a3b8;
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.15);
-    padding: 3px 8px;
-    border-radius: 4px;
+    padding: 0 12px;
+    border-radius: 6px;
+    cursor: pointer;
     transition: 0.15s;
   }
   .set-close-x:hover { color: #fff; border-color: #ff4757; background: rgba(255, 71, 87, 0.2); }
+  .set-close-x:active { transform: scale(0.96); }
 
-  /* 骑士终端身份识别芯片 */
+  /* 主体（可滚动） */
+  .set-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    padding: 2px 22px 6px;
+  }
+  .set-body::-webkit-scrollbar { width: 4px; }
+  .set-body::-webkit-scrollbar-thumb { background: rgba(0, 229, 255, 0.35); border-radius: 2px; }
+  .set-col { min-width: 0; }
+
+  /* 底栏（固定：状态 + 继续游戏） */
+  .set-foot { flex: none; padding: 6px 22px 16px; }
+
+  /* 身份芯片 */
   .set-id-chip {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
     padding: 8px 12px;
     background: rgba(15, 23, 42, 0.85);
     border: 1px solid rgba(0, 229, 255, 0.25);
     border-radius: 8px;
     margin-bottom: 14px;
   }
-  .set-id-left { display: flex; align-items: center; gap: 8px; }
-  .set-id-beacon {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: #2ed573; box-shadow: 0 0 8px #2ed573;
-  }
+  .set-id-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .set-id-left > div:last-child { min-width: 0; }
+  .set-id-beacon { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #2ed573; box-shadow: 0 0 8px #2ed573; }
   .set-id-beacon.guest { background: #ffd84a; box-shadow: 0 0 8px #ffd84a; }
-  .set-id-name { font-size: 12px; font-weight: 700; color: #f1f5f9; }
+  .set-id-name { font-size: 12px; font-weight: 700; color: #f1f5f9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .set-id-mail { font-size: 10px; color: #8fa0b5; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .set-id-tag {
-    font-size: 9px; font-weight: 700;
-    color: #00e5ff; background: rgba(0, 229, 255, 0.15);
-    border: 1px solid rgba(0, 229, 255, 0.4);
-    padding: 2px 6px; border-radius: 4px;
+    flex: none; font-size: 9px; font-weight: 700; color: #00e5ff; background: rgba(0, 229, 255, 0.15);
+    border: 1px solid rgba(0, 229, 255, 0.4); padding: 2px 6px; border-radius: 4px;
   }
 
-  /* 分组板块 */
+  /* 分组 */
   .set-group { margin-bottom: 12px; }
   .set-group-title {
-    font-size: 10px; font-weight: 700; color: #8fa0b5;
-    letter-spacing: 1px; margin-bottom: 6px;
+    font-size: 10px; font-weight: 700; color: #8fa0b5; letter-spacing: 1px; margin-bottom: 6px;
     display: flex; align-items: center; gap: 5px;
   }
-  .set-group-title::after {
-    content: ''; flex: 1; height: 1px; background: rgba(255, 255, 255, 0.08);
-  }
+  .set-group-title::after { content: ''; flex: 1; height: 1px; background: rgba(255, 255, 255, 0.08); }
 
-  /* 按钮通用设定 */
+  /* 按钮 */
   .set-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .set-row-2 .wide { grid-column: 1 / -1; }
+  .set-row-2 + .set-row-2 { margin-top: 8px; }
   .set-btn {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    height: 38px;
-    box-sizing: border-box;
-    padding: 0 12px;
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    width: 100%; min-width: 0; height: 40px;
+    box-sizing: border-box; padding: 0 12px;
     border-radius: 6px;
-    font-size: 12px;
-    font-weight: 700;
-    font-family: inherit;
+    font-size: 12px; font-weight: 700; font-family: inherit;
     cursor: pointer;
     border: 1px solid rgba(255, 255, 255, 0.16);
     background: rgba(255, 255, 255, 0.04);
     color: #e2e8f0;
     transition: 0.12s;
+    touch-action: manipulation;
+    -webkit-appearance: none; appearance: none;
   }
   .set-btn:hover { background: rgba(255, 255, 255, 0.09); border-color: rgba(0, 229, 255, 0.45); }
-  .set-btn:active { transform: scale(0.98); }
-  .set-btn .label { display: flex; align-items: center; gap: 6px; }
+  .set-btn:active { transform: scale(0.98); background: rgba(0, 229, 255, 0.16); }
+  .set-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+  .set-btn .label { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .set-btn .val {
-    font-size: 11px; color: #7df9ff; background: rgba(0, 229, 255, 0.12);
-    padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(0, 229, 255, 0.3);
+    flex: none; font-size: 11px; color: #7df9ff; background: rgba(0, 229, 255, 0.12);
+    padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(0, 229, 255, 0.3); white-space: nowrap;
   }
+  .set-btn .val.ok { color: #7dff9a; border-color: rgba(46, 213, 115, 0.4); background: rgba(46, 213, 115, 0.1); }
 
-  /* 特殊高亮按钮 */
   .set-btn.main-resume {
-    height: 42px;
-    margin-top: 14px;
-    justify-content: center;
+    height: 44px; margin-top: 6px; justify-content: center;
     background: linear-gradient(180deg, #00e5ff 0%, #0099b8 100%);
-    border: none;
-    color: #050b14;
-    font-size: 14.5px;
-    font-weight: 800;
+    border: none; color: #050b14; font-size: 14.5px; font-weight: 800;
     box-shadow: 0 0 16px rgba(0, 229, 255, 0.45);
   }
   .set-btn.main-resume:hover { filter: brightness(1.1); }
-  .set-btn.danger {
-    background: rgba(255, 71, 87, 0.08);
-    border-color: rgba(255, 71, 87, 0.4);
-    color: #ff8a95;
-  }
+  .set-btn.danger { background: rgba(255, 71, 87, 0.08); border-color: rgba(255, 71, 87, 0.4); color: #ff8a95; }
   .set-btn.danger:hover { background: rgba(255, 71, 87, 0.18); border-color: #ff4757; }
-  .set-btn.danger.go {
-    background: linear-gradient(180deg, #ff4757, #b3202e);
-    border: none; color: #fff; justify-content: center; height: 40px; margin-top: 10px;
-  }
+  .set-btn.danger.go { background: linear-gradient(180deg, #ff4757, #b3202e); border: none; color: #fff; justify-content: center; margin-top: 10px; }
+  .set-btn.center { justify-content: center; margin-top: 8px; }
 
-  .set-st {
-    min-height: 16px;
-    margin-top: 8px;
-    font-size: 11px;
-    text-align: center;
-    color: #7dff9a;
+  .set-warn-box {
+    font-size: 11.5px; line-height: 1.6; color: #cbd5e1; margin: 6px 0 14px;
+    background: rgba(255, 71, 87, 0.1); padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(255, 71, 87, 0.35);
   }
-  .set-esc-tip {
-    font-size: 10px;
-    color: #64748b;
-    text-align: center;
-    margin-top: 6px;
+  .set-input {
+    width: 100%; height: 42px; box-sizing: border-box; border-radius: 6px;
+    border: 1px solid rgba(255, 71, 87, 0.6); background: rgba(15, 23, 42, 0.9);
+    color: #fff; padding: 0 10px; text-align: center; outline: none; font-family: inherit;
+    font-size: 16px;                       /* ≥16px：iOS 聚焦时不会自动放大页面 */
+    -webkit-user-select: text; user-select: text;   /* iOS：user-select:none 的 input 无法输入 */
+    -webkit-appearance: none; appearance: none;
+  }
+  .set-input:focus { border-color: #ff4757; box-shadow: 0 0 0 2px rgba(255, 71, 87, 0.25); }
+
+  .set-st { min-height: 16px; margin: 4px 0 2px; font-size: 11px; text-align: center; color: #7dff9a; line-height: 1.4; }
+  .set-esc-tip { font-size: 10px; color: #64748b; text-align: center; margin-top: 6px; }
+  @media (pointer: coarse) { .set-esc-tip { display: none; } }
+
+  /* ---- 矮屏（横屏手机）：双栏 + 紧凑 ---- */
+  @media (max-height: 540px) {
+    .set-box { width: min(100%, 760px); border-radius: 12px; }
+    .set-head { padding: 10px 16px 6px; }
+    .set-t { font-size: 15px; }
+    .set-s { display: none; }
+    .set-body { padding: 2px 16px 4px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 14px; align-items: start; }
+    .set-body.one { display: block; }
+    .set-id-chip { margin-bottom: 10px; padding: 6px 10px; }
+    .set-group { margin-bottom: 8px; }
+    .set-group-title { margin-bottom: 4px; }
+    .set-btn { height: 38px; font-size: 11.5px; }
+    .set-btn.main-resume { height: 40px; margin-top: 2px; font-size: 14px; }
+    .set-foot { padding: 4px 16px 10px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 14px; align-items: center; }
+    .set-foot .set-st { margin: 0; text-align: left; }
+    .set-warn-box { margin: 2px 0 8px; padding: 8px 12px; font-size: 11px; line-height: 1.5; }
+    .set-input { height: 38px; }
+    .set-btn.danger.go { margin-top: 8px; }
+  }
+  /* 极矮（横屏 + 键盘弹出） */
+  @media (max-height: 340px) {
+    .set-head { padding: 6px 14px 2px; }
+    .set-btn { height: 34px; }
+    .set-id-chip { padding: 4px 8px; margin-bottom: 6px; }
+    .set-group-title { display: none; }
   }
   `;
   document.head.appendChild(css);
@@ -324,6 +373,20 @@ function henshinShortFinish(key) {
 
   let stage = 'main', busy = false;
   const isOpen = () => ov.classList.contains('show');
+
+  // 跟随可视视口（地址栏收起 / 软键盘弹出 / 旋转）
+  function syncVV() {
+    const vv = window.visualViewport;
+    ov.style.setProperty('--vvh', Math.round(vv ? vv.height : innerHeight) + 'px');
+    ov.style.top = (vv ? Math.round(vv.offsetTop) : 0) + 'px';
+  }
+  syncVV();
+  if (window.visualViewport) {
+    visualViewport.addEventListener('resize', syncVV);
+    visualViewport.addEventListener('scroll', syncVV);
+  }
+  addEventListener('resize', syncVV);
+  addEventListener('orientationchange', () => setTimeout(syncVV, 250));
 
   function who() {
     const u = (typeof currentAuthUser !== 'undefined') ? currentAuthUser : null;
@@ -350,64 +413,73 @@ function henshinShortFinish(key) {
             <div class="set-t">SYSTEM // 终端整备</div>
             <div class="set-s">PILOT CONFIGURATION & ARCHIVE</div>
           </div>
-          <div class="set-close-x" id="btn-set-x">✕ 关闭</div>
+          <button type="button" class="set-close-x" id="btn-set-x">✕ 关闭</button>
         </div>
 
-        <div class="set-id-chip">
-          <div class="set-id-left">
-            <div class="set-id-beacon ${user.isGuest ? 'guest' : ''}"></div>
-            <div>
-              <div class="set-id-name">${user.name.replace(/</g, '&lt;')}</div>
-              <div style="font-size: 10px; color: #8fa0b5;">${user.email}</div>
+        <div class="set-body">
+          <div class="set-col">
+            <div class="set-id-chip">
+              <div class="set-id-left">
+                <div class="set-id-beacon ${user.isGuest ? 'guest' : ''}"></div>
+                <div>
+                  <div class="set-id-name">${esc(user.name)}</div>
+                  <div class="set-id-mail">${esc(user.email)}</div>
+                </div>
+              </div>
+              <div class="set-id-tag">${user.isGuest ? 'GUEST' : 'VERIFIED'}</div>
+            </div>
+
+            <div class="set-group">
+              <div class="set-group-title">战术与视觉 // TACTICAL & DISPLAY</div>
+              <div class="set-row-2">
+                <button type="button" class="set-btn" id="set-hen">
+                  <span class="label">⚡ 变身动画</span>
+                  <span class="val">${henshinMode() === 'short' ? '精简 2.0s' : '完整原速'}</span>
+                </button>
+                <button type="button" class="set-btn" id="set-font">
+                  <span class="label">🔤 核心字型</span>
+                  <span class="val">${esc(curFont.name.split(' ')[0])}</span>
+                </button>
+                <button type="button" class="set-btn wide" id="set-depth">
+                  <span class="label">🎮 战斗视角</span>
+                  <span class="val">${DEPTH.on ? '2.5D 纵深' : '经典 2D'}</span>
+                </button>
+              </div>
             </div>
           </div>
-          <div class="set-id-tag">${user.isGuest ? 'GUEST' : 'VERIFIED'}</div>
-        </div>
 
-        <div class="set-group">
-          <div class="set-group-title">战术与视觉 // TACTICAL & DISPLAY</div>
-          <div class="set-row-2">
-            <button class="set-btn" id="set-hen">
-              <span class="label">⚡ 变身动画</span>
-              <span class="val">${henshinMode() === 'short' ? '精简 2.0s' : '完整原速'}</span>
-            </button>
-            <button class="set-btn" id="set-font">
-              <span class="label">🔤 核心字型</span>
-              <span class="val">${curFont.name.split(' ')[0]}</span>
-            </button>
+          <div class="set-col">
+            <div class="set-group">
+              <div class="set-group-title">云端存储 // CLOUD ARCHIVE</div>
+              <button type="button" class="set-btn" id="set-sync">
+                <span class="label">☁️ 立即同步至云端档案</span>
+                <span class="val ok">备份 SYNC</span>
+              </button>
+            </div>
+
+            <div class="set-group">
+              <div class="set-group-title">安全与授权 // SECURITY & AUTH</div>
+              <div class="set-row-2">
+                <button type="button" class="set-btn" id="set-logout"><span class="label">🚪 退出登录</span></button>
+                <button type="button" class="set-btn danger" id="set-delete"><span class="label">⚠️ 注销账号</span></button>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="set-group">
-          <div class="set-group-title">云端存储 // CLOUD ARCHIVE</div>
-          <button class="set-btn" id="set-sync">
-            <span class="label">☁️ 立即同步至云端档案</span>
-            <span class="val" style="color: #7dff9a; border-color: rgba(46, 213, 115, 0.4);">备份 SYNC</span>
-          </button>
-        </div>
-
-        <div class="set-group">
-          <div class="set-group-title">安全与授权 // SECURITY & AUTH</div>
-          <div class="set-row-2">
-            <button class="set-btn" id="set-logout">
-              <span class="label">🚪 退出登录</span>
-            </button>
-            <button class="set-btn danger" id="set-delete">
-              <span class="label">⚠️ 注销账号</span>
-            </button>
+        <div class="set-foot">
+          <div class="set-st" id="set-st"></div>
+          <div>
+            <button type="button" class="set-btn main-resume" id="set-resume">${IS_TOUCH ? '▶ 继 续 游 戏' : '▶ 继 续 游 戏 [ESC]'}</button>
+            <div class="set-esc-tip">按 [ESC] 键随时关闭并返回控制</div>
           </div>
         </div>
-
-        <button class="set-btn main-resume" id="set-resume">▶ 继 续 游 戏 [ESC]</button>
-        <div class="set-st" id="set-st"></div>
-        <div class="set-esc-tip">按 [ESC] 键随时关闭并返回控制</div>
       `;
 
       box.querySelector('#btn-set-x').onclick = closeSet;
       box.querySelector('#set-resume').onclick = closeSet;
       box.querySelector('#set-sync').onclick = doSync;
 
-      // 变身动画切换
       box.querySelector('#set-hen').onclick = () => {
         const m = henshinMode() === 'short' ? 'full' : 'short';
         henshinSetMode(m);
@@ -416,7 +488,14 @@ function henshinShortFinish(key) {
         status(m === 'short' ? '已切入：精简变身（约 2 秒，含爆发判定）' : '已切入：完整原声变身');
       };
 
-      // 游戏字型循环切换
+      box.querySelector('#set-depth').onclick = () => {
+        depthSetOn(!DEPTH.on);
+        render('main');
+        status(DEPTH.on
+          ? (IS_TOUCH ? '已切入：2.5D 纵深（摇杆上下换道，点「跳」跳跃）' : '已切入：2.5D 纵深（W/S 换道，空格跳跃，闪避时按住 W/S 可纵向翻滚）')
+          : (IS_TOUCH ? '已切回：经典 2D（摇杆上推跳跃）' : '已切回：经典 2D（W 跳跃）'));
+      };
+
       box.querySelector('#set-font').onclick = () => {
         const next = cycleGameFont();
         render('main');
@@ -430,32 +509,39 @@ function henshinShortFinish(key) {
       box.querySelector('#set-delete').onclick = () => render('confirm');
 
     } else {
-      // 永久注销警告对话框
       box.innerHTML = `
         <div class="set-head">
           <div>
             <div class="set-t">⚠ 永久注销终端</div>
             <div class="set-s">DATA PURGE PROTOCOL // IRREVERSIBLE</div>
           </div>
-          <div class="set-close-x" id="btn-cancel-x">✕</div>
+          <button type="button" class="set-close-x" id="btn-cancel-x">✕</button>
         </div>
 
-        <div style="font-size: 11.5px; line-height: 1.6; color: #cbd5e1; margin: 10px 0 16px; background: rgba(255, 71, 87, 0.1); padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(255, 71, 87, 0.35);">
-          此操作将从云端服务器中<b style="color: #ff8a95">永久擦除</b>：<br>
-          · 角色等级、装备、天赋与变身胶囊存档<br>
-          · 全服战力、无尽塔与世界 BOSS 历史排位<br>
-          <span style="color: #ff7675; font-weight: 700;">该抹除操作无法撤销或找回。</span>
+        <div class="set-body one">
+          <div class="set-warn-box">
+            此操作将从云端服务器中<b style="color: #ff8a95">永久擦除</b>：<br>
+            · 角色等级、装备、天赋与变身胶囊存档<br>
+            · 全服战力、无尽塔与世界 BOSS 历史排位<br>
+            <span style="color: #ff7675; font-weight: 700;">该抹除操作无法撤销或找回。</span>
+          </div>
+          <input id="set-type" class="set-input" placeholder="请输入「删除」二字以确认授权" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
         </div>
 
-        <input id="set-type" style="width: 100%; height: 38px; box-sizing: border-box; border-radius: 6px; border: 1px solid rgba(255, 71, 87, 0.6); background: rgba(15, 23, 42, 0.9); color: #fff; padding: 0 10px; font-size: 13px; text-align: center; outline: none; font-family: inherit;" placeholder="请输入「删除」二字以确认授权" autocomplete="off">
-        
-        <button class="set-btn danger go" id="set-yes" disabled>核准抹除并注销账号</button>
-        <button class="set-btn" id="set-no" style="justify-content: center; margin-top: 8px;">取 消 并 返 回</button>
-        <div class="set-st" id="set-st"></div>
+        <div class="set-foot" style="display:block">
+          <div class="set-st" id="set-st"></div>
+          <div class="set-row-2">
+            <button type="button" class="set-btn danger go" id="set-yes" disabled style="margin-top:0">核准抹除并注销</button>
+            <button type="button" class="set-btn center" id="set-no" style="margin-top:0">取 消 返 回</button>
+          </div>
+        </div>
       `;
 
       const yes = box.querySelector('#set-yes'), inp = box.querySelector('#set-type');
       inp.addEventListener('input', () => { yes.disabled = inp.value.trim() !== '删除'; });
+      // 软键盘弹出后把输入框滚进可视区
+      inp.addEventListener('focus', () => setTimeout(() => { try { inp.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {} }, 320));
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
       box.querySelector('#btn-cancel-x').onclick = () => render('main');
       box.querySelector('#set-no').onclick = () => render('main');
       yes.onclick = doDelete;
@@ -491,7 +577,7 @@ function henshinShortFinish(key) {
     if (busy) return; busy = true;
     status('正在保存并断开连线…');
     try { if (typeof save === 'function') save(); } catch (e) {}
-    await authSignOut();
+    try { await authSignOut(); } catch (e) {}
     busy = false;
     status('退出失败，请稍候再试', true);
   }
@@ -508,16 +594,28 @@ function henshinShortFinish(key) {
     status((r && r.msg) || '注销受限，请稍后再试', true);
   }
 
-  function openSet() {
+  function clearInput() {
     try { for (const k in PR) delete PR[k]; for (const k in K) K[k] = 0; } catch (e) {}
+  }
+
+  function openSet() {
+    clearInput();
+    syncVV();
     ov.classList.add('show');
     render('main');
   }
 
   function closeSet() {
     ov.classList.remove('show');
-    try { for (const k in PR) delete PR[k]; for (const k in K) K[k] = 0; } catch (e) {}
+    try { const a = document.activeElement; if (a && a !== document.body && a.blur) a.blur(); } catch (e) {}
+    clearInput();
   }
+
+  // 点击面板外的暗色背景：主页面=关闭；注销确认页=返回（手机上没有 ESC，这是最顺手的退出方式）
+  ov.addEventListener('click', e => {
+    if (e.target !== ov || busy) return;
+    stage === 'confirm' ? render('main') : closeSet();
+  });
 
   function canOpen() {
     if (typeof G === 'undefined' || !(G === 'vil' || G === 'room')) return false;
@@ -554,4 +652,70 @@ function henshinShortFinish(key) {
 
   window.openSettings = openSet;
   setTimeout(henshinPreload, 2500);
+})();
+
+// ===================================================================
+// 四、 移动端防误触 / 防"全屏浅蓝色" 引擎
+//   浅蓝色 = ① Android 点按高亮 (tap-highlight)  ② 长按/双击触发的整页文字选中
+//   这里一次性把两者彻底关掉，并锁定缩放、橡皮筋回弹等手游不需要的浏览器行为
+// ===================================================================
+(function mobileGuard() {
+  const isT = (typeof TOUCH !== 'undefined' && TOUCH) || (window.matchMedia && matchMedia('(pointer:coarse)').matches);
+
+  const st = document.createElement('style');
+  st.textContent = `
+  html, body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; touch-action: manipulation; }
+  * { -webkit-tap-highlight-color: transparent; }
+  canvas { outline: none; }
+  body.touch, body.touch * {
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+  }
+  body.touch ::selection { background: transparent; color: inherit; }
+  body.touch input, body.touch textarea, body.touch [contenteditable="true"] {
+    -webkit-user-select: text; user-select: text;
+  }
+  body.touch input::selection, body.touch textarea::selection { background: rgba(0, 229, 255, 0.35); }
+  body.touch #c, body.touch #tc, body.touch #tc *, body.touch #joyz, body.touch #joyh, body.touch #joy { touch-action: none; }
+  body.touch #tc .b:focus, body.touch #c:focus { outline: none; }
+  `;
+  document.head.appendChild(st);
+
+  // 视口：禁缩放 + 铺满刘海屏
+  let vp = document.querySelector('meta[name="viewport"]');
+  if (!vp) { vp = document.createElement('meta'); vp.name = 'viewport'; document.head.appendChild(vp); }
+  vp.content = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+  const addMeta = (n, c) => { if (!document.querySelector(`meta[name="${n}"]`)) { const m = document.createElement('meta'); m.name = n; m.content = c; document.head.appendChild(m); } };
+  addMeta('theme-color', '#050b14');
+  addMeta('mobile-web-app-capable', 'yes');
+  addMeta('apple-mobile-web-app-capable', 'yes');                 // iPhone：「添加到主屏幕」后可真正全屏
+  addMeta('apple-mobile-web-app-status-bar-style', 'black-translucent');
+
+  if (!isT) return;
+
+  const elOf = t => (t && t.nodeType === 1) ? t : (t && t.parentElement);
+  const isField = t => { const e = elOf(t); return !!(e && e.closest && e.closest('input,textarea,[contenteditable="true"]')); };
+
+  // 禁止任何非输入框区域发起文字选中
+  document.addEventListener('selectstart', e => { if (!isField(e.target)) e.preventDefault(); }, true);
+  // 兜底：若浏览器仍然选中了内容（浅蓝覆盖层），立刻清掉
+  document.addEventListener('selectionchange', () => {
+    const s = getSelection && getSelection();
+    if (s && !s.isCollapsed && !isField(document.activeElement)) { try { s.removeAllRanges(); } catch (e) {} }
+  });
+  // iOS 双指缩放手势
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(n => document.addEventListener(n, e => e.preventDefault(), { passive: false }));
+  // 长按菜单
+  document.addEventListener('contextmenu', e => { if (!isField(e.target)) e.preventDefault(); }, true);
+  // 进入/退出全屏、旋转后：释放卡住的按键，重置滚动，让画布重新布局
+  const settle = () => {
+    try { for (const k in K) K[k] = 0; for (const k in PR) delete PR[k]; } catch (e) {}
+    try { const s = getSelection(); s && s.removeAllRanges(); } catch (e) {}
+    scrollTo(0, 0);
+    setTimeout(() => { scrollTo(0, 0); dispatchEvent(new Event('resize')); }, 220);
+  };
+  ['fullscreenchange', 'webkitfullscreenchange'].forEach(n => document.addEventListener(n, settle));
+  addEventListener('orientationchange', settle);
+  // 切到后台再回来：丢失的 pointerup 会让按键卡住
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { try { for (const k in K) K[k] = 0; } catch (e) {} } });
 })();

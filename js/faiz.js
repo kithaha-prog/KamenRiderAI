@@ -96,6 +96,7 @@ function faizHandWorld() {
 function faizAim() {
   const h = faizHandWorld(); let best = null, bd = 1e9;
   for (const e of E) {
+    if (!zOk(e, undefined, 60)) continue;   // ★ 2.5D：只锁定同车道的怪（否则子弹会飞到别的车道打空）
     const dx = (e.x - h.x) * P.f;
     if (dx > -30 && dx < 950 && dx < bd) { bd = dx; best = e; }
   }
@@ -112,7 +113,7 @@ function faizMuzzleWorld(ang) {
 function fireFaiz() {
   playFaizL();
   const ang = faizAim(), m = faizMuzzleWorld(ang), v = FAIZ_GUN.spd;
-  PJ.push({ x: m.x, y: m.y, vx: P.f * Math.cos(ang) * v, vy: Math.sin(ang) * v, f: P.f, t: .75, h: {}, b5: 1 });
+  PJ.push({ x: m.x, y: m.y, vx: P.f * Math.cos(ang) * v, vy: Math.sin(ang) * v, f: P.f, t: .75, h: {}, b5: 1, z: depthPz() });
   FX.push({ type: 'boom', x: m.x, y: m.y, t: .16, d: .16, r: 34, c: '#ffcf5a' });
   shake = Math.max(shake, 3);
 }

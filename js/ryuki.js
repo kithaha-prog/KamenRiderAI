@@ -165,6 +165,7 @@ function ryukiHandWorld() { const h = ryukiHandLocal(); return { x: P.x + P.f * 
 function ryukiAim() {
   const h = ryukiHandWorld(); let best = null, bd = 1e9;
   for (const e of E) {
+    if (!zOk(e, undefined, 60)) continue;   // ★ 2.5D：只锁定同车道的怪（否则子弹会飞到别的车道打空）
     const dx = (e.x - h.x) * P.f;
     if (dx > -30 && dx < 950 && dx < bd) { bd = dx; best = e; }
   }
@@ -211,7 +212,7 @@ function playRyukiL() {
 function fireRyukiGun() {
   const ang = ryukiAim(), m = ryukiMuzzleWorld(ang), v = RYUKI_GUN.spd;
   playRyukiL();
-  PJ.push({ x: m.x, y: m.y, vx: P.f * Math.cos(ang) * v, vy: Math.sin(ang) * v, f: P.f, t: .8, h: {}, rb: 1 });
+  PJ.push({ x: m.x, y: m.y, vx: P.f * Math.cos(ang) * v, vy: Math.sin(ang) * v, f: P.f, t: .8, h: {}, rb: 1, z: depthPz() });
   FX.push({ type: 'boom', x: m.x, y: m.y, t: .18, d: .18, r: 40, c: '#ff8a30' });
   shake = Math.max(shake, 3);
 }
@@ -262,7 +263,7 @@ function drawBulletR(s) {
 
 // （旧版飞剑保留，不再由 L 键触发）
 function fireRyukiSword() {
-  PJ.push({ x: P.x + P.f * 60, y: P.y - 100, vx: P.f * 800, f: P.f, t: 1.1, h: {}, ry: 1 });
+  PJ.push({ x: P.x + P.f * 60, y: P.y - 100, vx: P.f * 800, f: P.f, t: 1.1, h: {}, ry: 1, z: depthPz() });
 }
 
 function drawRyukiSword(s) {

@@ -59,6 +59,7 @@ function mBlast(x, r, mul, o) {
   for (const e of E) {
     if (e.dead) continue;
     if (Math.abs(e.x - x) >= r + e.w * .4) continue;
+    if (!zOk(e, undefined, r > 350 ? 110 : 60)) continue;   // ★ 2.5D
     if (o.ground && e.y < GY - 150) continue;
     if (o.set) { if (o.set[e.id]) continue; o.set[e.id] = 1; }
     hurt(e, P.atk * mul); n++;

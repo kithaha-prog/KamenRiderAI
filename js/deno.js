@@ -190,7 +190,7 @@ function drawDenoL(x, y, f) {
 
 function fireDeno() {
   const ox = P.x + P.f * 70, oy = P.y - 95;
-  DNW.push({ x: ox, y: oy, f: P.f, t: DENO_L.life, d: DENO_L.life, hit: new Set(), spin: Math.random() * 6 });
+  DNW.push({ x: ox, y: oy, f: P.f, t: DENO_L.life, d: DENO_L.life, hit: new Set(), spin: Math.random() * 6, z: depthPz() });
   FX.push({ type: 'boom', x: ox, y: oy, t: .2, d: .2, r: 56, c: '#ff8a5a' });
   shake = Math.max(shake, 5);
   DT.push({ x: P.x, y: P.y - 200, s: 'RIDER SLASH', t: .8, c: '#ff6b4a' });
@@ -201,7 +201,7 @@ function updDenoWaves(dt) {
     w.t -= dt; w.x += w.f * DENO_L.vx * dt;
     if (typeof cancelEP === 'function') cancelEP(w.x - 70, w.x + 70);
     for (const e of E) {
-      if (e.dead || w.hit.has(e) || w.vis) continue;   // w.vis = 队友发来的斩击波：只展示，伤害由队友端结算
+      if (e.dead || w.hit.has(e) || w.vis || !zOk(e, depthStamp(w), 44)) continue;   // w.vis = 队友发来的斩击波：只展示，伤害由队友端结算
       if (Math.abs(e.x - w.x) < DENO_L.w + e.w * .4 && Math.abs((e.y - e.h * .5) - w.y) < 140 + e.h * .5) {
         w.hit.add(e);
         hurt(e, P.atk * DENO_L.mul);
@@ -214,6 +214,7 @@ function updDenoWaves(dt) {
 
 function drawDenoWaves() {
   for (const w of DNW) {
+    depthBegin(w.x, zv(w));   // ★ 2.5D
     const p = 1 - w.t / w.d, al = cl(p / .06, 0, 1) * cl((1 - p) / .3, 0, 1);
     ctx.save();
     ctx.translate(w.x - cam, w.y); ctx.scale(w.f, 1);
@@ -236,6 +237,7 @@ function drawDenoWaves() {
       ctx.drawImage(SWD_D, -SWD_D.width / 2, -SWD_D.height / 2);
       ctx.restore();
     }
+    ctx.restore();
     ctx.restore();
   }
 }

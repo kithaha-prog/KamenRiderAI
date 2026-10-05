@@ -1428,50 +1428,43 @@ function drawDPSMeterHUD() {
 }
 
 // ---------- 7. 点击交互监听（重置、护甲切换与折叠收缩） ----------
+// 训练馆 DPS 面板点击：返回 true 表示已处理。
+// 抽成全局函数，让手机端「摇杆层」(main.js hudTap) 也能转发进来 —— 否则面板在左半屏，会被摇杆区域吞掉点击。
+function dummyHudClick(x, y) {
+  if (typeof G === 'undefined' || G !== 'room' || !RM || RM.n !== '训练馆') return false;
+  if (typeof DUMMY_STATS === 'undefined') return false;
+  const L = DPS_HUD_LAYOUT;
+  const tp = (typeof TOUCH !== 'undefined' && TOUCH);
+  const py = tp ? 10 : 0, px = tp ? 2 : 0;   // 手机：按钮只有 19 逻辑像素高，纵向扩大点击热区
+
+  // A. 折叠状态
+  if (DUMMY_STATS.collapsed) {
+    if (x >= L.x && x <= L.x + 260 && y >= L.y - py && y <= L.y + 34 + py) { DUMMY_STATS.toggleCollapse(); return true; }
+    return false;
+  }
+
+  // B. 展开状态
+  const colBtnX = L.x + L.w - 52, colBtnY = L.y + 17;
+  const resetBtnX = colBtnX - 48, resetBtnY = L.y + 17;
+  const defBtnX = resetBtnX - 58, defBtnY = L.y + 17;
+  const inY = y >= colBtnY - py && y <= colBtnY + 19 + py;
+  if (!inY) return false;
+
+  if (x >= colBtnX - px && x <= colBtnX + 44 + px) { DUMMY_STATS.toggleCollapse(); return true; }
+  if (x >= resetBtnX - px && x <= resetBtnX + 44 + px) {
+    DUMMY_STATS.reset();
+    if (typeof DT !== 'undefined') DT.push({ x: P.x, y: P.y - 180, s: 'DPS 测算数据已重置！', t: 1.0, c: '#7dff9a' });
+    return true;
+  }
+  if (x >= defBtnX - px && x <= defBtnX + 54 + px) { DUMMY.cycleDef(); return true; }
+  return false;
+}
+
 (function hookDummyClick() {
   const canvasEl = document.getElementById('c');
   if (!canvasEl) return;
-
   canvasEl.addEventListener('pointerdown', e => {
-    if (typeof G === 'undefined' || G !== 'room' || !RM || RM.n !== '训练馆') return;
     const rect = canvasEl.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width * 960;
-    const y = (e.clientY - rect.top) / rect.height * 540;
-
-    const L = DPS_HUD_LAYOUT;
-
-    // A. 折叠状态下的点击响应（点击整条或展开按钮）
-    if (DUMMY_STATS.collapsed) {
-      if (x >= L.x && x <= L.x + 260 && y >= L.y && y <= L.y + 34) {
-        DUMMY_STATS.toggleCollapse();
-        return;
-      }
-      return;
-    }
-
-    // B. 展开状态下的点击响应
-    // 1. 点击收起按钮 (x: L.x + L.w - 52, y: L.y + 17, w: 44, h: 19)
-    const colBtnX = L.x + L.w - 52, colBtnY = L.y + 17;
-    if (x >= colBtnX && x <= colBtnX + 44 && y >= colBtnY && y <= colBtnY + 19) {
-      DUMMY_STATS.toggleCollapse();
-      return;
-    }
-
-    // 2. 点击清空数据按钮
-    const resetBtnX = colBtnX - 48, resetBtnY = L.y + 17;
-    if (x >= resetBtnX && x <= resetBtnX + 44 && y >= resetBtnY && y <= resetBtnY + 19) {
-      DUMMY_STATS.reset();
-      if (typeof DT !== 'undefined') {
-        DT.push({ x: P.x, y: P.y - 180, s: 'DPS 测算数据已重置！', t: 1.0, c: '#7dff9a' });
-      }
-      return;
-    }
-
-    // 3. 点击切换护甲按钮
-    const defBtnX = resetBtnX - 58, defBtnY = L.y + 17;
-    if (x >= defBtnX && x <= defBtnX + 54 && y >= defBtnY && y <= defBtnY + 19) {
-      DUMMY.cycleDef();
-      return;
-    }
+    dummyHudClick((e.clientX - rect.left) / rect.width * 960, (e.clientY - rect.top) / rect.height * 540);
   });
 })();

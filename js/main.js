@@ -541,6 +541,12 @@ function upd(dt) {
     P.inv = Math.max(P.inv, 0.45);
     P.vy = 0;
     P.vx = P.f * 1200; // 初速爆发
+    // ★ 2.5D：闪避时按住 W/S 可斜向 / 纵向翻滚换道（纯上下 = 原地换道，横向位移收小）
+    P.vz = 0; P.dxm = 1;
+    if (depthActive()) {
+      const dz2 = ((K.KeyS || K.ArrowDown) ? 1 : 0) - ((K.KeyW || K.ArrowUp) ? 1 : 0);
+      if (dz2) { P.vz = dz2 * 760; P.dxm = dd ? .75 : .22; }
+    }
     P.h = 0;
     P.sta = Math.max(0, P.sta - DODGE_COST);
     P.sreg = 1.0; // ★ 闪避后冻结回能 1.0 秒，不再边翻滚边秒回体力
@@ -562,7 +568,7 @@ function upd(dt) {
     P.vx = d * spd;
     if (d) P.f = d;
 
-    if ((PR.Space || PR.KeyW || PR.ArrowUp) && gr) {
+    if ((PR.Space || (!depthActive() && (PR.KeyW || PR.ArrowUp))) && gr) {   // ★ 2.5D：W/S 用来换道，跳跃只用空格
       P.vy = -700;
       P.st = 'air';
       P.jt = T;
@@ -570,7 +576,7 @@ function upd(dt) {
 
     // ===== 1. 普攻 J 键：地面攻击 / 升龙击 / 空中连招链 / 下砸 =====
     if (PR.KeyJ) {
-      const isUp = K.KeyW || K.ArrowUp;
+      const isUp = depthActive() ? K.Space : (K.KeyW || K.ArrowUp);   // ★ 2.5D：升龙击 = 按住空格 + J
       const isDown = K.KeyS || K.ArrowDown;
       const gr = P.y >= GY;
       const upOk = isUp && (gr || (P.vy < 0 && T - (P.jt || -9) < .35));
@@ -705,7 +711,7 @@ function upd(dt) {
 
   if ((P.st === 'dodge' || P.spr || (P.st === 'fv' && P.ryuki && P.t >= RYUKI_FV.dive && P.y < GY) || (P.st === 'fv' && P.k5 && P.t >= FAIZ_FV.dive && P.y < GY) || (P.st === 'fv' && P.bl && P.t >= BLADE_FV.dive && P.y < GY) || (P.st === 'fv' && P.dn && P.t >= DENO_FV.dive && P.y < GY)) && P.gt <= 0) {
     P.gt = .038;
-    GH.push({ x: P.x, y: P.y, f: P.f, st: P.st, t: .32, d: .32 });
+    GH.push({ z: depthPz(), x: P.x, y: P.y, f: P.f, st: P.st, t: .32, d: .32 });
   }
 
   P.t += dt;
@@ -784,7 +790,7 @@ function upd(dt) {
     // 拖尾残影
     if (P.gt <= 0) {
       P.gt = 0.03;
-      GH.push({ x: P.x, y: P.y, f: P.f, st: 'diveslam', t: 0.25, d: 0.25 });
+      GH.push({ z: depthPz(), x: P.x, y: P.y, f: P.f, st: 'diveslam', t: 0.25, d: 0.25 });
     }
 
     // 落地瞬间触发大范围震荡与地面爆炸
@@ -812,7 +818,7 @@ function upd(dt) {
       else if (P.bl) fireBlade();
       else if (P.k5) fireFaiz();
       else if (P.ryuki) fireRyukiGun();
-      else PJ.push({ x: P.x + P.f * 60, y: P.y - 100, vx: P.f * 800, f: P.f, t: 1.1, h: {} });
+      else PJ.push({ x: P.x + P.f * 60, y: P.y - 100, vx: P.f * 800, f: P.f, t: 1.1, h: {}, z: depthPz() });
     }
     if (P.t > (P.bl ? BLADE_L.dur : P.dn ? DENO_L.dur : .3)) P.st = (P.y < GY) ? 'air' : 'idle';
   }
@@ -855,7 +861,7 @@ function upd(dt) {
   // ★ 优化2：战斗中闪避的位移阻尼与全程消弹穿透判定
   else if (P.st === 'dodge') {
     P.inv = Math.max(P.inv, 0.45);
-    P.vx = P.f * 1200 * Math.max(0, 1 - (P.t / 0.36) * 0.65);
+    P.vx = P.f * 1200 * (P.dxm === undefined ? 1 : P.dxm) * Math.max(0, 1 - (P.t / 0.36) * 0.65);
     cancelEP(P.x - 80, P.x + 80); // 穿梭消弹
     if (P.t >= 0.36) { 
       P.st = (P.y < GY) ? 'air' : 'idle'; 
@@ -883,6 +889,7 @@ function upd(dt) {
     }
   }
 
+  if (typeof depthUpd === 'function') depthUpd(dt);   // ★ 2.5D：换道 + 记录特效车道
   P.x = cl(P.x + P.vx * dt, 30, WW - 30);
   if (P.st === 'idle' || P.st === 'run') {
     P.st = P.vx ? 'run' : 'idle';
@@ -925,6 +932,7 @@ function upd(dt) {
     if (s.vis) continue;
     for (const e of E) {
       if (s.h[e.id]) continue;
+      if (!zOk(e, depthStamp(s), 40)) continue;   // ★ 2.5D：飞行道具只打发射车道
       const hit = (s.b5 || s.rb)
         ? (Math.abs(e.x - s.x) < e.w / 2 + 30 && s.y > e.y - e.h - 25 && s.y < e.y + 10)
         : (Math.abs(e.x - s.x) < e.w / 2 + 40 && e.y > s.y - 30 && e.y - e.h < s.y + 30);
@@ -1040,9 +1048,13 @@ function draw() {
   if (shake > 0) ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake);
   bg();
 
-  for (const o of OR) { ctx.fillStyle = o.k === 'h' ? '#ff4a5a' : '#4ab0ff'; ctx.beginPath(); ctx.arc(o.x - cam, GY - 14 + Math.sin(T * 5) * 3, 9, 0, 7); ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke() }
-  for (const e of E) drawDashWarn(e);
-  for (const e of E) {
+  for (const o of OR) { ctx.fillStyle = o.k === 'h' ? '#ff4a5a' : '#4ab0ff'; ctx.beginPath(); ctx.arc(o.x - cam, GY + zv(o) - 14 + Math.sin(T * 5) * 3, 9, 0, 7); ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke() }
+  const _pz = depthActive() ? (P.z || 0) : 0, _dz = e => depthActive() ? (e.z || 0) : 0;
+  depthDrawLane();
+  for (const e of E) { depthBegin(e.x, _dz(e)); drawDashWarn(e); ctx.restore(); }
+  const _drawE = e => {
+    depthShadow(e.x, _dz(e), e.w, e.t === 'imp' ? .12 : .3);
+    depthBegin(e.x, _dz(e));
     if (typeof drawEnemyAura === 'function') drawEnemyAura(e, 0);   // ★ 怪物身后光效
     ctx.save(); 
     ctx.translate(sn(e.x - cam), sn(e.y)); 
@@ -1059,31 +1071,43 @@ function draw() {
     if (e.stun > 0) txt('💫', e.x - cam, e.y - e.h - 18, 22, '#ffd84a', 'center');
 
     if (e.t !== 'boss') drawEnemyBar(e);
-  }
+    ctx.restore();
+  };
+  const _es = E.slice().sort((p, q) => _dz(p) - _dz(q));
+  const _front = _es.filter(e => _dz(e) > _pz);
+  for (const e of _es) if (_dz(e) <= _pz) _drawE(e);   // 比玩家更靠后的敌人先画，靠前的在玩家之后画
   drawHZ();
   drawEP();
   for (const s of PJ) {
-    if (s.b5) { drawBullet5(s); continue }
-    if (s.rb) { drawBulletR(s); continue }
-    if (s.ry) { drawRyukiSword(s); continue }
-    dr(SH.sword, 0, s.x - cam, s.y, -s.f, 1, 1, 1);
+    depthBegin(s.x, zv(s));
+    if (s.b5) drawBullet5(s);
+    else if (s.rb) drawBulletR(s);
+    else if (s.ry) drawRyukiSword(s);
+    else dr(SH.sword, 0, s.x - cam, s.y, -s.f, 1, 1, 1);
+    ctx.restore();
   }
 
+  depthBegin(P.x, _pz);
   drawFaizMark();
   drawBladeMark();
   if (typeof drawDenoMark === 'function') drawDenoMark();
   drawRyukiMark();
   if (typeof drawZeztzMark === 'function') drawZeztzMark();
+  ctx.restore();
   drawBikes();
+  depthShadow(P.x, _pz, 130, .32);
   drawP();
-  if (typeof drawZeztzEnergyWaves === 'function') drawZeztzEnergyWaves();
+  for (const e of _front) _drawE(e);
+  if (typeof drawZeztzEnergyWaves === 'function') drawZeztzEnergyWaves();   // 波 / 闪电：各自按发射时的车道绘制
+  depthBegin(P.x, _pz);
   if (typeof drawCoopP2 === 'function') drawCoopP2();
+  ctx.restore();
   drawBladeBolts();
   if (typeof drawDenoWaves === 'function') drawDenoWaves();
 
   for (const f of FX) {
     const p = f.t / f.d;
-    ctx.save();
+    depthBegin(f.x, zv(f));
     const expImg = EF_IMGS['explosion'];
 
     if (f.type === 'malaya_kick_blast') {
@@ -1131,7 +1155,7 @@ function draw() {
     ctx.restore();
   }
 
-  for (const d of DT) txt(d.s, d.x - cam, d.y - (1 - d.t) * 40, String(d.s).length > 4 ? 22 : 18, d.c, 'center');
+  for (const d of DT) txt(d.s, d.x - cam, d.y + zv(d) - (1 - d.t) * 40, String(d.s).length > 4 ? 22 : 18, d.c, 'center');
   ctx.restore();
 
   // ★ 渲染弹反速度线与黑白高反差漫画终结剪影（不受 UI 遮挡影响）
@@ -1290,13 +1314,13 @@ addEventListener('keydown', e => {
   const bind = (b, codes, onDown, pre) => {
     let held = [];
     b.addEventListener('pointerdown', e => {
-      e.preventDefault(); b.setPointerCapture(e.pointerId); b.classList.add('on');
+      e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch (_) { } b.classList.add('on');
       if (pre) pre();
       if (onDown) return onDown();
       held = typeof codes === 'function' ? codes() : codes; held.forEach(press);
     });
     const up = () => { b.classList.remove('on'); held.forEach(rel); held = [] };
-    b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up);
+    b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
   };
   const mk = (cls, pos, html) => { const b = document.createElement('div'); b.className = 'b ' + cls; b.style.cssText = pos; b.innerHTML = html; ui.appendChild(b); return b };
   for (const o of BTN) {
@@ -1348,15 +1372,24 @@ addEventListener('keydown', e => {
   ui.appendChild(mp);
   const mg = mp;
   const tap = (...codes) => () => { codes.forEach(press); setTimeout(() => codes.forEach(rel), 90) };
+  const toggleFS = () => {
+    const d = document.documentElement, fe = document.fullscreenElement || document.webkitFullscreenElement;
+    try {
+      if (fe) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+      const rq = d.requestFullscreen || d.webkitRequestFullscreen;
+      if (!rq) { DT.push({ x: P.x, y: P.y - 190, s: 'iPhone 请用 Safari「分享 → 添加到主屏幕」全屏游玩', t: 2.6, c: '#ffd84a' }); return; }
+      Promise.resolve(rq.call(d, { navigationUI: 'hide' }))
+        .then(() => { try { screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => { }); } catch (_) { } })
+        .catch(() => { });
+    } catch (_) { }
+  };
   const TILES = () => {
     const base = G === 'vil' || G === 'room', t = [
       { ic: '🎒', t: '背包', f: tap('KeyC') }, { ic: '💊', t: '胶囊', f: tap('KeyN') },
       { ic: '📜', t: '任务', f: tap('KeyQ') }, { ic: '📊', t: '战绩', f: tap('KeyI') }
     ];
     if (base && window.openSettings) t.push({ ic: '⚙', t: '设置', f: () => setTimeout(window.openSettings, 120) });
-    if (document.documentElement.requestFullscreen) t.push({
-      ic: '⛶', t: '全屏', f: () => { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen().then(() => screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape').catch(() => { })).catch(() => { }) }
-    });
+    t.push({ ic: '⛶', t: '全屏', f: toggleFS });
     if (G === 'play') t.push({ ic: '🚪', t: '撤退', warn: 1, f: tap('Escape') });
     return t;
   };
@@ -1377,6 +1410,8 @@ addEventListener('keydown', e => {
     moreOpen = true; mp.classList.add('show');
   }
   function closeMore() { mp.classList.remove('show'); moreOpen = false }
+  const moreEl = BTN.find(o => o.more).el;
+  document.addEventListener('pointerdown', e => { if (moreOpen && !mp.contains(e.target) && !moreEl.contains(e.target)) closeMore(); }, true);
 
   const overlayOn = () => ['auth-overlay', 'set-overlay'].some(id => { const e = document.getElementById(id); return e && e.classList.contains('show') });
   const tcPopup = () => !!(M || showChar || showCapModal || showStat || showQuest || gachaModal || overlayOn() || P.st === 'trans' || P.st === 'trans_ryuki' || (typeof HALL_MODAL !== 'undefined' && HALL_MODAL.show));
@@ -1467,12 +1502,13 @@ addEventListener('keydown', e => {
     const deadZone = 12;
     const l = dx < -deadZone;
     const r = dx > deadZone;
-    const u = dy < -JR * 0.55;
-    const dn = dy > JR * 0.55 && G === 'play';   // 下：空中 + 攻击 = 下砸（只在战斗里生效，避免干扰菜单）
+    const vt = depthActive() ? 0.33 : 0.55;   // ★ 2.5D：上下用来换道，死区放小
+    const u = dy < -JR * vt;
+    const dn = dy > JR * vt && G === 'play';   // 下：空中 + 攻击 = 下砸（只在战斗里生效，避免干扰菜单）
 
     if (l !== jl) { l ? press('KeyA') : rel('KeyA'); jl = l; }
     if (r !== jrt) { r ? press('KeyD') : rel('KeyD'); jrt = r; }
-    if (u !== ju) { if (u) { press('Space'); if (G === 'play') press('KeyW') } else { rel('Space'); rel('KeyW') } ju = u; }
+    if (u !== ju) { if (u) { if (!depthActive()) press('Space'); if (G === 'play') press('KeyW') } else { rel('Space'); rel('KeyW') } ju = u; }
     if (dn !== jd) { dn ? press('KeyS') : rel('KeyS'); jd = dn; }
 
     arL.classList.toggle('on', l); 
@@ -1483,6 +1519,7 @@ addEventListener('keydown', e => {
 
   const hudTap = e => {
     const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 960, y = (e.clientY - r.top) / r.height * 540;
+    if (typeof dummyHudClick === 'function' && dummyHudClick(x, y)) return true;
     if (!psCanOpen()) return false;
     if (questBtnHit(x, y)) { questOpen(); return true; }
     if (cpHudHit(x, y)) { LB.tab = 1; psOpen(); lbFetch(); return true; }
@@ -1715,5 +1752,9 @@ addEventListener('keydown', e => {
   const relAll = () => { for (const k in K) K[k] = 0 };
   addEventListener('blur', relAll); document.addEventListener('visibilitychange', relAll);
   addEventListener('contextmenu', e => e.preventDefault());
-  document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+  document.addEventListener('touchmove', e => {
+    const t = e.target;
+    if (t && t.closest && t.closest('#set-overlay .set-body, #auth-overlay, input, textarea')) return;   // 这些区域允许原生滚动
+    e.preventDefault();
+  }, { passive: false });
 })();

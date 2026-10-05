@@ -443,6 +443,7 @@ function bladeHandWorld() { const h = bladeHandLocal(); return { x: P.x + P.f * 
 function bladeAim() {
   const h = bladeHandWorld(); let best = null, bd = 1e9;
   for (const e of E) {
+    if (!zOk(e, undefined, 60)) continue;   // ★ 2.5D：只锁定同车道的怪（否则子弹会飞到别的车道打空）
     const dx = (e.x - h.x) * P.f;
     if (dx > -30 && dx < 950 && dx < bd) { bd = dx; best = e; }
   }
@@ -456,7 +457,7 @@ function bladeTipWorld(ang) {
 
 function fireBlade() {
   const ang = bladeAim(), m = bladeTipWorld(ang), Bo = BLADE_BOLT;
-  BLB.push({ x: m.x, y: m.y, dx: P.f * Math.cos(ang), dy: Math.sin(ang), t: Bo.t, d: Bo.t, tk: 0, seed: Math.random() * 10 | 0 });
+  BLB.push({ x: m.x, y: m.y, dx: P.f * Math.cos(ang), dy: Math.sin(ang), t: Bo.t, d: Bo.t, tk: 0, seed: Math.random() * 10 | 0, z: depthPz() });
   FX.push({ type: 'boom', x: m.x, y: m.y, t: .2, d: .2, r: 50, c: '#7fd0ff' });
   shake = Math.max(shake, 5);
   DT.push({ x: P.x, y: P.y - 200, s: 'THUNDER', t: .8, c: '#7fd0ff' });
@@ -472,6 +473,7 @@ function updBladeBolts(dt) {
       const mul = Bo.mul[b.tk++];
       for (const e of E) {
         if (e.dead) continue;
+        if (!zOk(e, depthStamp(b), 44)) continue;   // ★ 2.5D
         const cx = e.x - b.x, cy = (e.y - e.h * .5) - b.y;
         const along = cx * b.dx + cy * b.dy, perp = Math.abs(-cx * b.dy + cy * b.dx);
         if (along > -60 && along < Bo.L + 40 && perp < Bo.w + e.w * .3) {
@@ -487,6 +489,7 @@ function updBladeBolts(dt) {
 function drawBladeBolts() {
   const Bo = BLADE_BOLT;
   for (const b of BLB) {
+    depthBegin(b.x, zv(b));   // ★ 2.5D：闪电画在发射时的车道
     const p = 1 - b.t / b.d, al = cl(p / .08, 0, 1) * cl((1 - p) / .45, 0, 1), a = Math.atan2(b.dy, b.dx);
     ctx.save();
     ctx.translate(b.x - cam, b.y);
@@ -509,6 +512,7 @@ function drawBladeBolts() {
       for (let s = 1; s <= 12; s++) ctx.lineTo(s * Bo.L / 12, (Math.random() - .5) * 60 * (s < 12 ? 1 : 0));
       ctx.stroke();
     }
+    ctx.restore();
     ctx.restore();
   }
 }

@@ -797,6 +797,7 @@ function zWaveTarget(sx, f) {
     if (e.dead) continue;
     const dx = (e.x - sx) * f;
     if (dx < -20 || dx > ZEZTZ_WAVE.range) continue;
+    if (!zOk(e, undefined, 60)) continue;   // ★ 2.5D：只锁同车道
     if (dx < bd) { bd = dx; best = e; }
   }
   return best;
@@ -823,7 +824,8 @@ function fireZeztzWave() {
     h: W_.w * (WAVE_Z ? WAVE_Z.height / WAVE_Z.width : 0.65),
     dmg: P.atk * 2.2,
     hit: {},
-    tick: 0
+    tick: 0,
+    z: depthPz()
   };
   Z_WAVES.push(wave);
   shake = Math.max(shake, 8);
@@ -870,7 +872,7 @@ function updZeztzWaves(dt) {
     // 碰撞：沿着波的轴线（从身后一点到波头）取 5 个点，任何一点碰到怪物的身体框就算命中
     const sp = Math.hypot(b.vx, b.vy || 0) || 1, ux = b.vx / sp, uy = (b.vy || 0) / sp;
     for (const e of E) {
-      if (e.dead || b.hit[e.id]) continue;
+      if (e.dead || b.hit[e.id] || !zOk(e, depthStamp(b), 44)) continue;   // ★ 2.5D
       const cy = e.y - e.h * 0.5;
       for (const k of [-0.12, 0.05, 0.22, 0.4, 0.55]) {
         const px = b.x + ux * b.w * k, py = b.y + uy * b.w * k;
@@ -888,6 +890,7 @@ function updZeztzWaves(dt) {
 
 function drawZeztzEnergyWaves() {
   for (const b of Z_WAVES) {
+    depthBegin(b.x, zv(b));   // ★ 2.5D
     const x = sn(b.x - cam), y = sn(b.y);
     const p = b.t / b.dur, age = b.dur - b.t;
     const ang = Math.atan2(b.vy || 0, Math.abs(b.vx));   // 仰 / 俯角（相对朝向，向下为正）
@@ -910,6 +913,7 @@ function drawZeztzEnergyWaves() {
       ctx.ellipse(0, 0, 70, 35, 0, 0, Math.PI * 2);
       ctx.fill();
     }
+    ctx.restore();
     ctx.restore();
   }
 }

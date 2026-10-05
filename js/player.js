@@ -5,7 +5,8 @@ const P = {
   x: 300, y: GY, vx: 0, vy: 0, f: 1, hp: 100, mh: 100, mp: 100, mm: 100, atk: 14, cr: .05, def: 0,
   st: 'trans', t: 0, inv: 0, land: 0, cd: { e: 0, k: 0, l: 0, p: 0 },
   maxCd: { e: 7, k: 16, l: 2, p: 5 }, h: 0, hit: {}, ryuki: false, k5: false, bl: false, zeztz: false, dn: false, trk: null,
-  sta: 100, stm: 100, dcd: 0, exh: false, spr: false, shDown: false, shT: 0, gt: 0, sreg: 0, slow: 0, psn: 0, down: false
+  sta: 100, stm: 100, dcd: 0, exh: false, spr: false, shDown: false, shT: 0, gt: 0, sreg: 0, slow: 0, psn: 0, down: false,
+  z: 0, vz: 0, dxm: 1   // 2.5D 纵深：车道偏移 / 纵向速度 / 闪避横向系数
 };
 
 function curRiderKey() {
@@ -151,7 +152,7 @@ function walk(dt, R) {
 
   if ((P.st === 'dodge' || P.spr) && P.gt <= 0) {
     P.gt = .038;
-    GH.push({ x: P.x, y: P.y, f: P.f, st: P.st, t: .32, d: .32 });
+    GH.push({ z: depthPz(), x: P.x, y: P.y, f: P.f, st: P.st, t: .32, d: .32 });
   }
 }
 
@@ -191,10 +192,11 @@ function drawP() {
     const sv = { x: P.x, y: P.y, f: P.f, st: P.st, inv: P.inv, land: P.land, ryuki: P.ryuki, k5: P.k5, bl: P.bl, zeztz: P.zeztz, dn: P.dn, t: P.t, hit: P.hit };
     P.x = g.x; P.y = g.y; P.f = g.f; P.st = g.st; P.inv = 0; P.land = 0;
     if (g.rf) { P.ryuki = g.rf.ryuki; P.k5 = g.rf.k5; P.bl = g.rf.bl; P.zeztz = g.rf.zeztz; P.dn = !!g.rf.dn; P.t = g.pt || 0; P.hit = {}; }   // 联机队友的残影用队友自己的形态
-    ctx.save(); ctx.globalAlpha = g.t / g.d * .5; ctx.globalCompositeOperation = 'lighter';
+    depthBegin(g.x, g.z === undefined ? depthPz() : g.z); ctx.globalAlpha = g.t / g.d * .5; ctx.globalCompositeOperation = 'lighter';
     drawP0(); ctx.restore();
     Object.assign(P, sv);
   }
+  depthBegin(P.x, depthPz());   // ★ 2.5D：整个本体搬到当前车道
   if (P.down) {
     const dx = sn(P.x - cam), dy = sn(P.y);
     ctx.save(); ctx.translate(dx, dy); ctx.rotate(-P.f * Math.PI / 2); ctx.translate(-dx, -dy);
@@ -202,6 +204,7 @@ function drawP() {
   } else drawP0();
   if (P.slow > 0) txt('❄', P.x - cam - 14, P.y - 215, 16, '#8ad0ff', 'center');
   if (P.psn > 0) txt('☠', P.x - cam + 14, P.y - 215, 16, '#7dff5a', 'center');
+  ctx.restore();
 }
 
 function drawP0() {

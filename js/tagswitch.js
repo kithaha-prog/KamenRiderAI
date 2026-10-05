@@ -75,7 +75,7 @@ function tagExec() {
     const a = P.x - f * 60, b = P.x + f * TAG.outReach;
     area(Math.min(a, b), Math.max(a, b), P.atk * TAG.outMul);
     if (typeof cancelEP === 'function') cancelEP(Math.min(a, b), Math.max(a, b));
-    GH.push({ x: P.x, y: P.y, f, st: 'idle', t: .55, d: .55, pt: 0,
+    GH.push({ z: depthPz(), x: P.x, y: P.y, f, st: 'idle', t: .55, d: .55, pt: 0,
       rf: { ryuki: P.ryuki, k5: P.k5, bl: P.bl, zeztz: P.zeztz, dn: P.dn } });
     FX.push({ type: 'boom', x: P.x + f * 200, y: P.y - 60, t: .45, d: .45, r: 210, c: outCol });
     DT.push({ x: P.x, y: P.y - 200, s: 'TAG OUT · ' + (outCap ? outCap.short : ''), t: .8, c: outCol });
@@ -91,7 +91,7 @@ function tagExec() {
   // ③ 进场：破空飞踢（借用闪避的位移与无敌，期间持续判定）
   const inCap = formCap(), inCol = formCol();
   if (play) {
-    P.st = 'dodge'; P.t = 0; P.dcd = .36; P.vy = 0; P.vx = P.f * 1200;
+    P.st = 'dodge'; P.t = 0; P.dcd = .36; P.vy = 0; P.vx = P.f * 1200; P.vz = 0; P.dxm = 1;
     TAG.strike = .36; TAG.hit = {};
     shake = Math.max(shake, 12);
     FX.push({ type: 'boom', x: P.x, y: P.y - 80, t: .3, d: .3, r: 150, c: inCol });
