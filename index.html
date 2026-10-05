@@ -29,6 +29,13 @@
   </script>
 
   <style>
+    @font-face {
+      font-family: 'KamenRiderCustom';
+      src: url('Assets/Fonts/RiderFont.woff2') format('woff2');
+      font-weight: normal;  
+      font-style: normal;
+      font-display: swap;
+    }
     html,body{margin:0;height:100%;background:#08060c;overflow:hidden}
     body{display:flex;align-items:center;justify-content:center}
     canvas{width:min(100vw,177.78vh);aspect-ratio:16/9;background:#000;display:block}
@@ -197,6 +204,8 @@
   </style>
 </head>
 <body>
+  <span style="font-family:'KamenRiderCustom'; position:absolute; left:-9999px; opacity:0; pointer-events:none;">Rider 假面骑士 0123456789</span>
+
   <canvas id="c"></canvas>
   <div id="rot">📱 请将设备横屏游玩<br>（并可「添加到主屏幕」全屏运行）</div>
 
