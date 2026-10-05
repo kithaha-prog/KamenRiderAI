@@ -41,6 +41,13 @@
     canvas{width:min(100vw,177.78vh);aspect-ratio:16/9;background:#000;display:block}
     canvas{width:min(100vw,177.78dvh)}
     html,body{overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none}
+    /* ★ 防"全屏浅蓝色"：Android/部分 iOS 点按大面积元素(#joyz 左半屏、canvas 整屏)时的默认高亮 */
+    *,*::before,*::after{-webkit-tap-highlight-color:rgba(0,0,0,0)}
+    canvas,#joyz,#joyh,#joy,#tc{outline:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+    ::selection{background:transparent}
+    /* ★ iOS：user-select:none 会让 input 无法输入，必须单独放开 */
+    input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+    input::selection{background:rgba(0,229,255,.35)}
     #tc,#rot{display:none}
     body.touch #tc{display:block}
     #tc{position:fixed;inset:0;pointer-events:none;touch-action:none;z-index:9;--s:clamp(46px,10.5vmin,80px)}
@@ -96,14 +103,23 @@
     #auth-overlay {
       display: none;
       position: fixed;
-      inset: 0;
+      left: 0; right: 0; top: 0;
+      height: 100vh; height: var(--vvh, 100dvh);
       z-index: 99;
       background: rgba(3, 6, 14, 0.88);
+      -webkit-backdrop-filter: blur(8px);
       backdrop-filter: blur(8px);
-      align-items: center;
-      justify-content: center;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      touch-action: pan-y;
+      box-sizing: border-box;
+      padding: max(10px, env(safe-area-inset-top, 0px)) max(10px, env(safe-area-inset-right, 0px)) max(10px, env(safe-area-inset-bottom, 0px)) max(10px, env(safe-area-inset-left, 0px));
     }
     #auth-overlay.show { display: flex; }
+    #auth-overlay .auth-box { margin: auto; }   /* margin:auto 居中；内容超高时从顶部开始可滚动，不会被裁掉 */
+    body.touch #auth-overlay { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(3, 6, 14, 0.94); }
     .auth-box {
       width: min(90vw, 380px);
       background: linear-gradient(180deg, #0e172a 0%, #060a14 100%);
@@ -140,7 +156,7 @@
     }
     .auth-field input {
       width: 100%;
-      height: 38px;
+      height: 42px;
       background: rgba(15, 23, 42, 0.9);
       border: 1px solid rgba(0, 229, 255, 0.3);
       border-radius: 6px;
@@ -148,7 +164,8 @@
       padding: 0 10px;
       box-sizing: border-box;
       outline: none;
-      font-size: 13px;
+      font-size: 16px;   /* ≥16px：iOS 聚焦输入框时不会自动放大页面 */
+      -webkit-appearance: none; appearance: none;
     }
     .auth-field input:focus {
       border-color: #00e5ff;
@@ -168,6 +185,10 @@
       transition: 0.15s;
     }
     .auth-btn-main:active { transform: scale(0.98); }
+    .auth-btn-main, .auth-btn-guest, .auth-link, .auth-close { touch-action: manipulation; font-family: inherit; }
+    .auth-btn-main { height: 44px; }
+    .auth-btn-guest { height: 40px; }
+    .auth-link, .auth-close { padding: 8px 4px; }   /* 放大点击热区 */
     .auth-btn-guest {
       width: 100%;
       height: 36px;
@@ -194,6 +215,19 @@
       color: #94a3b8;
       cursor: pointer;
     }
+    @media (max-height: 520px) {
+      .auth-box { width: min(94vw, 560px); padding: 12px 18px 10px; }
+      .auth-title { font-size: 15px; margin-bottom: 0; }
+      .auth-subtitle { display: none; }
+      .auth-fields { display: grid; grid-template-columns: 1fr 1fr; column-gap: 12px; margin-top: 8px; }
+      .auth-field { margin-bottom: 6px; }
+      .auth-field label { margin-bottom: 3px; }
+      .auth-field input { height: 38px; }
+      .auth-msg { min-height: 14px; margin-top: 2px; }
+      .auth-btns { display: grid; grid-template-columns: 1fr 1fr; column-gap: 12px; }
+      .auth-btn-main, .auth-btn-guest { height: 38px; margin-top: 4px; }
+      .auth-footer { margin-top: 4px; }
+    }
     .auth-msg {
       font-size: 11px;
       color: #ff7675;
@@ -215,19 +249,23 @@
       <div class="auth-title">TERMINAL // 骑士终端认证</div>
       <div class="auth-subtitle">IDENTIFICATION & CLOUD ARCHIVE</div>
 
+      <div class="auth-fields">
       <div class="auth-field">
         <label>邮箱地址 / EMAIL</label>
-        <input type="email" id="auth-email" placeholder="rider@domain.com">
+        <input type="email" id="auth-email" placeholder="rider@domain.com" autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="next">
       </div>
       <div class="auth-field">
         <label>终端密钥 / PASSWORD</label>
-        <input type="password" id="auth-password" placeholder="••••••••">
+        <input type="password" id="auth-password" placeholder="••••••••" autocomplete="current-password" enterkeyhint="go">
+      </div>
       </div>
 
       <div class="auth-msg" id="auth-status"></div>
 
+      <div class="auth-btns">
       <button class="auth-btn-main" id="btn-email-action">登 录 终 端</button>
       <button class="auth-btn-guest" id="btn-guest-action">以 游 客 身 份 进 入</button>
+      </div>
 
       <div class="auth-footer">
         <span class="auth-link" id="btn-toggle-mode">没有账号？点击注册</span>
@@ -236,8 +274,27 @@
     </div>
   </div>
 
+  <script>
+    // 软键盘 / 地址栏收放时，让登录弹窗始终贴合"可见区域"
+    (function () {
+      var ov = document.getElementById('auth-overlay');
+      function sync() {
+        var v = window.visualViewport;
+        ov.style.setProperty('--vvh', Math.round(v ? v.height : innerHeight) + 'px');
+        ov.style.top = (v ? Math.round(v.offsetTop) : 0) + 'px';
+      }
+      sync();
+      if (window.visualViewport) { visualViewport.addEventListener('resize', sync); visualViewport.addEventListener('scroll', sync); }
+      addEventListener('resize', sync);
+      ov.addEventListener('focusin', function (e) {
+        if (e.target && e.target.tagName === 'INPUT') setTimeout(function () { try { e.target.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) {} }, 320);
+      });
+    })();
+  </script>
+
   <!-- 按依赖层级引入脚本 -->
   <script src="js/config.js" onerror="__jsErr(this)"></script>
+  <script src="js/depth.js" onerror="__jsErr(this)"></script> <!-- ★ 2.5D 纵深（车道）系统 -->
   <script src="js/equipment.js" onerror="__jsErr(this)"></script>
   <script src="js/power.js" onerror="__jsErr(this)"></script>
   <script src="js/player.js" onerror="__jsErr(this)"></script>
