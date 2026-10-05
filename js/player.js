@@ -81,21 +81,27 @@ function walk(dt, R) {
   P.gt = Math.max(0, (P.gt || 0) - dt);
   P.spr = false;
 
+  // ★ 核心修复：检查当前是否正处于招式动作/变身中
+  const inCombatAct = /^(atk|uppercut|diveslam|thr|fv|dash)$/.test(P.st);
+  const inTrans = /^(trans|trans_ryuki|trans_malaya)$/.test(P.st);
+
   const sh = K.ShiftLeft || K.ShiftRight;
   const shPress = PR.ShiftLeft || PR.ShiftRight;
 
-  // ★ 优化1：按下瞬间立即触发闪避，无需等待抬手松开！
-  if (shPress && P.dcd <= 0 && /^(idle|run|air)$/.test(P.st)) {
-    const dd = ((K.KeyD || K.ArrowRight) ? 1 : 0) - ((K.KeyA || K.ArrowLeft) ? 1 : 0);
-    P.f = dd || P.f;
-    P.st = 'dodge';
-    P.t = 0;
-    P.dcd = DODGE_CD;
-    P.vy = 0;
-    P.vx = P.f * 1200; // ★ 初速度 820 -> 1200
+  // 处于攻击动作时禁止被普通走动/跳跃打断
+  if (!inCombatAct && !inTrans) {
+    // 按下瞬间立即触发闪避
+    if (shPress && P.dcd <= 0 && /^(idle|run|air)$/.test(P.st)) {
+      const dd = ((K.KeyD || K.ArrowRight) ? 1 : 0) - ((K.KeyA || K.ArrowLeft) ? 1 : 0);
+      P.f = dd || P.f;
+      P.st = 'dodge';
+      P.t = 0;
+      P.dcd = DODGE_CD;
+      P.vy = 0;
+      P.vx = P.f * 1200;
+    }
   }
 
-  // ★ 优化2：位移持续时间增至 0.36s，总位移翻倍（可达 350+ 像素）
   if (P.st === 'dodge') {
     P.t += dt;
     P.inv = Math.max(P.inv, 0.45);
@@ -103,13 +109,12 @@ function walk(dt, R) {
     if (P.t >= 0.36) {
       P.st = (P.y < GY) ? 'air' : 'idle';
       P.vx = 0;
-      P.inv = Math.max(P.inv, 0.15); // 结束保留安全护盾
+      P.inv = Math.max(P.inv, 0.15);
     }
-  } else {
-    // 正常走动；若玩家持续按住 Shift 则无缝进入疾跑
+  } else if (!inCombatAct && !inTrans) {
+    // 只有非攻击状态下，才允许由方向键计算行走速度
     const d = ((K.KeyD || K.ArrowRight) ? 1 : 0) - ((K.KeyA || K.ArrowLeft) ? 1 : 0);
     let spd = (260 + S.lv * 4) * formSpd() * (1 + (typeof affixTotal === 'function' ? affixTotal('spd') : 0));
-    // ★ Style Rank 连击移速加成（D级 +2% ~ SSS级 +25%）
     if (typeof COMBO !== 'undefined' && COMBO.count > 0 && typeof STYLE_RANKS !== 'undefined') {
       spd *= (STYLE_RANKS[COMBO.rankIdx] ? STYLE_RANKS[COMBO.rankIdx].spdMul : 1.0);
     }
@@ -126,6 +131,7 @@ function walk(dt, R) {
     }
   }
 
+  // 重力推进
   if (P.st !== 'dodge') {
     P.vy += 1900 * dt;
     P.y = Math.min(GY, P.y + P.vy * dt);
@@ -137,7 +143,8 @@ function walk(dt, R) {
 
   P.x = cl(P.x + P.vx * dt, 40, R);
 
-  if (P.st !== 'trans_ryuki' && P.st !== 'dodge') {
+  // ★ 关键修复：只有在非攻击、非变身、非闪避时，才自动回退至 air/run/idle
+  if (!inCombatAct && !inTrans && P.st !== 'dodge') {
     P.st = P.y < GY ? 'air' : P.vx ? 'run' : 'idle';
   }
 

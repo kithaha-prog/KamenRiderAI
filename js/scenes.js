@@ -145,7 +145,8 @@ function vupd(dt) {
     } else {
       c.push(
         { x: 70, t: '离开' + RM.n, f: () => { G = 'vil'; P.x = RM.x; P.hp = P.mh; P.mp = P.mm; P.sta = P.stm; } },
-        { x: RMN, t: '与 ' + RM.npc + ' 交谈', f: () => { V.pg = RM.pg; V.i = 0; M = 1; } }
+        // ★ 将 NPC 触发半径收缩到精准的 45 像素，彻底告别误触
+        { x: RMN, r: 45, t: '与 ' + RM.npc + ' 交谈', f: () => { V.pg = RM.pg; V.i = 0; M = 1; } }
       );
     }
   } else {
@@ -698,11 +699,50 @@ function drawRoom() {
     txt('← 出口', 70 - cam, GY - 150, 15, '#7dff9a', 'center');
     if (RM && RM.n === '训练馆') {
       drawTrainingDummy(); // 渲染全息测试木桩实体与头顶血条/护甲
-      // 渲染场上的技能弹道、战车与爆炸火花
+
+      // ★ 渲染场上的所有技能弹道、战车与各骑士特效
       if (typeof drawBikes === 'function') drawBikes();
       if (typeof drawBladeBolts === 'function') drawBladeBolts();
       if (typeof drawZeztzEnergyWaves === 'function') drawZeztzEnergyWaves();
       if (typeof drawDenoWaves === 'function') drawDenoWaves();
+
+      // ★ 补齐飞行弹道（飞剑、Faiz子弹、龙骑火球）
+      if (typeof PJ !== 'undefined' && Array.isArray(PJ)) {
+        for (const s of PJ) {
+          if (s.b5 && typeof drawBullet5 === 'function') { drawBullet5(s); continue; }
+          if (s.rb && typeof drawBulletR === 'function') { drawBulletR(s); continue; }
+          if (s.ry && typeof drawRyukiSword === 'function') { drawRyukiSword(s); continue; }
+          if (typeof SH !== 'undefined' && SH.sword) dr(SH.sword, 0, s.x - cam, s.y, -s.f, 1, 1, 1);
+        }
+      }
+
+      // ★ 补齐大招地面锁定圈
+      if (typeof drawFaizMark === 'function') drawFaizMark();
+      if (typeof drawBladeMark === 'function') drawBladeMark();
+      if (typeof drawRyukiMark === 'function') drawRyukiMark();
+      if (typeof drawZeztzMark === 'function') drawZeztzMark();
+      if (typeof drawDenoMark === 'function') drawDenoMark();
+
+      // ★ 补齐所有爆炸火光与受击打击特效（FX）
+      if (typeof FX !== 'undefined' && Array.isArray(FX)) {
+        for (const f of FX) {
+          const p = f.t / f.d;
+          ctx.save();
+          if (f.type === 'boom' || f.type === 'boss_death_blast') {
+            ctx.beginPath(); ctx.arc(f.x - cam, f.y, (1 - p) * f.r, 0, Math.PI * 2);
+            ctx.strokeStyle = f.c || '#ffd84a'; ctx.globalAlpha = p; ctx.lineWidth = 5 * p + 1;
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+      }
+
+      // ★ 补齐伤害跳字与招式提示（DT）
+      if (typeof DT !== 'undefined' && Array.isArray(DT)) {
+        for (const d of DT) {
+          txt(d.s, d.x - cam, d.y - (1 - d.t) * 40, String(d.s).length > 4 ? 20 : 16, d.c, 'center');
+        }
+      }
     }
     npc(RMN - cam, GY, RM.nc, RM.npc, RM.im);
     return;
@@ -779,20 +819,15 @@ function hallClick(x, y) {
 // ---------- 1. 伤害统计与分类引擎 ----------
 const DUMMY_STATS = {
   active: false,
+  collapsed: false, // ★ 支持折叠/收起展开状态
   startTime: 0,
   lastHitTime: 0,
   totalDamage: 0,
   totalHits: 0,
   critHits: 0,
   maxHit: 0,
-  rollingHits: [], // [{ t, d }]
-  bySkill: {
-    atk: 0, // 普攻 / 升龙击 / 空中下砸
-    l: 0,   // 战术技能 [L]
-    e: 0,   // 机车战车 [E]
-    k: 0,   // 终结必杀 [K]
-    r: 0    // 专属特技 [R] (龙骑无限龙/555加速/Blade卡牌/Zeztz超载)
-  },
+  rollingHits: [],
+  bySkill: { atk: 0, l: 0, e: 0, k: 0, r: 0 },
 
   reset() {
     this.active = false;
@@ -804,6 +839,10 @@ const DUMMY_STATS = {
     this.maxHit = 0;
     this.rollingHits = [];
     this.bySkill = { atk: 0, l: 0, e: 0, k: 0, r: 0 };
+  },
+  
+  toggleCollapse() {
+    this.collapsed = !this.collapsed;
   },
 
   addHit(dmg, isCrit, skillKey) {
@@ -850,7 +889,7 @@ const DUMMY = {
   isDummy: true,
   id: 888888,
   t: 'boss',
-  x: 450,
+  x: 820, // ★ 从原先的 450 移至右侧空旷特训区 820，完全远离左侧 NPC
   y: GY,
   w: 70,
   h: 170,
@@ -859,7 +898,7 @@ const DUMMY = {
   dead: false,
   fl: 0,
   shakeX: 0,
-  defenseMode: 0, // 0: 0%免伤 (无甲), 1: 30%免伤 (轻甲), 2: 50%免伤 (重装)
+  defenseMode: 0, // 0: 0%免伤, 1: 30%免伤, 2: 50%免伤
   getDef() {
     return this.defenseMode === 1 ? 0.3 : this.defenseMode === 2 ? 0.5 : 0;
   },
@@ -867,7 +906,7 @@ const DUMMY = {
     this.defenseMode = (this.defenseMode + 1) % 3;
     const names = ['0% 原生无甲', '30% 战术轻甲', '50% 领主重装'];
     if (typeof DT !== 'undefined') {
-      DT.push({ x: this.x, y: this.y - this.h - 40, s: `木桩护甲切换: ${names[this.defenseMode]}`, t: 1.2, c: '#ffd84a' });
+      DT.push({ x: this.x, y: this.y - this.h - 40, s: `木桩护甲: ${names[this.defenseMode]}`, t: 1.2, c: '#ffd84a' });
     }
   }
 };
@@ -1188,94 +1227,123 @@ function drawTrainingDummy() {
 }
 
 // ---------- 6. 绘制左上角 DPS 伤害测算与扇形图终端面板 ----------
+// ---------- 6. 绘制左上角 DPS 伤害测算终端（支持展开/折叠收缩 + 绝对防重叠） ----------
 const DPS_HUD_LAYOUT = { x: 16, y: 94, w: 300, h: 242 };
 
 function drawDPSMeterHUD() {
   const L = DPS_HUD_LAYOUT;
   const now = performance.now() / 1000;
   const dps = DUMMY_STATS.getDPS(now);
+  const isCol = DUMMY_STATS.collapsed;
 
   ctx.save();
-  // 1. 主面板科技底座（切角香槟金包边）
+
+  // ================= 【A. 收缩/折叠状态】极小占位条 (宽 260，高 34) =================
+  if (isCol) {
+    const barW = 260, barH = 34;
+    hudPanel(L.x, L.y, barW, barH, '#00e5ff', 6);
+
+    // 状态与简要秒伤
+    ut('⚡ 测算中', L.x + 10, L.y + 17, 10.5, '#7df9ff', 'left', { w: 700 });
+    const dpsStr = dps.current > 0 ? (dps.current >= 1e4 ? (dps.current / 1e4).toFixed(1) + '万' : dps.current.toLocaleString()) : '0';
+    ut(`DPS ${dpsStr}`, L.x + 64, L.y + 17, 12.5, '#00e5ff', 'left', { w: 700 });
+
+    const totalStr = DUMMY_STATS.totalDamage >= 1e4 ? (DUMMY_STATS.totalDamage / 1e4).toFixed(1) + '万' : DUMMY_STATS.totalDamage.toLocaleString();
+    ut(`总伤 ${totalStr}`, L.x + 140, L.y + 17, 11, '#ffd84a', 'left', { w: 600 });
+
+    // 展开按钮
+    const expBtnW = 48, expBtnH = 20, expBtnX = L.x + barW - 54, expBtnY = L.y + 7;
+    rpath(expBtnX, expBtnY, expBtnW, expBtnH, 4);
+    ctx.fillStyle = 'rgba(0, 229, 255, 0.16)'; ctx.fill();
+    ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 1; ctx.stroke();
+    ut('展开 ▾', expBtnX + expBtnW / 2, expBtnY + expBtnH / 2, 9.5, '#7df9ff', 'center', { w: 700, sh: 0 });
+
+    ctx.restore();
+    return;
+  }
+
+  // ================= 【B. 完整展开状态】精致防文字重叠排版 =================
   hudPanel(L.x, L.y, L.w, L.h, '#00e5ff', 10);
 
-  // 2. 顶栏标题与快捷按钮
-  ut('// REAL-TIME COMBAT TELEMETRY', L.x + 14, L.y + 13, 9, '#7f8da3', 'left', { w: 700, sp: 1.2, sh: 0 });
-  ut('伤害测算终端', L.x + 14, L.y + 28, 14, '#ffffff', 'left', { w: 700 });
+  // 1. 顶栏标题与控制组
+  ut('// REAL-TIME COMBAT TELEMETRY', L.x + 14, L.y + 13, 8.5, '#7f8da3', 'left', { w: 700, sp: 1.0, sh: 0 });
+  ut('伤害测算终端', L.x + 14, L.y + 27, 13.5, '#ffffff', 'left', { w: 700 });
 
-  // 护甲切换小按钮
-  const defNames = ['无甲0%', '轻甲30%', '重装50%'];
-  const defColors = ['#7dff9a', '#ffd84a', '#ff4757'];
-  const defBtnW = 66, defBtnH = 20, defBtnX = L.x + L.w - 128, defBtnY = L.y + 16;
-  rpath(defBtnX, defBtnY, defBtnW, defBtnH, 4);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.06)'; ctx.fill();
-  ctx.strokeStyle = defColors[DUMMY.defenseMode]; ctx.lineWidth = 1; ctx.stroke();
-  ut(defNames[DUMMY.defenseMode], defBtnX + defBtnW / 2, defBtnY + defBtnH / 2, 9.5, defColors[DUMMY.defenseMode], 'center', { w: 700, sh: 0 });
+  // 顶栏按钮组（从右至左：收起 -> 清空 -> 护甲）
+  // (1) 收起按钮
+  const colBtnW = 44, colBtnH = 19, colBtnX = L.x + L.w - 52, colBtnY = L.y + 17;
+  rpath(colBtnX, colBtnY, colBtnW, colBtnH, 4);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.08)'; ctx.fill();
+  ctx.strokeStyle = '#7df9ff'; ctx.lineWidth = 1; ctx.stroke();
+  ut('收起 ▴', colBtnX + colBtnW / 2, colBtnY + colBtnH / 2, 9, '#7df9ff', 'center', { w: 700, sh: 0 });
 
-  // 清空数据小按钮
-  const resetBtnW = 46, resetBtnH = 20, resetBtnX = L.x + L.w - 56, resetBtnY = L.y + 16;
+  // (2) 清空数据按钮
+  const resetBtnW = 44, resetBtnH = 19, resetBtnX = colBtnX - 48, resetBtnY = L.y + 17;
   rpath(resetBtnX, resetBtnY, resetBtnW, resetBtnH, 4);
   ctx.fillStyle = 'rgba(255, 71, 87, 0.16)'; ctx.fill();
   ctx.strokeStyle = '#ff4757'; ctx.lineWidth = 1; ctx.stroke();
-  ut('清空[R]', resetBtnX + resetBtnW / 2, resetBtnY + resetBtnH / 2, 9.5, '#ff7675', 'center', { w: 700, sh: 0 });
+  ut('清空[R]', resetBtnX + resetBtnW / 2, resetBtnY + resetBtnH / 2, 9, '#ff7675', 'center', { w: 700, sh: 0 });
 
-  // 3. 核心秒伤与总伤害指标卡 (左右分列)
-  const cardY = L.y + 42, cardH = 50, cardW = (L.w - 36) / 2;
+  // (3) 护甲切换按钮
+  const defNames = ['无甲0%', '轻甲30%', '重装50%'];
+  const defColors = ['#7dff9a', '#ffd84a', '#ff4757'];
+  const defBtnW = 54, defBtnH = 19, defBtnX = resetBtnX - 58, defBtnY = L.y + 17;
+  rpath(defBtnX, defBtnY, defBtnW, defBtnH, 4);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.06)'; ctx.fill();
+  ctx.strokeStyle = defColors[DUMMY.defenseMode]; ctx.lineWidth = 1; ctx.stroke();
+  ut(defNames[DUMMY.defenseMode], defBtnX + defBtnW / 2, defBtnY + defBtnH / 2, 9, defColors[DUMMY.defenseMode], 'center', { w: 700, sh: 0 });
+
+  // 2. 核心指标卡 (左右分列，加大数字呼吸间隔)
+  const cardY = L.y + 42, cardH = 48, cardW = (L.w - 36) / 2;
 
   // 左卡：实时秒伤 (DPS)
   rpath(L.x + 14, cardY, cardW, cardH, 6);
   ctx.fillStyle = 'rgba(0, 229, 255, 0.08)'; ctx.fill();
   ctx.strokeStyle = 'rgba(0, 229, 255, 0.35)'; ctx.lineWidth = 1; ctx.stroke();
-  ut('实时秒伤 (DPS)', L.x + 22, cardY + 12, 9, '#7df9ff', 'left', { w: 600 });
-  const dpsStr = dps.current > 0 ? dps.current.toLocaleString() : '0';
-  ut(dpsStr, L.x + 22, cardY + 28, 16, '#00e5ff', 'left', { w: 700 });
-  ut(`全场均伤: ${dps.average.toLocaleString()}/s`, L.x + 22, cardY + 42, 8.5, '#8fa0b5', 'left', { w: 500 });
+  ut('实时秒伤 (DPS)', L.x + 20, cardY + 12, 8.5, '#7df9ff', 'left', { w: 600 });
+  const curDpsVal = dps.current >= 1e6 ? (dps.current / 1e4).toFixed(1) + '万' : dps.current.toLocaleString();
+  ut(curDpsVal, L.x + 20, cardY + 27, 15, '#00e5ff', 'left', { w: 700 });
+  const avgStr = dps.average >= 1e5 ? (dps.average / 1e4).toFixed(1) + '万/s' : `${dps.average.toLocaleString()}/s`;
+  ut(`全场均伤: ${avgStr}`, L.x + 20, cardY + 41, 8.5, '#8fa0b5', 'left', { w: 500 });
 
-  // 右卡：累计总伤与战斗耗时
+  // 右卡：累计总伤害
   rpath(L.x + 22 + cardW, cardY, cardW, cardH, 6);
   ctx.fillStyle = 'rgba(255, 216, 74, 0.06)'; ctx.fill();
   ctx.strokeStyle = 'rgba(255, 216, 74, 0.3)'; ctx.lineWidth = 1; ctx.stroke();
-  ut('累计总伤害', L.x + 30 + cardW, cardY + 12, 9, '#ffd84a', 'left', { w: 600 });
-  const totalStr = DUMMY_STATS.totalDamage >= 1e6 
-    ? (DUMMY_STATS.totalDamage / 1e4).toFixed(1) + '万' 
-    : DUMMY_STATS.totalDamage.toLocaleString();
-  ut(totalStr, L.x + 30 + cardW, cardY + 28, 15, '#ffd84a', 'left', { w: 700 });
+  ut('累计总伤害', L.x + 28 + cardW, cardY + 12, 8.5, '#ffd84a', 'left', { w: 600 });
+  const totalVal = DUMMY_STATS.totalDamage >= 1e6 ? (DUMMY_STATS.totalDamage / 1e4).toFixed(1) + '万' : DUMMY_STATS.totalDamage.toLocaleString();
+  ut(totalVal, L.x + 28 + cardW, cardY + 27, 14.5, '#ffd84a', 'left', { w: 700 });
   const sec = Math.floor(dps.time);
   const timeStr = `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
-  ut(`耗时: ${timeStr} | 命中: ${DUMMY_STATS.totalHits}`, L.x + 30 + cardW, cardY + 42, 8.5, '#8fa0b5', 'left', { w: 500 });
+  ut(`耗时 ${timeStr} | 命中 ${DUMMY_STATS.totalHits}`, L.x + 28 + cardW, cardY + 41, 8.5, '#8fa0b5', 'left', { w: 500 });
 
-  // 4. 暴击率与单次极值行
-  const critY = L.y + 100;
-  const actualCr = DUMMY_STATS.totalHits > 0 
-    ? (DUMMY_STATS.critHits / DUMMY_STATS.totalHits * 100).toFixed(1) + '%' 
-    : '0.0%';
-  const panelCr = (P.cr * 100).toFixed(1) + '%';
-  ut(`暴击分布: ${DUMMY_STATS.critHits}/${DUMMY_STATS.totalHits} (${actualCr})`, L.x + 14, critY, 9.5, '#7dff9a', 'left', { w: 600 });
-  const maxHitStr = DUMMY_STATS.maxHit > 0 ? DUMMY_STATS.maxHit.toLocaleString() : '0';
-  ut(`最大单击: ${maxHitStr}`, L.x + L.w - 14, critY, 9.5, '#ffa502', 'right', { w: 600 });
+  // 3. 暴击分布与最大单次伤害行 (左右两端对齐，中间留足 40px 空隙)
+  const critY = L.y + 98;
+  const actualCr = DUMMY_STATS.totalHits > 0 ? (DUMMY_STATS.critHits / DUMMY_STATS.totalHits * 100).toFixed(1) + '%' : '0.0%';
+  ut(`暴击分布: ${DUMMY_STATS.critHits}/${DUMMY_STATS.totalHits} (${actualCr})`, L.x + 14, critY, 9, '#7dff9a', 'left', { w: 600 });
+  const maxHitStr = DUMMY_STATS.maxHit >= 1e6 ? (DUMMY_STATS.maxHit / 1e4).toFixed(1) + '万' : DUMMY_STATS.maxHit.toLocaleString();
+  ut(`最大单击: ${maxHitStr}`, L.x + L.w - 14, critY, 9, '#ffa502', 'right', { w: 600 });
 
-  // 分割虚线
+  // 装饰分隔细线
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(L.x + 14, critY + 10); ctx.lineTo(L.x + L.w - 14, critY + 10);
+  ctx.moveTo(L.x + 14, critY + 9); ctx.lineTo(L.x + L.w - 14, critY + 9);
   ctx.stroke();
 
-  // 5. 技能伤害占比环形扇形图 (Doughnut Chart) 与右侧图例列表
-  const chartY = critY + 68;
-  const pieCx = L.x + 48, pieCy = chartY;
-  const outerR = 34, innerR = 18;
+  // 4. 甜甜圈环形图与右侧技能占比列表（三列严格对齐，彻底告别重叠）
+  const chartCenterY = critY + 66;
+  const pieCx = L.x + 46, pieCy = chartCenterY;
+  const outerR = 32, innerR = 17;
   const totalD = DUMMY_STATS.totalDamage;
 
   if (totalD <= 0) {
-    // 未出手时的待机空心圆环
     ctx.save();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'; ctx.lineWidth = outerR - innerR;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)'; ctx.lineWidth = outerR - innerR;
     ctx.beginPath(); ctx.arc(pieCx, pieCy, (outerR + innerR) / 2, 0, Math.PI * 2); ctx.stroke();
     ut('待命中', pieCx, pieCy, 8.5, '#6a788c', 'center', { w: 600, sh: 0 });
     ctx.restore();
   } else {
-    // 绘制各技能占比扇区
     let curAngle = -Math.PI / 2;
     DUMMY_SKILL_CATS.forEach(cat => {
       const dmg = DUMMY_STATS.bySkill[cat.id] || 0;
@@ -1287,45 +1355,46 @@ function drawDPSMeterHUD() {
       ctx.arc(pieCx, pieCy, innerR, curAngle + sliceAngle, curAngle, true);
       ctx.closePath();
       ctx.fillStyle = cat.col;
-      ctx.shadowColor = cat.col; ctx.shadowBlur = 4;
       ctx.fill();
       ctx.restore();
       curAngle += sliceAngle;
     });
-    // 圆环中心小字
     ut('技能', pieCx, pieCy - 4, 8, '#8fa0b5', 'center', { w: 600, sh: 0 });
     ut('占比', pieCx, pieCy + 5, 8, '#ffffff', 'center', { w: 700, sh: 0 });
   }
 
-  // 右侧各技能占比数据行 (5 项紧凑排布)
-  const legendX = L.x + 94;
+  // ★★★ 右侧 5 行技能占比数据：三列独立锚点布局 ★★★
+  // 列 1（名称）：legendX + 10 ~ legendX + 65
+  // 列 2（占比）：靠右对齐到 legendX + 105
+  // 列 3（数值）：靠右对齐到 L.x + L.w - 14
+  const legendX = L.x + 92;
   DUMMY_SKILL_CATS.forEach((cat, idx) => {
-    const ly = chartY - 32 + idx * 15;
+    const ly = chartCenterY - 32 + idx * 15;
     const dmg = DUMMY_STATS.bySkill[cat.id] || 0;
     const pctStr = totalD > 0 ? (dmg / totalD * 100).toFixed(1) + '%' : '0.0%';
 
-    // 颜色图标块
-    rpath(legendX, ly - 4, 6, 6, 1.5);
+    // 图标色块
+    rpath(legendX, ly - 3.5, 6, 6, 1.5);
     ctx.fillStyle = cat.col; ctx.fill();
 
-    // 技能名称
-    ut(cat.name, legendX + 11, ly, 9.5, '#cbd5e1', 'left', { w: 600 });
+    // 列 1: 技能名（靠左）
+    ut(cat.name, legendX + 10, ly, 9, '#cbd5e1', 'left', { w: 600 });
 
-    // 百分比
-    ut(pctStr, legendX + 90, ly, 9.5, cat.col, 'right', { w: 700 });
+    // 列 2: 百分比（在 105 处向右对齐，绝不压技能名）
+    ut(pctStr, legendX + 105, ly, 9, cat.col, 'right', { w: 700 });
 
-    // 具体伤害数值
-    const dmgStr = dmg >= 1e4 ? (dmg / 1e4).toFixed(1) + '万' : (dmg > 0 ? dmg.toLocaleString() : '0');
-    ut(dmgStr, L.x + L.w - 14, ly, 9, '#8fa0b5', 'right', { w: 500 });
+    // 列 3: 数值（贴右边界对齐，绝不压百分比）
+    const dmgStr = dmg >= 1e5 ? (dmg / 1e4).toFixed(1) + '万' : (dmg > 0 ? dmg.toLocaleString() : '0');
+    ut(dmgStr, L.x + L.w - 14, ly, 8.5, '#8fa0b5', 'right', { w: 500 });
   });
 
-  // 6. 底部提示
-  ut('[R] 清空数据 · [T] 切换木桩护甲 · [F] 交互/离开', L.x + L.w / 2, L.y + L.h - 8, 8.5, '#6a788c', 'center', { w: 500, sh: 0 });
+  // 5. 底部操作说明
+  ut('[R] 清空 · [T] 切护甲 · 点击收起', L.x + L.w / 2, L.y + L.h - 8, 8.5, '#6a788c', 'center', { w: 500, sh: 0 });
 
   ctx.restore();
 }
 
-// ---------- 7. 点击交互监听（重置与护甲切换） ----------
+// ---------- 7. 点击交互监听（重置、护甲切换与折叠收缩） ----------
 (function hookDummyClick() {
   const canvasEl = document.getElementById('c');
   if (!canvasEl) return;
@@ -1337,18 +1406,37 @@ function drawDPSMeterHUD() {
     const y = (e.clientY - rect.top) / rect.height * 540;
 
     const L = DPS_HUD_LAYOUT;
-    // 点击清空数据按钮
-    const resetBtnX = L.x + L.w - 56, resetBtnY = L.y + 16;
-    if (x >= resetBtnX && x <= resetBtnX + 46 && y >= resetBtnY && y <= resetBtnY + 20) {
+
+    // A. 折叠状态下的点击响应（点击整条或展开按钮）
+    if (DUMMY_STATS.collapsed) {
+      if (x >= L.x && x <= L.x + 260 && y >= L.y && y <= L.y + 34) {
+        DUMMY_STATS.toggleCollapse();
+        return;
+      }
+      return;
+    }
+
+    // B. 展开状态下的点击响应
+    // 1. 点击收起按钮 (x: L.x + L.w - 52, y: L.y + 17, w: 44, h: 19)
+    const colBtnX = L.x + L.w - 52, colBtnY = L.y + 17;
+    if (x >= colBtnX && x <= colBtnX + 44 && y >= colBtnY && y <= colBtnY + 19) {
+      DUMMY_STATS.toggleCollapse();
+      return;
+    }
+
+    // 2. 点击清空数据按钮
+    const resetBtnX = colBtnX - 48, resetBtnY = L.y + 17;
+    if (x >= resetBtnX && x <= resetBtnX + 44 && y >= resetBtnY && y <= resetBtnY + 19) {
       DUMMY_STATS.reset();
       if (typeof DT !== 'undefined') {
         DT.push({ x: P.x, y: P.y - 180, s: 'DPS 测算数据已重置！', t: 1.0, c: '#7dff9a' });
       }
       return;
     }
-    // 点击切换护甲按钮
-    const defBtnX = L.x + L.w - 128, defBtnY = L.y + 16;
-    if (x >= defBtnX && x <= defBtnX + 66 && y >= defBtnY && y <= defBtnY + 20) {
+
+    // 3. 点击切换护甲按钮
+    const defBtnX = resetBtnX - 58, defBtnY = L.y + 17;
+    if (x >= defBtnX && x <= defBtnX + 54 && y >= defBtnY && y <= defBtnY + 19) {
       DUMMY.cycleDef();
       return;
     }
