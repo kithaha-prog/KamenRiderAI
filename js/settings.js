@@ -1,21 +1,87 @@
-// ===== 变身动画：完整 / 精简（约 2 秒，含伤害爆发）=====
-// 精简模式 = 直接从变身中段切入，播到爆发(伤害判定)后收尾；音频同步跳到同一位置。
-// 各骑士窗口 [s0, s1] 为“音频原速秒数”，爆发 / 伤害事件都落在窗口内；想调节奏只改这张表。
+// ===================================================================
+// 一、 全局游戏字体控制引擎 (Live Game Font Engine)
+// ===================================================================
+const FONT_PRESETS = [
+  { id: 'default', name: '现代科技 (默认)', family: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif' },
+  { id: 'kaiti',   name: '特摄书道 (楷体)', family: '"STKaiti", "KaiTi", "PingFang SC", serif' },
+  { id: 'custom',  name: '专属特摄 (上传)', family: '"KamenRiderCustom", "PingFang SC", sans-serif' }
+];
+
+const FONT_KEY = 'kr_game_font_preset';
+
+function getGameFontPreset() {
+  try {
+    const saved = localStorage.getItem(FONT_KEY);
+    return FONT_PRESETS.find(p => p.id === saved) || FONT_PRESETS[0];
+  } catch (e) {
+    return FONT_PRESETS[0];
+  }
+}
+
+function setGameFontPreset(id) {
+  const target = FONT_PRESETS.find(p => p.id === id) || FONT_PRESETS[0];
+  try { localStorage.setItem(FONT_KEY, target.id); } catch (e) {}
+  applyGameFont(target);
+  return target;
+}
+
+function cycleGameFont() {
+  const cur = getGameFontPreset();
+  const idx = FONT_PRESETS.findIndex(p => p.id === cur.id);
+  const next = FONT_PRESETS[(idx + 1) % FONT_PRESETS.length];
+  return setGameFontPreset(next.id);
+}
+
+function applyGameFont(preset) {
+  window.GAME_FONT = preset.family;
+  document.documentElement.style.setProperty('--game-font', preset.family);
+  if (typeof UIF !== 'undefined') window.UIF = preset.family;
+}
+
+// 自动拦截 Canvas 字体设置，实现全游戏画面的无感知字体替换
+(function hookCanvasFont() {
+  const preset = getGameFontPreset();
+  applyGameFont(preset);
+
+  try {
+    const proto = CanvasRenderingContext2D.prototype;
+    const fontDesc = Object.getOwnPropertyDescriptor(proto, 'font');
+    if (fontDesc && fontDesc.set) {
+      const origSet = fontDesc.set;
+      Object.defineProperty(proto, 'font', {
+        set: function (val) {
+          if (window.GAME_FONT && typeof val === 'string' && (val.includes('sans-serif') || val.includes('system-ui') || val.includes('serif'))) {
+            val = val.replace(/-apple-system[^;]+/g, window.GAME_FONT)
+                     .replace(/system-ui[^;]+/g, window.GAME_FONT);
+          }
+          origSet.call(this, val);
+        },
+        get: fontDesc.get,
+        configurable: true,
+        enumerable: true
+      });
+    }
+  } catch (e) {
+    console.warn('[Font Engine] Canvas 自动拦截已转入全局回退');
+  }
+})();
+
+// ===================================================================
+// 二、 变身动画模式控制
+// ===================================================================
 const HEN_MODE_KEY = 'kr_henshin_mode';
 const HEN_SHORT = {
-  malaya: { s0: 2.7,  s1: 4.69, snd: () => (typeof SND_MALAYA !== 'undefined' ? SND_MALAYA : null) },                                     // 爆发 3.70
-  ryuki:  { s0: 5.5,  s1: 7.6,  len: () => RYUKI_AUDIO_LEN, snd: () => (typeof SNDR !== 'undefined' ? SNDR : null) },                    // 爆发 6.40
-  '555':  { s0: 7.4,  s1: 9.5,  len: () => FAIZ_AUDIO_LEN,  snd: () => (typeof SND5 !== 'undefined' ? SND5 : null) },                    // 爆发 8.50
-  blade:  { s0: 8.8,  s1: 10.8, len: () => BLADE_AUDIO_LEN, snd: () => (typeof SND6 !== 'undefined' ? SND6 : null) },                    // 伤害 9.82
-  deno:   { s0: 4.6,  s1: 6.4,  len: () => DENO_TL_LEN,     snd: () => (typeof SND_D !== 'undefined' ? SND_D : null) },                   // 伤害 5.80
-  zeztz:  { s0: 10.9, s1: 13.0, snd: () => (typeof SND_ZEZTZ !== 'undefined' ? SND_ZEZTZ : null) }                                        // 爆发 11.75
+  malaya: { s0: 2.7,  s1: 4.69, snd: () => (typeof SND_MALAYA !== 'undefined' ? SND_MALAYA : null) },
+  ryuki:  { s0: 5.5,  s1: 7.6,  len: () => RYUKI_AUDIO_LEN, snd: () => (typeof SNDR !== 'undefined' ? SNDR : null) },
+  '555':  { s0: 7.4,  s1: 9.5,  len: () => FAIZ_AUDIO_LEN,  snd: () => (typeof SND5 !== 'undefined' ? SND5 : null) },
+  blade:  { s0: 8.8,  s1: 10.8, len: () => BLADE_AUDIO_LEN, snd: () => (typeof SND6 !== 'undefined' ? SND6 : null) },
+  deno:   { s0: 4.6,  s1: 6.4,  len: () => DENO_TL_LEN,     snd: () => (typeof SND_D !== 'undefined' ? SND_D : null) },
+  zeztz:  { s0: 10.9, s1: 13.0, snd: () => (typeof SND_ZEZTZ !== 'undefined' ? SND_ZEZTZ : null) }
 };
+
 function henshinMode() { try { return localStorage.getItem(HEN_MODE_KEY) === 'short' ? 'short' : 'full'; } catch (e) { return 'full'; } }
 function henshinSetMode(m) { try { localStorage.setItem(HEN_MODE_KEY, m === 'short' ? 'short' : 'full'); } catch (e) {} }
 
-// ---- 精简模式的音频：用 WebAudio 缓冲从指定秒数开播 ----
-// 原因：python http.server 等不支持 Range 的服务器上，<audio> 无法跳到中段（currentTime 会被打回 0），
-// 而变身动画的时钟又跟随音频 → 会退回完整播放。所以精简模式改用解码后的缓冲播放，动画走自己的时钟。
 const HEN_BUF = { ctx: null, buf: {}, loading: {}, src: null };
 function henCtx() { if (!HEN_BUF.ctx) { const C = window.AudioContext || window.webkitAudioContext; if (C) { try { HEN_BUF.ctx = new C(); } catch (e) {} } } return HEN_BUF.ctx; }
 function henLoad(key) {
@@ -39,25 +105,23 @@ function henshinPlayBuf(a, url, off) {
   } catch (e) { return false; }
 }
 
-// 变身开始后立刻调用（必须在 play*Henshin() 之后，因为它们会把音频拨回 0）
 function henshinApply(key) {
-  P.sk = 0; P.tend = 0;                       // 默认完整模式
+  P.sk = 0; P.tend = 0;
   if (henshinMode() !== 'short') return;
   const c = HEN_SHORT[key]; if (!c) return;
-  const a = c.snd(); if (!a) return;          // 没有音频：完整动画本来就只有 ~2 秒
+  const a = c.snd(); if (!a) return;
   const dur = (isFinite(a.duration) && a.duration > 0.5) ? a.duration : 0;
   const len = c.len ? c.len() : (P.tdur || dur || 1);
   const td = P.tdur || dur || len;
-  const k = td / len;                         // 轴秒 → P.t 的换算系数
-  P.sk = c.s0;                                // 起点之前的节拍事件不再触发
+  const k = td / len;
+  P.sk = c.s0;
   P.t = c.s0 * k;
   P.tend = Math.min(c.s1 * k, td);
   const url = a.currentSrc || a.src;
-  if (henshinPlayBuf(a, url, c.s0)) { try { a.pause(); } catch (e) {} }   // 元素静音暂停 → 动画走自己的时钟
-  else { try { a.currentTime = c.s0; } catch (e) {} henLoad(key); }       // 缓冲还没就绪：尽力 seek（下次就有缓冲了）
+  if (henshinPlayBuf(a, url, c.s0)) { try { a.pause(); } catch (e) {} }
+  else { try { a.currentTime = c.s0; } catch (e) {} henLoad(key); }
 }
 
-// 精简变身收尾：龙骑 / 555 的名字事件在窗口之外，这里补一个收势
 function henshinShortFinish(key) {
   try {
     const nm = { ryuki: ['KAMEN RIDER RYUKI', '#ff4757'], '555': ['KAMEN RIDER 555', '#ffb400'] }[key];
@@ -68,31 +132,188 @@ function henshinShortFinish(key) {
   } catch (e) {}
 }
 
-// ===== 基地设置界面（Esc 呼出）=====
-// 只在基地 / 房间里、且没有别的弹窗打开时响应 Esc。
-// 里面可以：继续游戏 / 立即云端备份 / 注销账号（必须二次确认才会执行）。
+// ===================================================================
+// 三、 系统设置机甲终端 UI (Cyber Armor Terminal UI)
+// ===================================================================
 (function () {
   const css = document.createElement('style');
   css.textContent = `
-  #set-overlay{display:none;position:fixed;inset:0;z-index:98;background:rgba(3,6,14,.92);align-items:center;justify-content:center}
-  #set-overlay.show{display:flex}
-  .set-box{width:min(90vw,360px);background:linear-gradient(180deg,#0e172a,#060a14);border:1.5px solid #00e5ff;border-radius:12px;
-    box-shadow:0 0 25px rgba(0,229,255,.35);padding:22px;box-sizing:border-box;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;text-align:center}
-  .set-box.warn{border-color:#ff4757;box-shadow:0 0 25px rgba(255,71,87,.4)}
-  .set-t{font-size:18px;font-weight:700;color:#7df9ff;letter-spacing:1px}
-  .set-box.warn .set-t{color:#ff8a95}
-  .set-s{font-size:11px;color:#7a8fa6;margin:4px 0 14px}
-  .set-who{font-size:12.5px;color:#cbd5e1;margin-bottom:14px;padding:8px;border-radius:6px;background:rgba(255,255,255,.05);word-break:break-all}
-  .set-msg{font-size:12.5px;line-height:1.7;color:#e2e8f0;margin:6px 0 14px}
-  .set-btn{display:block;width:100%;height:40px;margin-top:10px;border-radius:6px;font-size:14px;font-weight:700;cursor:pointer;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.07);color:#e2e8f0}
-  .set-btn.main{background:linear-gradient(180deg,#00e5ff,#0099b8);border:none;color:#050b14}
-  .set-btn.danger{background:rgba(255,71,87,.15);border-color:#ff4757;color:#ff8a95}
-  .set-btn.danger.go{background:linear-gradient(180deg,#ff4757,#b3202e);border:none;color:#fff}
-  .set-btn:active{transform:scale(.98)}
-  .set-btn:disabled{opacity:.5;cursor:default}
-  .set-in{width:100%;height:38px;box-sizing:border-box;border-radius:6px;border:1px solid rgba(255,71,87,.6);background:rgba(15,23,42,.9);color:#fff;padding:0 10px;font-size:13px;text-align:center;outline:none}
-  .set-in:focus{border-color:#ff4757;box-shadow:0 0 8px rgba(255,71,87,.4)}
-  .set-st{min-height:16px;margin-top:8px;font-size:11.5px;color:#7dff9a}`;
+  :root {
+    --game-font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  #set-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 98;
+    background: rgba(3, 6, 14, 0.88);
+    backdrop-filter: blur(8px);
+    align-items: center;
+    justify-content: center;
+    font-family: var(--game-font);
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #set-overlay.show { display: flex; }
+
+  /* 机甲切角底盘 */
+  .set-box {
+    position: relative;
+    width: min(92vw, 420px);
+    background: linear-gradient(180deg, #0e172a 0%, #060a14 100%);
+    border: 1.5px solid #00e5ff;
+    border-radius: 14px;
+    box-shadow: 0 0 30px rgba(0, 229, 255, 0.35), inset 0 0 15px rgba(0, 229, 255, 0.1);
+    padding: 22px 24px;
+    box-sizing: border-box;
+    color: #fff;
+  }
+  .set-box::before {
+    content: '';
+    position: absolute;
+    top: -2px; left: 24px; right: 24px; height: 2px;
+    background: linear-gradient(90deg, transparent, #00e5ff, #ffd84a, #00e5ff, transparent);
+  }
+  .set-box.warn {
+    border-color: #ff4757;
+    box-shadow: 0 0 30px rgba(255, 71, 87, 0.4), inset 0 0 15px rgba(255, 71, 87, 0.12);
+  }
+
+  /* 顶栏标题 */
+  .set-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+  }
+  .set-t {
+    font-size: 18px;
+    font-weight: 800;
+    color: #7df9ff;
+    letter-spacing: 1.2px;
+    text-shadow: 0 0 10px rgba(0, 229, 255, 0.6);
+  }
+  .set-box.warn .set-t { color: #ff8a95; text-shadow: 0 0 10px rgba(255, 71, 87, 0.6); }
+  .set-s {
+    font-size: 9.5px;
+    color: #7a8fa6;
+    letter-spacing: 0.8px;
+    margin-top: 2px;
+  }
+  .set-close-x {
+    cursor: pointer;
+    font-size: 13px;
+    color: #94a3b8;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    padding: 3px 8px;
+    border-radius: 4px;
+    transition: 0.15s;
+  }
+  .set-close-x:hover { color: #fff; border-color: #ff4757; background: rgba(255, 71, 87, 0.2); }
+
+  /* 骑士终端身份识别芯片 */
+  .set-id-chip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(0, 229, 255, 0.25);
+    border-radius: 8px;
+    margin-bottom: 14px;
+  }
+  .set-id-left { display: flex; align-items: center; gap: 8px; }
+  .set-id-beacon {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #2ed573; box-shadow: 0 0 8px #2ed573;
+  }
+  .set-id-beacon.guest { background: #ffd84a; box-shadow: 0 0 8px #ffd84a; }
+  .set-id-name { font-size: 12px; font-weight: 700; color: #f1f5f9; }
+  .set-id-tag {
+    font-size: 9px; font-weight: 700;
+    color: #00e5ff; background: rgba(0, 229, 255, 0.15);
+    border: 1px solid rgba(0, 229, 255, 0.4);
+    padding: 2px 6px; border-radius: 4px;
+  }
+
+  /* 分组板块 */
+  .set-group { margin-bottom: 12px; }
+  .set-group-title {
+    font-size: 10px; font-weight: 700; color: #8fa0b5;
+    letter-spacing: 1px; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .set-group-title::after {
+    content: ''; flex: 1; height: 1px; background: rgba(255, 255, 255, 0.08);
+  }
+
+  /* 按钮通用设定 */
+  .set-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .set-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: 38px;
+    box-sizing: border-box;
+    padding: 0 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.04);
+    color: #e2e8f0;
+    transition: 0.12s;
+  }
+  .set-btn:hover { background: rgba(255, 255, 255, 0.09); border-color: rgba(0, 229, 255, 0.45); }
+  .set-btn:active { transform: scale(0.98); }
+  .set-btn .label { display: flex; align-items: center; gap: 6px; }
+  .set-btn .val {
+    font-size: 11px; color: #7df9ff; background: rgba(0, 229, 255, 0.12);
+    padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(0, 229, 255, 0.3);
+  }
+
+  /* 特殊高亮按钮 */
+  .set-btn.main-resume {
+    height: 42px;
+    margin-top: 14px;
+    justify-content: center;
+    background: linear-gradient(180deg, #00e5ff 0%, #0099b8 100%);
+    border: none;
+    color: #050b14;
+    font-size: 14.5px;
+    font-weight: 800;
+    box-shadow: 0 0 16px rgba(0, 229, 255, 0.45);
+  }
+  .set-btn.main-resume:hover { filter: brightness(1.1); }
+  .set-btn.danger {
+    background: rgba(255, 71, 87, 0.08);
+    border-color: rgba(255, 71, 87, 0.4);
+    color: #ff8a95;
+  }
+  .set-btn.danger:hover { background: rgba(255, 71, 87, 0.18); border-color: #ff4757; }
+  .set-btn.danger.go {
+    background: linear-gradient(180deg, #ff4757, #b3202e);
+    border: none; color: #fff; justify-content: center; height: 40px; margin-top: 10px;
+  }
+
+  .set-st {
+    min-height: 16px;
+    margin-top: 8px;
+    font-size: 11px;
+    text-align: center;
+    color: #7dff9a;
+  }
+  .set-esc-tip {
+    font-size: 10px;
+    color: #64748b;
+    text-align: center;
+    margin-top: 6px;
+  }
+  `;
   document.head.appendChild(css);
 
   const ov = document.createElement('div');
@@ -107,90 +328,184 @@ function henshinShortFinish(key) {
   function who() {
     const u = (typeof currentAuthUser !== 'undefined') ? currentAuthUser : null;
     const nick = (typeof S !== 'undefined' && S.nick) ? S.nick : '';
-    if (!u) return nick || '未登录';
-    const acc = u.is_anonymous || String(u.id).startsWith('local_guest') ? '游客账号' : (u.email || '已登录');
-    return (nick ? nick + ' · ' : '') + acc;
+    if (!u) return { name: nick || '离线骑士', email: '本地单机模式', isGuest: true };
+    const guest = u.is_anonymous || String(u.id).startsWith('local_guest');
+    return {
+      name: nick || (guest ? '游客战士' : '正式骑士'),
+      email: guest ? '临时游客通道' : (u.email || '已连接'),
+      isGuest: guest
+    };
   }
-  const isGuest = () => { const u = currentAuthUser; return !!u && (u.is_anonymous || String(u.id).startsWith('local_guest')); };
 
   function render(s) {
     stage = s;
     box.classList.toggle('warn', s === 'confirm');
+    const user = who();
+    const curFont = getGameFontPreset();
+
     if (s === 'main') {
-      box.innerHTML =
-        '<div class="set-t">SYSTEM // 设置</div><div class="set-s">SETTINGS</div>' +
-        '<div class="set-who">当前账号：' + who().replace(/</g, '&lt;') + '</div>' +
-        '<button class="set-btn main" id="set-resume">继 续 游 戏</button>' +
-        '<button class="set-btn" id="set-sync">立 即 云 端 备 份</button>' +
-        '<button class="set-btn" id="set-hen">变 身 动 画：' + (henshinMode() === 'short' ? '精 简（约 2 秒）' : '完 整') + '</button>' +
-        '<button class="set-btn" id="set-logout">退 出 登 录（保 留 存 档）</button>' +
-        '<button class="set-btn danger" id="set-delete">注 销 账 号（删 除 全 部 数 据）</button>' +
-        '<div class="set-st" id="set-st"></div>';
+      box.innerHTML = `
+        <div class="set-head">
+          <div>
+            <div class="set-t">SYSTEM // 终端整备</div>
+            <div class="set-s">PILOT CONFIGURATION & ARCHIVE</div>
+          </div>
+          <div class="set-close-x" id="btn-set-x">✕ 关闭</div>
+        </div>
+
+        <div class="set-id-chip">
+          <div class="set-id-left">
+            <div class="set-id-beacon ${user.isGuest ? 'guest' : ''}"></div>
+            <div>
+              <div class="set-id-name">${user.name.replace(/</g, '&lt;')}</div>
+              <div style="font-size: 10px; color: #8fa0b5;">${user.email}</div>
+            </div>
+          </div>
+          <div class="set-id-tag">${user.isGuest ? 'GUEST' : 'VERIFIED'}</div>
+        </div>
+
+        <div class="set-group">
+          <div class="set-group-title">战术与视觉 // TACTICAL & DISPLAY</div>
+          <div class="set-row-2">
+            <button class="set-btn" id="set-hen">
+              <span class="label">⚡ 变身动画</span>
+              <span class="val">${henshinMode() === 'short' ? '精简 2.0s' : '完整原速'}</span>
+            </button>
+            <button class="set-btn" id="set-font">
+              <span class="label">🔤 核心字型</span>
+              <span class="val">${curFont.name.split(' ')[0]}</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="set-group">
+          <div class="set-group-title">云端存储 // CLOUD ARCHIVE</div>
+          <button class="set-btn" id="set-sync">
+            <span class="label">☁️ 立即同步至云端档案</span>
+            <span class="val" style="color: #7dff9a; border-color: rgba(46, 213, 115, 0.4);">备份 SYNC</span>
+          </button>
+        </div>
+
+        <div class="set-group">
+          <div class="set-group-title">安全与授权 // SECURITY & AUTH</div>
+          <div class="set-row-2">
+            <button class="set-btn" id="set-logout">
+              <span class="label">🚪 退出登录</span>
+            </button>
+            <button class="set-btn danger" id="set-delete">
+              <span class="label">⚠️ 注销账号</span>
+            </button>
+          </div>
+        </div>
+
+        <button class="set-btn main-resume" id="set-resume">▶ 继 续 游 戏 [ESC]</button>
+        <div class="set-st" id="set-st"></div>
+        <div class="set-esc-tip">按 [ESC] 键随时关闭并返回控制</div>
+      `;
+
+      box.querySelector('#btn-set-x').onclick = closeSet;
       box.querySelector('#set-resume').onclick = closeSet;
       box.querySelector('#set-sync').onclick = doSync;
+
+      // 变身动画切换
       box.querySelector('#set-hen').onclick = () => {
         const m = henshinMode() === 'short' ? 'full' : 'short';
-        henshinSetMode(m); if (m === 'short') henshinPreload(); render('main');
-        status(m === 'short' ? '已切换：精简变身（约 2 秒，含爆发伤害）' : '已切换：完整变身动画');
+        henshinSetMode(m);
+        if (m === 'short') henshinPreload();
+        render('main');
+        status(m === 'short' ? '已切入：精简变身（约 2 秒，含爆发判定）' : '已切入：完整原声变身');
       };
+
+      // 游戏字型循环切换
+      box.querySelector('#set-font').onclick = () => {
+        const next = cycleGameFont();
+        render('main');
+        status(`字型已切换至：${next.name}`);
+        if (typeof DT !== 'undefined' && typeof P !== 'undefined') {
+          DT.push({ x: P.x, y: P.y - 180, s: `字型：${next.name}`, t: 1.0, c: '#00e5ff' });
+        }
+      };
+
       box.querySelector('#set-logout').onclick = doSignOut;
       box.querySelector('#set-delete').onclick = () => render('confirm');
-      box.querySelector('#set-resume').focus();
 
     } else {
-      const g = isGuest();
-      box.innerHTML =
-        '<div class="set-t">⚠ 永久注销账号</div><div class="set-s">DELETE ACCOUNT · IRREVERSIBLE</div>' +
-        '<div class="set-msg">将<b style="color:#ff8a95">永久删除</b>：<br>· 云端存档与本机存档<br>· 排行榜 / 战绩记录<br>' +
-        (g ? '· 这个游客账号<br>' : '· 登录账号（邮箱）<br>') +
-        '<b style="color:#ff8a95">删除后无法恢复，也无法找回。</b></div>' +
-        '<input id="set-type" class="set-in" placeholder="请输入「删除」二字确认" autocomplete="off">' +
-        '<button class="set-btn danger go" id="set-yes" disabled>永 久 注 销</button>' +
-        '<button class="set-btn" id="set-no">取 消</button>' +
-        '<div class="set-st" id="set-st"></div>';
+      // 永久注销警告对话框
+      box.innerHTML = `
+        <div class="set-head">
+          <div>
+            <div class="set-t">⚠ 永久注销终端</div>
+            <div class="set-s">DATA PURGE PROTOCOL // IRREVERSIBLE</div>
+          </div>
+          <div class="set-close-x" id="btn-cancel-x">✕</div>
+        </div>
+
+        <div style="font-size: 11.5px; line-height: 1.6; color: #cbd5e1; margin: 10px 0 16px; background: rgba(255, 71, 87, 0.1); padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(255, 71, 87, 0.35);">
+          此操作将从云端服务器中<b style="color: #ff8a95">永久擦除</b>：<br>
+          · 角色等级、装备、天赋与变身胶囊存档<br>
+          · 全服战力、无尽塔与世界 BOSS 历史排位<br>
+          <span style="color: #ff7675; font-weight: 700;">该抹除操作无法撤销或找回。</span>
+        </div>
+
+        <input id="set-type" style="width: 100%; height: 38px; box-sizing: border-box; border-radius: 6px; border: 1px solid rgba(255, 71, 87, 0.6); background: rgba(15, 23, 42, 0.9); color: #fff; padding: 0 10px; font-size: 13px; text-align: center; outline: none; font-family: inherit;" placeholder="请输入「删除」二字以确认授权" autocomplete="off">
+        
+        <button class="set-btn danger go" id="set-yes" disabled>核准抹除并注销账号</button>
+        <button class="set-btn" id="set-no" style="justify-content: center; margin-top: 8px;">取 消 并 返 回</button>
+        <div class="set-st" id="set-st"></div>
+      `;
+
       const yes = box.querySelector('#set-yes'), inp = box.querySelector('#set-type');
       inp.addEventListener('input', () => { yes.disabled = inp.value.trim() !== '删除'; });
+      box.querySelector('#btn-cancel-x').onclick = () => render('main');
       box.querySelector('#set-no').onclick = () => render('main');
       yes.onclick = doDelete;
     }
   }
 
-  function status(m, err) { const e = box.querySelector('#set-st'); if (e) { e.style.color = err ? '#ff7675' : '#7dff9a'; e.textContent = m; } }
+  function status(m, err) {
+    const e = box.querySelector('#set-st');
+    if (e) {
+      e.style.color = err ? '#ff7675' : '#7dff9a';
+      e.textContent = m;
+    }
+  }
 
   async function doSync() {
     if (busy) return; busy = true;
     try {
       if (typeof save === 'function') save();
-      if (!currentAuthUser || String(currentAuthUser.id).startsWith('local_guest')) status('当前为离线游客，仅保存在本机');
-      else { status('正在备份…'); await forceSyncCloudSave(); status('✔ 已备份到云端'); }
-    } catch (e) { status('备份失败，请稍后再试', true); }
+      if (!currentAuthUser || String(currentAuthUser.id).startsWith('local_guest')) {
+        status('当前为离线模式，档案已保存在本机浏览器');
+      } else {
+        status('正在上传至 Supabase 云端档案…');
+        await forceSyncCloudSave();
+        status('✔ 云端备份成功');
+      }
+    } catch (e) {
+      status('备份失败，请检查网络连接', true);
+    }
     busy = false;
   }
 
-  function lock(on) { box.querySelectorAll('button,input').forEach(b => b.disabled = on); }
-
-  // 退出登录：先备份，再退出，本机存档清掉（下次登录可从云端取回）
   async function doSignOut() {
-    if (busy) return; busy = true; lock(true);
-    status('正在备份并退出…');
+    if (busy) return; busy = true;
+    status('正在保存并断开连线…');
     try { if (typeof save === 'function') save(); } catch (e) {}
-    await authSignOut();   // 成功会刷新页面；走到下面说明失败
-    busy = false; lock(false);
-    status('退出失败，请稍后再试', true);
+    await authSignOut();
+    busy = false;
+    status('退出失败，请稍候再试', true);
   }
 
-  // 永久注销：删云端存档 + 排行榜 + 登录账号，再清空本机（见 auth.js 的 authDeleteAccount）
   async function doDelete() {
     if (busy) return;
     const inp = box.querySelector('#set-type');
     if (!inp || inp.value.trim() !== '删除') return;
-    busy = true; lock(true);
-    status('正在删除账号与全部数据…');
-    const r = await authDeleteAccount();   // 成功会刷新页面
+    busy = true;
+    status('正在向安全中枢提交抹除指令…');
+    const r = await authDeleteAccount();
     if (r && r.ok) return;
-    busy = false; lock(false);
-    box.querySelector('#set-yes').disabled = false;
-    status((r && r.msg) || '注销失败，请稍后再试', true);
+    busy = false;
+    status((r && r.msg) || '注销受限，请稍后再试', true);
   }
 
   function openSet() {
@@ -198,13 +513,12 @@ function henshinShortFinish(key) {
     ov.classList.add('show');
     render('main');
   }
+
   function closeSet() {
     ov.classList.remove('show');
     try { for (const k in PR) delete PR[k]; for (const k in K) K[k] = 0; } catch (e) {}
   }
 
-  // 只在基地 / 房间里，且没有别的弹窗 / 菜单 / 变身动画时才响应 Esc
-  // 只在基地 / 房间里，且没有别的弹窗 / 菜单 / 变身动画时才响应 Esc[cite: 18]
   function canOpen() {
     if (typeof G === 'undefined' || !(G === 'vil' || G === 'room')) return false;
     if (document.getElementById('auth-overlay').classList.contains('show')) return false;
@@ -214,15 +528,12 @@ function henshinShortFinish(key) {
     if (typeof showStat !== 'undefined' && showStat) return false;
     if (typeof showQuest !== 'undefined' && showQuest) return false;
     if (typeof gachaModal !== 'undefined' && gachaModal) return false;
-    // ★ 加入此行：展厅检视弹窗开启期间，禁止 Esc 打开系统设置！
     if (typeof HALL_MODAL !== 'undefined' && HALL_MODAL.show) return false;
     if (typeof P !== 'undefined' && (P.st === 'trans' || P.st === 'trans_ryuki')) return false;
     if (typeof COOP !== 'undefined' && COOP.active && COOP.inGame) return false;
     return true;
   }
 
-  // 用「捕获阶段」的监听：比游戏自己的按键监听先执行。
-  // 打开期间：Esc = 返回 / 关闭，其它按键一律不让游戏收到（输入框里打字不受影响）。
   addEventListener('keydown', e => {
     if (isOpen()) {
       e.stopImmediatePropagation();
@@ -234,11 +545,13 @@ function henshinShortFinish(key) {
       return;
     }
     if (e.code !== 'Escape' || e.repeat || !canOpen()) return;
-    e.stopImmediatePropagation();   // 这一下 Esc 只用来打开设置，游戏本体不再响应
+    e.stopImmediatePropagation();
     e.preventDefault();
     openSet();
   }, true);
+
   addEventListener('keyup', e => { if (isOpen()) e.stopImmediatePropagation(); }, true);
+
   window.openSettings = openSet;
   setTimeout(henshinPreload, 2500);
 })();

@@ -328,14 +328,12 @@ const BATTLE_SND = {
         if (G !== 'play' && G !== 'room') return;
 
         // ★ 核心：普攻挥出刀刃瞬间，立即播放刀风呼啸破空声（出招就有）
+        // 监测状态切换（空挥不响，只有真正释放技能和大招时发声）
         if (P.st !== BATTLE_SND.prevSt) {
-          if (P.st === 'atk' || P.st === 'uppercut' || P.st === 'diveslam') {
-            BATTLE_SND.swordSwing();
-          } else if (P.st === 'thr' && !P.ryuki && !P.k5 && !P.bl && !P.zeztz && !P.dn) {
-            BATTLE_SND.lSlashWave(); // 原生 Malaya 飞剑
+          if (P.st === 'thr' && !P.ryuki && !P.k5 && !P.bl && !P.zeztz && !P.dn) {
+            BATTLE_SND.lSlashWave(); // 原生 Malaya 飞剑出招
           } else if (P.st === 'fv') {
-            // 大招按下的瞬间
-            BATTLE_SND.finisherCharge();
+            BATTLE_SND.finisherCharge(); // 大招蓄力启动
           }
           BATTLE_SND.prevSt = P.st;
         }

@@ -556,7 +556,7 @@ function upd(dt) {
   const fr = P.st === 'idle' || P.st === 'run' || P.st === 'air', l = !lk && (K.KeyA || K.ArrowLeft), r = !lk && (K.KeyD || K.ArrowRight), gr = P.y >= GY;
   if (fr) {
     const d = (r ? 1 : 0) - (l ? 1 : 0);
-    let spd = (240 + S.lv * 4) * formSpd() * (1 + (typeof affixTotal === 'function' ? affixTotal('spd') : 0));   // 移速词条在副本里也生效
+    let spd = (240 + S.lv * 4) * formSpd() * (1 + (typeof affixTotal === 'function' ? affixTotal('spd') : 0));
     if (P.slow > 0) spd *= .55;
     if (sh && d && !P.exh && P.sta > 0) { spd *= 1.7; P.spr = true }
     P.vx = d * spd;
@@ -565,60 +565,126 @@ function upd(dt) {
     if ((PR.Space || PR.KeyW || PR.ArrowUp) && gr) {
       P.vy = -700;
       P.st = 'air';
-      P.jt = T;   // 起跳时刻：用于「上 + 攻击」的升龙击宽限窗口
+      P.jt = T;
     }
 
-    // ===== 1. 在按键触发区域替换原本的 PR.KeyJ 判定 =====
+    // ===== 1. 普攻 J 键：地面攻击 / 升龙击 / 空中连招链 / 下砸 =====
     if (PR.KeyJ) {
       const isUp = K.KeyW || K.ArrowUp;
       const isDown = K.KeyS || K.ArrowDown;
       const gr = P.y >= GY;
-      // 摇杆 / W 往上推会立刻起跳，所以起跳后 0.35s 内仍在上升时按攻击，同样算「上 + 攻击」
       const upOk = isUp && (gr || (P.vy < 0 && T - (P.jt || -9) < .35));
 
       if (upOk) {
         // 【派生 1：升龙击 Rising Slash】地面按 W + J
-        P.st = 'uppercut';
-        P.t = 0;
-        P.h = 0;
-        P.vy = -750; // 自身拔地而起腾空
-        P.vx = P.f * 120;
+        delete PR.KeyJ;
+        P.st = 'uppercut'; P.t = 0; P.h = 0;
+        P.vy = -750; P.vx = P.f * 120;
+        P.airStep = 0;
+        // ★ 核心修复：升龙拔起全程赋予 0.45 秒免伤，穿透怪物躯干绝不扣血
+        P.inv = Math.max(P.inv, 0.45);
         DT.push({ x: P.x, y: P.y - 180, s: 'RISING SLASH!', t: 0.8, c: '#00e5ff' });
         shake = Math.max(shake, 6);
       } else if (!gr && isDown) {
         // 【派生 2：空中下砸 Dive Slam】空中按 S + J
-        P.st = 'diveslam';
-        P.t = 0;
-        P.h = 0;
-        P.vy = 1250; // 极速向下扎刺
-        P.vx = P.f * 450;
+        delete PR.KeyJ;
+        P.st = 'diveslam'; P.t = 0; P.h = 0;
+        P.vy = 1250; P.vx = P.f * 450;
         cancelEP(P.x - 70, P.x + 70);
         DT.push({ x: P.x, y: P.y - 180, s: 'DIVE SLAM!', t: 0.8, c: '#ffd84a' });
+      } else if (!gr) {
+        // ★★★ 【空中连段链：每次空斩消耗 10 点 MP】 ★★★
+        const AIR_MP = 10;
+        if (P.mp < AIR_MP) {
+          delete PR.KeyJ;
+          DT.push({ x: P.x, y: P.y - 180, s: 'MP不足 (需10点)', t: 0.6, c: '#70a1ff' });
+        } else {
+          delete PR.KeyJ;
+          P.mp -= AIR_MP; // 扣除 MP
+          P.airStep = ((P.airStep || 0) % 3) + 1;
+          P.st = 'air_atk';
+          P.t = 0;
+          P.h = 0;
+
+          if (P.airStep === 1) {
+            P.vy = -160; P.vx = P.f * 180;
+            DT.push({ x: P.x, y: P.y - 170, s: 'AIR SLASH Ⅰ (-10 MP)', t: 0.6, c: '#7df9ff' });
+          } else if (P.airStep === 2) {
+            P.vy = -140; P.vx = P.f * 220;
+            DT.push({ x: P.x, y: P.y - 170, s: 'AIR JUGGLE Ⅱ (-10 MP)', t: 0.6, c: '#ffd84a' });
+          } else {
+            P.vy = -240; P.vx = P.f * 140;
+            DT.push({ x: P.x, y: P.y - 170, s: 'AERIAL FINISH Ⅲ!! (-10 MP)', t: 0.9, c: '#ff4757' });
+            shake = Math.max(shake, 8);
+          }
+        }
       } else {
-        // 常规地面 / 空中普通斩击
+        // 常规地面斩击
+        delete PR.KeyJ;
         P.st = 'atk'; P.t = 0; P.h = 0;
         if (!gr) P.vy = Math.min(P.vy * 0.4, 60);
       }
     }
+    // ===== 2. 大招 K 键 =====
     else if (PR.KeyK && P.mp >= 120 && (P.cd.k || 0) <= 0) {
+      delete PR.KeyK;
       P.mp -= 120;
       P.cd.k = getSkillCD('k');
       P.maxCd.k = P.cd.k;
       P.st = 'fv'; P.t = 0; P.hit = {}; P.h = 0; delete P.landT;
       if (P.ryuki) playRyukiFV();
     }
+    // ===== 3. 战术技能 L 键 =====
     else if (PR.KeyL && P.mp >= 20 && (P.cd.l || 0) <= 0) {
+      delete PR.KeyL;
       P.mp -= 20;
       P.cd.l = getSkillCD('l');
       P.maxCd.l = P.cd.l;
       P.st = 'thr'; P.t = 0; P.h = 0;
-      if (!gr) P.vy = Math.min(P.vy * 0.5, 60);
+      if (!gr) {
+        P.vy = Math.min(P.vy * 0.2, -60);
+        DT.push({ x: P.x, y: P.y - 180, s: 'AIR CANCEL!', t: 0.6, c: '#00e5ff' });
+      }
     }
+    // ===== 4. 战车 E 键 =====
     else if (PR.KeyE && P.mp >= 70 && (P.cd.e || 0) <= 0) {
+      delete PR.KeyE;
       P.mp -= 70;
       P.cd.e = getSkillCD('e');
       P.maxCd.e = P.cd.e;
       spawnBike();
+    }
+  } // <--- 闭合 if (fr)
+
+  // 空战连击动作打断（允许按 S+J 派生下砸，或按 J 继续下一段空斩，或按 L 派生战术技能）
+  if (P.st === 'air_atk' && P.y < GY) {
+    if (PR.KeyJ && (K.KeyS || K.ArrowDown)) {
+      delete PR.KeyJ;
+      P.st = 'diveslam'; P.t = 0; P.h = 0; P.vy = 1350; P.vx = P.f * 450;
+      cancelEP(P.x - 70, P.x + 70);
+      DT.push({ x: P.x, y: P.y - 180, s: 'DIVE IMPACT CANCEL!', t: 0.8, c: '#ffd84a' });
+    } else if (PR.KeyJ && !(K.KeyS || K.ArrowDown) && P.t >= 0.12) {
+      // 空中挥刀后摇期间继续按 J 顺滑打出下一段
+      const AIR_MP = 10;
+      if (P.mp < AIR_MP) {
+        delete PR.KeyJ;
+        DT.push({ x: P.x, y: P.y - 180, s: 'MP不足 (需10点)', t: 0.6, c: '#70a1ff' });
+      } else {
+        delete PR.KeyJ;
+        P.mp -= AIR_MP;
+        P.airStep = ((P.airStep || 0) % 3) + 1;
+        P.st = 'air_atk'; P.t = 0; P.h = 0;
+        P.vy = P.airStep === 3 ? -240 : -150;
+        P.vx = P.f * 180;
+        DT.push({ x: P.x, y: P.y - 170, s: `AIR COMBO 0${P.airStep}! (-10 MP)`, t: 0.6, c: '#ffd84a' });
+      }
+    } else if (PR.KeyL && P.mp >= 20 && (P.cd.l || 0) <= 0) {
+      delete PR.KeyL;
+      P.mp -= 20;
+      P.cd.l = getSkillCD('l');
+      P.maxCd.l = P.cd.l;
+      P.st = 'thr'; P.t = 0; P.h = 0; P.vy = -80;
+      DT.push({ x: P.x, y: P.y - 180, s: 'AERIAL SKILL CANCEL!', t: 0.7, c: '#00e5ff' });
     }
   }
 
@@ -661,7 +727,7 @@ function upd(dt) {
 
     for (const q of [2, 4]) if (i >= q && !(P.h >> q & 1)) {
       P.h |= 1 << q; 
-      if (q === 2) playSwordHit();
+      // ★ 移除原处的 playSwordHit()，改由 hurt() 判定真正砍中怪才响
       area(xLeft, xRight, P.atk * (q == 2 ? 1.2 : 1));
     }
     if (P.t > .5) P.st = (P.y < GY) ? 'air' : 'idle';
@@ -671,15 +737,41 @@ function upd(dt) {
     cancelEP(P.x - 60, P.x + 60);
     if (!P.h && P.t >= 0.08) {
       P.h = 1;
-      playSwordHit();
+      // ★ 移除原处的 playSwordHit()
       const hitX0 = Math.min(P.x, P.x + P.f * 180);
       const hitX1 = Math.max(P.x, P.x + P.f * 180);
-      knockupEnemies(hitX0, hitX1, P.atk * 1.5, -720); // 挑飞击退敌人
+      knockupEnemies(hitX0, hitX1, P.atk * 1.5, -720);
       FX.push({ type: 'boom', x: P.x + P.f * 40, y: P.y - 120, t: 0.3, d: 0.3, r: 80, c: '#00e5ff' });
     }
-    // 动作持续时间结束后，转为空中自由落体或待机
     if (P.t > 0.42) {
       P.st = P.y < GY ? 'air' : 'idle';
+    }
+  }
+  // ★★★ 【全新：空中连段 air_atk 帧逻辑与伤害判定】 ★★★
+  else if (P.st === 'air_atk') {
+    cancelEP(P.x - 50, P.x + 50);
+
+    if (!P.h && P.t >= 0.06) {
+      P.h = 1;
+      // ★ 移除原处的 playSwordHit()
+      const reachX = P.x + P.f * (typeof ATK_REACH !== 'undefined' ? ATK_REACH : 220);
+      const xLeft = Math.min(P.x - 20, reachX);
+      const xRight = Math.max(P.x - 20, reachX);
+
+      const mul = P.airStep === 1 ? 1.1 : P.airStep === 2 ? 1.3 : 1.7;
+      if (typeof juggleAirEnemies === 'function') {
+        juggleAirEnemies(xLeft, xRight, P.atk * mul, P.airStep === 3 ? -320 : -180);
+      } else {
+        area(xLeft, xRight, P.atk * mul);
+      }
+
+      const slashCol = P.airStep === 3 ? '#ff4757' : P.airStep === 2 ? '#ffd84a' : '#00e5ff';
+      FX.push({ type: 'boom', x: P.x + P.f * 90, y: P.y - 90, t: 0.22, d: 0.22, r: 60, c: slashCol });
+      shake = Math.max(shake, 3 + (P.airStep || 1) * 2);
+    }
+
+    if (P.t > 0.32) {
+      P.st = (P.y < GY) ? 'air' : 'idle';
     }
   }
   else if (P.st === 'diveslam') {
@@ -777,12 +869,14 @@ function upd(dt) {
 
   const applyGravity = P.st !== 'dash' && P.st !== 'dodge' && !(P.st === 'fv' && (P.ryuki || P.k5 || P.bl || P.zeztz || P.dn));
   if (applyGravity) {
-    const gMul = (P.st === 'atk' || P.st === 'thr') ? 0.65 : 1.0;
+    // 空中连段出招期间重力衰减为 20%，产生经典的浮空停滞爽快感
+    const gMul = (P.st === 'air_atk') ? 0.20 : (P.st === 'atk' || P.st === 'thr') ? 0.65 : 1.0;
     P.vy += 1900 * gMul * dt;
     P.y += P.vy * dt;
     if (P.y >= GY) {
       P.y = GY;
-      if (P.st === 'air') { P.st = 'idle'; P.land = .12; }
+      P.airStep = 0; // ★ 落地瞬间重置空中连招计数
+      if (P.st === 'air' || P.st === 'air_atk') { P.st = 'idle'; P.land = .12; }
       P.vy = 0;
     } else if (P.st === 'idle' || P.st === 'run') {
       P.st = 'air';

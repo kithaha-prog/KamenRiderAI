@@ -82,7 +82,8 @@ function walk(dt, R) {
   P.spr = false;
 
   // ★ 核心修复：检查当前是否正处于招式动作/变身中
-  const inCombatAct = /^(atk|uppercut|diveslam|thr|fv|dash)$/.test(P.st);
+  // ★ 包含 air_atk
+  const inCombatAct = /^(atk|air_atk|uppercut|diveslam|thr|fv|dash)$/.test(P.st);
   const inTrans = /^(trans|trans_ryuki|trans_malaya)$/.test(P.st);
 
   const sh = K.ShiftLeft || K.ShiftRight;
@@ -220,6 +221,26 @@ function drawP0() {
   
   // ===== 在 drawP0() 的状态分支中增加对新派生动作的贴图渲染映射 =====
 
+  // ★★★ 【空战连招姿态绘制：随连段段数呈现不同倾角与斩击帧】 ★★★
+  if (P.st === 'air_atk') {
+    ctx.save();
+    ctx.translate(x, y);
+    // 第 1 段平切 / 第 2 段倾角回旋 / 第 3 段上挑
+    const tilt = P.airStep === 2 ? (f * 0.25) : (P.airStep === 3 ? -f * 0.35 : 0);
+    ctx.rotate(tilt);
+    ctx.translate(-x, -y);
+
+    if (P.k5 && okS(SH5.atk)) dr(SH5.atk, P.airStep === 2 ? 6 : 3, x, y, f * FAIZ_ATK_FLIP, 1.0);
+    else if (P.bl && okS(SH6.atk)) drB(SH6.atk, BLADE_AX.atk, P.airStep === 2 ? 6 : 3, x, y, f * BLADE_ATK_FLIP);
+    else if (P.ryuki && SHR.atk && SHR.atk.f) dr(SHR.atk, P.airStep === 2 ? 4 : 2, x, y, f, 1.0);
+    else if (P.zeztz && okS(SHZ.atk)) dr(SHZ.atk, P.airStep === 2 ? 4 : 2, x, y, f, 1.0);
+    else if (P.dn && okS(SHD.atk)) drD(SHD.atk, P.airStep === 2 ? 6 : 2, x, y, f * DENO_FLIP.atk);
+    else dr(SH.atk, P.airStep === 2 ? 6 : 4, x, y, f, 1.0);
+
+    ctx.restore();
+    return;
+  }
+  
   // 1. 升龙击姿态：复用跳跃拔起或挥刀帧
   if (P.st === 'uppercut') {
     const i = Math.min(SH.jump.f.length - 1, Math.floor(P.t * 12));

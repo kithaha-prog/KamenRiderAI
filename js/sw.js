@@ -2,7 +2,7 @@
 // - Assets/（图片、音频）：缓存优先，只下载一次。素材更新后把下面 ASSET_VER 加 1，旧缓存会被清掉重新下载。
 // - index.html / js/ 等代码：网络优先（每次校验，不会读到旧代码），断网时用缓存兜底。
 // - 音频的 Range 请求（<audio> 拖动/跳转）：从缓存里切片返回 206，避免缓存失效。
-const ASSET_VER = 1;
+const ASSET_VER = 3;
 const ASSET_CACHE = 'kr-assets-v' + ASSET_VER;
 const CODE_CACHE = 'kr-code-v1';
 
@@ -17,7 +17,7 @@ self.addEventListener('activate', e => {
   })());
 });
 
-const isAsset = u => /\/Assets\//i.test(u.pathname) || /\.(png|jpe?g|webp|gif|svg|mp3|m4a|ogg|wav)$/i.test(u.pathname);
+const isAsset = u => /\/Assets\//i.test(u.pathname) || /\.(png|jpe?g|webp|gif|svg|mp3|m4a|ogg|wav|woff2?|ttf|otf)$/i.test(u.pathname);
 
 async function rangeResponse(full, rangeHdr) {
   const m = /bytes=(\d*)-(\d*)/.exec(rangeHdr || '');

@@ -947,7 +947,14 @@ const DUMMY_SKILL_CATS = [
       e.shakeX = (Math.random() - 0.5) * 8;
       shake = Math.max(shake, 4);
 
-      if (typeof playSwordHit === 'function') playSwordHit();
+      // ★ 只有普攻砍中木桩实体时才播放击中音（远程枪弹/火球/大招不响砍刀声）
+      if (sk === 'atk') {
+        const nowMs = performance.now();
+        if (nowMs - (P._lastHitSndT || 0) > 60) {
+          P._lastHitSndT = nowMs;
+          if (typeof playSwordHit === 'function') playSwordHit();
+        }
+      }
 
       // 4. 飘字与特效
       if (typeof DT !== 'undefined') {
@@ -1004,10 +1011,27 @@ function updateTrainingCombat(dt) {
       const isDown = K.KeyS || K.ArrowDown;
       if (isUp && gr) {
         P.st = 'uppercut'; P.t = 0; P.h = 0; P.vy = -750; P.vx = P.f * 120;
+        P.airStep = 0;
         DT.push({ x: P.x, y: P.y - 180, s: 'RISING SLASH!', t: 0.8, c: '#00e5ff' });
       } else if (!gr && isDown) {
         P.st = 'diveslam'; P.t = 0; P.h = 0; P.vy = 1250; P.vx = P.f * 450;
         DT.push({ x: P.x, y: P.y - 180, s: 'DIVE SLAM!', t: 0.8, c: '#ffd84a' });
+      } else if (!gr) {
+        const AIR_MP = 10;
+        if (P.mp < AIR_MP) {
+          delete PR.KeyJ;
+          DT.push({ x: P.x, y: P.y - 180, s: 'MP不足 (需10点)', t: 0.6, c: '#70a1ff' });
+        } else {
+          delete PR.KeyJ;
+          P.mp -= AIR_MP;
+          P.airStep = ((P.airStep || 0) % 3) + 1;
+          P.st = 'air_atk'; P.t = 0; P.h = 0;
+          P.vy = P.airStep === 3 ? -240 : -150;
+          P.vx = P.f * 160;
+          window._currentDamageSource = 'atk';
+          DT.push({ x: P.x, y: P.y - 180, s: `AIR COMBO 0${P.airStep}! (-10 MP)`, t: 0.6, c: '#00e5ff' });
+          window._currentDamageSource = null;
+        }
       } else {
         P.st = 'atk'; P.t = 0; P.h = 0;
         if (!gr) P.vy = Math.min(P.vy * 0.4, 60);
@@ -1037,12 +1061,21 @@ function updateTrainingCombat(dt) {
     for (const q of [2, 4]) {
       if (i >= q && !(P.h >> q & 1)) {
         P.h |= 1 << q;
-        if (q === 2 && typeof playSwordHit === 'function') playSwordHit();
+        // 移除这里的 playSwordHit();
         area(Math.min(a, b), Math.max(a, b), P.atk * (q === 2 ? 1.2 : 1));
       }
     }
     window._currentDamageSource = null;
     if (P.t > 0.5) P.st = (P.y < GY) ? 'air' : 'idle';
+  } else if (P.st === 'air_atk') {
+    if (!P.h && P.t >= 0.06) {
+      P.h = 1;
+      window._currentDamageSource = 'atk';
+      // 移除这里的 playSwordHit();
+      area(Math.min(P.x - 20, P.x + P.f * 200), Math.max(P.x - 20, P.x + P.f * 200), P.atk * (1 + P.airStep * 0.25));
+      window._currentDamageSource = null;
+    }
+    if (P.t > 0.32) P.st = P.y < GY ? 'air' : 'idle';
   } else if (P.st === 'uppercut') {
     if (!P.h && P.t >= 0.08) {
       P.h = 1;

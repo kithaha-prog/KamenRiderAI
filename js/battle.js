@@ -453,7 +453,16 @@ function hurt(e, d, pre) {
   }
   e.hp -= d; e.fl = .12; e.x += f * (e.t === 'boss' ? 2 : 12);
   if (!pre) P.mp = Math.min(P.mm, P.mp + 3);
-  // 在伤害数字跳出的附近（大约第 166 行的 DT.push 附近）
+
+  // ★★★ 核心：只有普攻/空中连段真正命中怪物时，才播放打击音效（60ms 节流防一刀砍多怪声音爆鸣） ★★★
+  if (!pre && /^(atk|uppercut|diveslam|air_atk)$/.test(P.st)) {
+    const nowMs = performance.now();
+    if (nowMs - (P._lastHitSndT || 0) > 60) {
+      P._lastHitSndT = nowMs;
+      if (typeof playSwordHit === 'function') playSwordHit();
+    }
+  }
+
   DT.push({ x: e.x, y: e.y - e.h, s: d + (c ? '!' : ''), t: .8, c: c ? '#ff8a2a' : '#ffd84a' });
   shake = Math.max(shake, 4);
 
@@ -515,6 +524,9 @@ function cancelEP(x0, x1) {
 
 function hurtP(d, attacker, projectile) {
   if (P.down || P.st === 'trans' || P.st === 'trans_ryuki' || G !== 'play') return;
+
+  // ★★★ 核心修复：升龙击 (uppercut) 与空中普攻 (air_atk) 期间，肉身撞击怪物（非投射物）完全免疫伤害 ★★★
+  if ((P.st === 'uppercut' || P.st === 'air_atk') && attacker && !projectile) return;
 
   if (tryParry(attacker, projectile)) return;
   if (P.inv > 0) return;
@@ -1095,13 +1107,27 @@ function updEnemy(e, dt) {
       const stop = e.t === 'wd' ? 330 : 60;
       if (ad > stop) e.x += Math.sign(d) * o.sp * dt * Math.min(1, (ad - stop) / 40);
       else if (e.t === 'wd' && ad < 250) e.x -= Math.sign(d) * o.sp * dt * Math.min(1, (250 - ad) / 40);
-      e.y = e.t === 'wd' ? GY - 30 + Math.sin(T * 2 + e.id) * 15 : GY;
+
+      // ★ 怪物空中下落物理
+      if (e.vy !== undefined && (e.y < GY || e.vy < 0)) {
+        e.vy += 1600 * dt;
+        e.y += e.vy * dt;
+        if (e.y >= GY) {
+          e.y = GY;
+          e.vy = 0;
+        }
+      } else {
+        e.y = e.t === 'wd' ? GY - 30 + Math.sin(T * 2 + e.id) * 15 : GY;
+      }
     }
     if (e.cd <= 0 && ad < 720) startAtk(e);
   }
 
   const isCharging = (e.dsh > 0 || e.atk === 'charge' || e.atk === 'swoop');
   if (Math.abs(P.x - e.x) < e.w / 2 + 25 && e.y > P.y - 150 && e.y - e.h < P.y && e.hc <= 0) {
+    // ★ 玩家处于升龙斩与空中攻击时，即使在怪物体内穿行也绝不受撞击伤害
+    if (P.st === 'uppercut' || P.st === 'air_atk') return;
+
     if (P.inv <= 0 || (isCharging && isParryWindow())) {
       e.hc = .8;
       hurtP(e.dm, e, null);
@@ -1120,9 +1146,30 @@ function knockupEnemies(x0, x1, dmg, upForce = -650) {
         e.vy = upForce;
         e.y -= 10;
         e.fl = 0.2;
+        e.hc = Math.max(e.hc, 1.2); // ★ 击飞期间静默怪兽的身体碰撞伤害
       }
     }
   }
+}
+
+function juggleAirEnemies(x0, x1, dmg, liftForce = -220) {
+  let hitCount = 0;
+  for (const e of E) {
+    if (e.dead) continue;
+    const w = e.w / 2;
+    if (e.x + w > x0 && e.x - w < x1 && Math.abs(e.y - P.y) < 130) {
+      hurt(e, dmg);
+      if (e.t !== 'boss') {
+        if (e.vy === undefined) e.vy = 0;
+        e.vy = liftForce;
+        e.y = Math.min(e.y, P.y - 5);
+        e.fl = 0.2;
+        e.hc = Math.max(e.hc, 0.8); // ★ 滞空受击期间静默怪兽的身体碰撞伤害
+      }
+      hitCount++;
+    }
+  }
+  return hitCount;
 }
 
 function slamDownEnemies(x0, x1, dmg) {
