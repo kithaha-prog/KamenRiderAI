@@ -444,6 +444,26 @@ function henshinShortFinish(key) {
                   <span class="label">🎮 战斗视角</span>
                   <span class="val">${DEPTH.on ? '2.5D 纵深' : '经典 2D'}</span>
                 </button>
+                <button type="button" class="set-btn" id="set-fhit">
+                  <span class="label">💥 打击感</span>
+                  <span class="val">${typeof FEEL !== 'undefined' ? FEEL.label('hit') : '-'}</span>
+                </button>
+                <button type="button" class="set-btn" id="set-fcam">
+                  <span class="label">🎬 大招运镜</span>
+                  <span class="val">${typeof FEEL !== 'undefined' ? FEEL.label('cam') : '-'}</span>
+                </button>
+                <button type="button" class="set-btn" id="set-fwx">
+                  <span class="label">🌦 天气昼夜</span>
+                  <span class="val">${typeof FEEL !== 'undefined' ? FEEL.label('wx') : '-'}</span>
+                </button>
+                <button type="button" class="set-btn" id="set-fbgm">
+                  <span class="label">🎵 分层音乐</span>
+                  <span class="val">${typeof FEEL !== 'undefined' ? FEEL.label('bgm') : '-'}</span>
+                </button>
+                <button type="button" class="set-btn wide" id="set-fsafe">
+                  <span class="label">🛡 光敏安全（减弱闪光 / 震屏 / 雷电）</span>
+                  <span class="val">${typeof FEEL !== 'undefined' ? FEEL.label('safe') : '-'}</span>
+                </button>
               </div>
             </div>
           </div>
@@ -495,6 +515,19 @@ function henshinShortFinish(key) {
           ? (IS_TOUCH ? '已切入：2.5D 纵深（摇杆上下换道，点「跳」跳跃）' : '已切入：2.5D 纵深（W/S 换道，空格跳跃，闪避时按住 W/S 可纵向翻滚）')
           : (IS_TOUCH ? '已切回：经典 2D（摇杆上推跳跃）' : '已切回：经典 2D（W 跳跃）'));
       };
+
+      const feelBtn = (id, key, tip) => {
+        const el = box.querySelector(id);
+        if (!el) return;
+        el.onclick = () => { FEEL.cycle(key); render('main'); status(tip(FEEL.label(key))); };
+      };
+      if (typeof FEEL !== 'undefined') {
+        feelBtn('#set-fhit', 'hit', v => '打击感：' + v + '（命中停顿 / 分级震屏 / 击杀慢动作）');
+        feelBtn('#set-fcam', 'cam', v => '大招运镜：' + v);
+        feelBtn('#set-fwx', 'wx', v => '天气昼夜：' + v + '（下次进入关卡生效）');
+        feelBtn('#set-fbgm', 'bgm', v => '分层音乐：' + v + '（下一场战斗生效；自动 = 没有 BGM 素材时才用合成分层）');
+        feelBtn('#set-fsafe', 'safe', v => '光敏安全：' + v);
+      }
 
       box.querySelector('#set-font').onclick = () => {
         const next = cycleGameFont();

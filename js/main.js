@@ -1045,8 +1045,10 @@ function draw() {
   ctx.save();
   // ★ 应用视口平滑缩放变换（以屏幕中心进行）
   if (typeof CAMERA !== 'undefined') CAMERA.apply(ctx);
-  if (shake > 0) ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake);
+  if (typeof FEEL !== 'undefined') FEEL.applyCam(ctx);   // ★ 分级震屏 / 推镜（关闭时等价于原来的随机震屏）
+  else if (shake > 0) ctx.translate((Math.random() - .5) * shake, (Math.random() - .5) * shake);
   bg();
+  if (typeof FEEL !== 'undefined') FEEL.drawBackFx(ctx);   // ★ 昼夜 / 云雾视差 / 后景天气
 
   for (const o of OR) { ctx.fillStyle = o.k === 'h' ? '#ff4a5a' : '#4ab0ff'; ctx.beginPath(); ctx.arc(o.x - cam, GY + zv(o) - 14 + Math.sin(T * 5) * 3, 9, 0, 7); ctx.fill(); ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke() }
   const _pz = depthActive() ? (P.z || 0) : 0, _dz = e => depthActive() ? (e.z || 0) : 0;
@@ -1057,9 +1059,9 @@ function draw() {
     depthBegin(e.x, _dz(e));
     if (typeof drawEnemyAura === 'function') drawEnemyAura(e, 0);   // ★ 怪物身后光效
     ctx.save(); 
-    ctx.translate(sn(e.x - cam), sn(e.y)); 
+    ctx.translate(sn(e.x - cam) + (typeof FEEL !== 'undefined' ? FEEL.jx(e) : 0), sn(e.y) + (typeof FEEL !== 'undefined' ? FEEL.jy(e) : 0)); 
     ctx.scale(e.fc * e.s, e.s); 
-    if (e.fl > 0) ctx.filter = 'brightness(2.5)'; 
+    if (e.fl > 0) ctx.filter = (typeof FEEL !== 'undefined') ? FEEL.flashFilter(e) : 'brightness(2.5)'; 
     else if (e.wu > 0 && (T * 16 | 0) % 2) ctx.filter = 'brightness(1.8) saturate(1.7)'; 
     ctx.drawImage(e.im, -e.im.width / 2, -e.im.height); 
     ctx.restore();
@@ -1155,10 +1157,12 @@ function draw() {
     ctx.restore();
   }
 
+  if (typeof FEEL !== 'undefined') FEEL.drawFrontFx(ctx);   // ★ 命中火花 / 近景天气
   for (const d of DT) txt(d.s, d.x - cam, d.y + zv(d) - (1 - d.t) * 40, String(d.s).length > 4 ? 22 : 18, d.c, 'center');
   ctx.restore();
 
   // ★ 渲染弹反速度线与黑白高反差漫画终结剪影（不受 UI 遮挡影响）
+  if (typeof FEEL !== 'undefined') FEEL.drawOverlay(ctx);   // ★ 大招黑边 / 技能名 / 红边 / 闪光
   if (typeof CAMERA !== 'undefined') CAMERA.drawOverlay(ctx);
 
   // 在 draw() 函数中找到 drawSkillBarHUD() 和 drawInfoHUD() 附近：
@@ -1206,7 +1210,7 @@ let last = performance.now();
   const dt = Math.min(.05, (n - last) / 1000);
   last = n;
   try {
-    upd(dt);
+    upd(typeof FEEL !== 'undefined' ? FEEL.tick(dt) : dt);   // ★ feel.js：返回已应用慢动作的 dt
     draw();
   } catch (err) {
     console.error('[game loop error]', err);
