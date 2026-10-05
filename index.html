@@ -7,11 +7,6 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>假面骑士 Malaya RPG</title>
-  <meta name="theme-color" content="#050b14">
-  <meta name="apple-mobile-web-app-title" content="Malaya RPG">
-  <link rel="manifest" href="manifest.json">
-  <link rel="icon" type="image/png" href="icons/icon-192.png">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <!-- 引入 Supabase JS SDK -->
@@ -297,13 +292,6 @@
     })();
   </script>
 
-  <script>
-    // PWA：注册 Service Worker（需要 https 或 localhost；file:// 下无效）
-    if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
-      addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function (e) { console.warn('SW 注册失败', e); }); });
-    }
-  </script>
-
   <!-- 按依赖层级引入脚本 -->
   <script src="js/config.js" onerror="__jsErr(this)"></script>
   <script src="js/depth.js" onerror="__jsErr(this)"></script> <!-- ★ 2.5D 纵深（车道）系统 -->
@@ -337,6 +325,8 @@
   <script src="js/mechanics.js" onerror="__jsErr(this)"></script>
   <script src="js/rogue_fx.js" onerror="__jsErr(this)"></script> <!-- ★ 圣物视觉特效（必须在 rogue.js 之前） -->
   <script src="js/rogue.js" onerror="__jsErr(this)"></script> <!-- ★ 新增：虚幻裂隙 (镜世界 Roguelite 模式) -->
+  <script src="js/feel.js" onerror="__jsErr(this)"></script> <!-- ★ 手感与表现：分级顿帧/震屏/慢动作/大招运镜/天气昼夜（必须在 main.js 之前） -->
+  <script src="js/bgm_layers.js" onerror="__jsErr(this)"></script> <!-- ★ 分层自适应音乐 + 环境音（依赖 cinema.js 的 DYNAMIC_BGM 与 feel.js） -->
   <script src="js/main.js" onerror="__jsErr(this)"></script>
 </body>
 </html>
